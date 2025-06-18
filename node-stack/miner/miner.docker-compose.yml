@@ -67,18 +67,18 @@ services:
       - net.ipv4.conf.all.src_valid_mark=1
     restart: unless-stopped
 
-    autoheal:
-      container_name: tpn_miner_autoheal
-      image: willfarrell/autoheal
-      environment:
-        - AUTOHEAL_CONTAINER_LABEL=autoheal # use service label autoheal: true to add
-        - AUTOHEAL_INTERVAL=60
-        - AUTOHEAL_START_PERIOD=600 # See Dockerfile
-        - CURL_TIMEOUT=60
-        - AUTOHEAL_DEFAULT_STOP_TIMEOUT=60
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock
-      restart: unless-stopped
+  autoheal:
+    container_name: tpn_miner_autoheal
+    image: willfarrell/autoheal
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal # use service label autoheal: true to add
+      - AUTOHEAL_INTERVAL=60
+      - AUTOHEAL_START_PERIOD=600 # See Dockerfile
+      - CURL_TIMEOUT=60
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=60
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
 
   watchtower:
     container_name: tpn_miner_watchtower
