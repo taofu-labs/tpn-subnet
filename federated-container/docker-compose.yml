@@ -92,7 +92,7 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ:-UTC}
-      - URL="${SWAG_DOMAIN_NAME}"
+      - URL=${SWAG_DOMAIN_NAME}
       - VALIDATION=${SWAG_VALIDATION:-http}
       - SUBDOMAINS=${SWAG_SUBDOMAINS}
       - CERTPROVIDER=${SWAG_CERTPROVIDER:-}
@@ -104,8 +104,6 @@ services:
       - UPSTREAM_PROTO=${UPSTREAM_PROTO:-http}
       - ONLY_SUBDOMAINS=${SWAG_ONLY_SUBDOMAINS}
       - EXTRA_DOMAINS=${SWAG_EXTRA_DOMAINS:-}
-      - STAGING=${SWAG_STAGING:-false}
-      - DISABLE_SSL=${SWAG_DISABLE_SSL:-true}
 
       # TPN Proxy variables
       - SERVER_PUBLIC_PORT=${SERVER_PUBLIC_PORT:-3000}
