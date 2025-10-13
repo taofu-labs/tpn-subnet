@@ -62,8 +62,7 @@ services:
       - tpn-internal
       - tpn-external
     ports:
-      # - "127.0.0.1:3001:3000" # Make this container available from localhost so the neuron can access it
-      - 3000:3000
+      - "127.0.0.1:${SERVER_PUBLIC_PORT:-3000}:${SERVER_PUBLIC_PORT:-3000}" # Make this container available from localhost so the neuron can access it
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
@@ -75,7 +74,8 @@ services:
     privileged: true
     stdin_open: true
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test:
+        ["CMD", "curl", "-f", "http://localhost:${SERVER_PUBLIC_PORT:-3000}/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -86,8 +86,6 @@ services:
     image: lscr.io/linuxserver/swag:latest
     container_name: swag
     restart: unless-stopped
-    profiles:
-      - proxy
     cap_add:
       - NET_ADMIN
     environment:
@@ -105,9 +103,14 @@ services:
       - EXTRA_DOMAINS=${SWAG_EXTRA_DOMAINS:-}
       - STAGING=${SWAG_STAGING:-false}
       - DISABLE_SSL=${SWAG_DISABLE_SSL:-false}
+
+      # TPN Proxy variables
+      - SERVER_PUBLIC_PORT=${SERVER_PUBLIC_PORT:-3000}
+      - SERVER_PUBLIC_HOST=${SERVER_PUBLIC_HOST:-_}
+
     volumes:
       - ./swag:/config
-      - ./config/nginx:/config/nginx/site-confs
+      - ./proxy_confs:/config/nginx/proxy-confs
     ports:
       - "80:80"
       - "443:443"
