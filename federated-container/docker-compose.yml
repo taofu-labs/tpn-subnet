@@ -92,7 +92,7 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ:-UTC}
-      - URL="${SERVER_PUBLIC_HOST}"
+      - URL="${SWAG_DOMAIN_NAME}"
       - VALIDATION=${SWAG_VALIDATION:-http}
       - SUBDOMAINS=${SWAG_SUBDOMAINS}
       - CERTPROVIDER=${SWAG_CERTPROVIDER:-}
