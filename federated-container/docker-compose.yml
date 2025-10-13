@@ -111,7 +111,8 @@ services:
 
     volumes:
       - ./swag:/config
-      - ./proxy_confs:/config/nginx/proxy-confs
+      - ./proxy_confs/tpn.subdomain.conf:/config/nginx/proxy-confs/tpn.subdomain.conf
+      - ./proxy_confs/default.conf:/config/nginx/site-confs/default.conf
     ports:
       - "80:80"
       - "443:443"
