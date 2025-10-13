@@ -148,3 +148,4 @@ cache
 # Docker volumes and configs
 swag
 wg_configs/*
+proxy_confs/*
