@@ -102,7 +102,7 @@ services:
       - ONLY_SUBDOMAINS=${SWAG_ONLY_SUBDOMAINS:-true}
       - EXTRA_DOMAINS=${SWAG_EXTRA_DOMAINS:-}
       - STAGING=${SWAG_STAGING:-false}
-      - DISABLE_SSL=${SWAG_DISABLE_SSL:-false}
+      - DISABLE_SSL=${SWAG_DISABLE_SSL:-true}
 
       # TPN Proxy variables
       - SERVER_PUBLIC_PORT=${SERVER_PUBLIC_PORT:-3000}
