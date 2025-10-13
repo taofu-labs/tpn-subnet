@@ -62,7 +62,7 @@ services:
       - tpn-internal
       - tpn-external
     ports:
-      - "127.0.0.1:${SERVER_PUBLIC_PORT:-3000}:${SERVER_PUBLIC_PORT:-3000}" # Make this container available from localhost so the neuron can access it
+      - "127.0.0.1:3001:${SERVER_PUBLIC_PORT:-3000}" # Make this container available from localhost so the neuron can access it
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
@@ -92,14 +92,14 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ:-UTC}
-      - URL="${SERVER_PUBLIC_PROTOCOL:-http}://${SERVER_PUBLIC_HOST}:${SERVER_PUBLIC_PORT:-3000}"
+      - URL="${SERVER_PUBLIC_HOST}"
       - VALIDATION=${SWAG_VALIDATION:-http}
-      - SUBDOMAINS=${SWAG_SUBDOMAINS:-www}
+      - SUBDOMAINS=${SWAG_SUBDOMAINS}
       - CERTPROVIDER=${SWAG_CERTPROVIDER:-}
       - DNSPLUGIN=${SWAG_DNSPLUGIN:-}
       - PROPAGATION=${SWAG_PROPAGATION:-}
       - EMAIL=${SWAG_EMAIL}
-      - ONLY_SUBDOMAINS=${SWAG_ONLY_SUBDOMAINS:-false}
+      - ONLY_SUBDOMAINS=${SWAG_ONLY_SUBDOMAINS:-true}
       - EXTRA_DOMAINS=${SWAG_EXTRA_DOMAINS:-}
       - STAGING=${SWAG_STAGING:-false}
       - DISABLE_SSL=${SWAG_DISABLE_SSL:-false}
