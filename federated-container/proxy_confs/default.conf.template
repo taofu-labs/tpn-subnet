@@ -1,0 +1,49 @@
+# redirect all http traffic to https
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# # main server block
+# server {
+#     listen 443 ssl default_server;
+#     listen [::]:443 ssl default_server;
+#     server_name _;
+#     include /config/nginx/ssl.conf;
+
+#     root /config/www;
+#     index index.html index.htm index.php;
+
+#     # enable subfolder method reverse proxy confs
+#     include /config/nginx/proxy-confs/*.subfolder.conf;
+
+#     location / {
+#         try_files $uri $uri/ /index.html /index.htm /index.php$is_args$args;
+#     }
+
+# }
+
+# Non TLS server block (listens on port defined by SERVER_PUBLIC_PORT, default 3000)
+server {
+
+    listen $SERVER_PUBLIC_PORT;
+    listen [::]:$SERVER_PUBLIC_PORT;
+    server_name $SERVER_PUBLIC_HOST;
+    client_max_body_size 0;
+
+    location / {
+        set $upstream_app $UPSTREAM_APP;
+        set $upstream_port $UPSTREAM_PORT;
+        set $upstream_proto http;
+        include /config/nginx/proxy.conf;
+        include /config/nginx/resolver.conf;
+        proxy_pass $upstream_proto://$upstream_app:$upstream_port;
+    }
+}
+
+# enable subdomain method reverse proxy confs
+include /config/nginx/proxy-confs/*.subdomain.conf;
