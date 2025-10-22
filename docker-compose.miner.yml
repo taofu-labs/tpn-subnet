@@ -1,0 +1,25 @@
+version: '3.7'
+
+services:
+
+  # Bittensor validator
+  miner:
+    container_name: miner
+    build:
+      context: .
+      dockerfile: Dockerfile.miner
+    ports:
+        - "8092:8092"
+
+  # Validator off chain scoring container
+  responder:
+    container_name: responder
+    build:
+      context: node-stack/miner
+      dockerfile: Dockerfile
+    ports:
+        - "3001:3001"
+    # You may also create a .env file in the same folder as the docker-compose.yml file
+    environment:
+        LOG_LEVEL: info
+

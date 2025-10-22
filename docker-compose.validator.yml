@@ -1,0 +1,37 @@
+version: '3.7'
+
+services:
+
+  # Bittensor validator
+  validator:
+    container_name: validator
+    build:
+      context: .
+      dockerfile: Dockerfile.validator
+    ports:
+        - "9000:9000"
+
+  # Validator off chain scoring container
+  scoring:
+    container_name: scoring
+    build:
+      context: node-stack/validator
+      dockerfile: Dockerfile
+    ports:
+        - "3000:3000"
+    # You may also create a .env file in the same folder as the docker-compose.yml file
+    environment:
+        LOG_LEVEL: info
+        MAXMIND_LICENSE_KEY:
+        PUBLIC_URL: "http://validator:3000"
+        IP2LOCATION_DOWNLOAD_TOKEN: 
+    volumes:
+        - ./database.sqlite:/app/database.sqlite 
+        # - ./node_modules/geoip-lite/data:/app/node_modules/geoip-lite/data
+        - maxmind_data:/app/node_modules/geoip-lite/data
+        # - ./IP2LOCATION-LITE-ASN.IPV6.BIN:/app/IP2LOCATION-LITE-ASN.IPV6.BIN
+        - ip2location_data:/app/ip2location_data
+
+volumes:
+    maxmind_data:
+    ip2location_data:

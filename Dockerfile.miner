@@ -1,0 +1,25 @@
+# Use official Python 3.10 slim image for smaller footprint
+FROM python:3.10-slim
+
+# Set working directory inside the container
+WORKDIR /app
+
+# Copy your application's dependency file into the container
+COPY requirements.txt .
+
+# Copy application code into the container
+# 🚨 TODO: tell the buildfile which files to bundle into the container. They will be put into the /app dir. Use syntax as in the requirements line above
+COPY ... .
+
+# Expose relevant ports, note: this is documentation only, it does not make the ports accessible
+EXPOSE 8092
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of your application code
+COPY . .
+
+# Default command to run your app
+ENTRYPOINT [ "python", "neurons/miner.py" ]
+CMD [ "--netuid", "279", "--subtensor.network", "test", "--wallet.name", "sybil_test", "--wallet.hotkey", "miner2", "--logging.info", "--axon.port", "8092" ]
