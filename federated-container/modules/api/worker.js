@@ -59,12 +59,12 @@ export async function register_with_mining_pool() {
 
         // Get worker configs
         const public_url = base_url
-        const { PAYMENT_ADDRESS_EVM, PAYMENT_ADDRESS_BITTENSOR } = process.env
+        const { PAYMENT_ADDRESS_EVM, PAYMENT_ADDRESS_BITTENSOR, SERVER_PUBLIC_PORT=3000 } = process.env
 
         // Get required registration info
         const { wireguard_config, peer_id } = await get_valid_wireguard_config( { lease_seconds: 120, priority: true } )
         const query = `${ MINING_POOL_URL }/miner/broadcast/worker`
-        const post_data = { wireguard_config, mining_pool_url: MINING_POOL_URL, public_url, payment_address_evm: PAYMENT_ADDRESS_EVM, payment_address_bittensor: PAYMENT_ADDRESS_BITTENSOR }
+        const post_data = { wireguard_config, mining_pool_url: MINING_POOL_URL, public_url, public_port: SERVER_PUBLIC_PORT, payment_address_evm: PAYMENT_ADDRESS_EVM, payment_address_bittensor: PAYMENT_ADDRESS_BITTENSOR }
         log.info( `Registering with mining pool ${ MINING_POOL_URL } at ${ query }` )
 
         // Post to the miner

@@ -53,6 +53,9 @@ export const annotate_worker_with_defaults = worker => {
 
     if( !worker || typeof worker !== 'object' ) return worker
 
+    // Warnings
+    if( !worker.public_port ) log.insane( `Worker is missing public_port:`, worker )
+
     let { public_port=SERVER_PUBLIC_PORT, ip, mining_pool_url=default_mining_pool, status='unknown' } = worker
 
     return {
