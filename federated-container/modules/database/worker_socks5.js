@@ -22,7 +22,7 @@ export async function write_socks( { socks } ) {
             return expected_properties.every( prop => sock_props.includes( prop ) )
         } )
 
-        log.info( `Received  ${ socks.length  } socks, ${ valid_socks.length } valid socks, exerpt: `, socks.slice( 0, 1 ) )
+        log.info( `Received  ${ socks.length  } socks, ${ valid_socks.length } valid socks, excerpt: `, socks.slice( 0, 1 ) )
 
         // Annotate with timestamp
         const now = Date.now()

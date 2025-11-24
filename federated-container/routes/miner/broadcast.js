@@ -68,10 +68,10 @@ router.post( '/worker', async ( req, res ) => {
 /**
  * Receive feedback from mining pools about worker scoring
  */
-router.post( '/worker/feedback', ( req, res ) => {
+router.post( '/worker/feedback', async ( req, res ) => {
 
     // Make sure endpoint was called by validator
-    const { uid, ip } =is_validator_request( req )
+    const { uid, ip } = await is_validator_request( req )
     if( !uid ) return res.status( 403 ).json( { error: `Forbidden, endpoint only for validators` } )
     log.info( `Received worker feedback from validator ${ uid } (${ ip })` )
 

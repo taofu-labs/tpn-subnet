@@ -28,7 +28,7 @@ In the TPN subnet, there are three kinds of nodes:
 - note that changes to docker container are only deployed when the version number in package.json are incremented using `npm version patch`, this is controlled by workflows in `../.github`
 - the behavior of these containers is documented in `../README.md`, make sure that changes that influence setup are reflected there
 - commit messages use Gitmoji
-- run `npm run lint` to fix styling, ignore warnings and errors unless they would indicate functional bugs beying styling
+- run `npm run lint` to fix styling, ignore warnings and errors unless they would indicate functional bugs being styling
 - you may check how live servers act by calling the ip addresses below. Keep in mind that these do not reflect your changes. You can check their version number by calling /, and you may call any endpoint in this codebase to see how it acts
   - `curl http://161.35.91.172:3000/` for a validator
   - `curl http://5.255.100.224:3000/` for a miner
