@@ -1,9 +1,9 @@
-import { cache, log, round_number_to_decimals, shuffle_array, wait } from "mentie"
+import { abort_controller, cache, log, round_number_to_decimals, shuffle_array, wait } from "mentie"
 import { get_tpn_cache } from "../caching.js"
 import { get_worker_countries_for_pool, get_workers, read_worker_broadcast_metadata, write_workers } from "../database/workers.js"
 import { cochrane_sample_size } from "../math/samples.js"
 import { validate_and_annotate_workers } from "./score_workers.js"
-import { write_pool_score } from "../database/mining_pools.js"
+import { read_mining_pool_metadata, write_pool_score } from "../database/mining_pools.js"
 import { get_miners, get_worker_config_through_mining_pool } from "../networking/miners.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES, CI_MOCK_WORKER_RESPONSES, CI_MINER_IP_OVERRIDES } = process.env
 
@@ -230,15 +230,32 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     log.info( `Scoring inputs for ${ pool_label }: `, { size_score, stability_score, stability_fraction, performance_score, performance_fraction, geo_score, geo_completeness_fraction, total_countries } )
     const score = size_score * performance_fraction * Math.sqrt( geo_completeness_fraction ) * stability_fraction
     log.info( `Final score for mining pool ${ pool_label }: ${ score }` )
-
-    // Return the scores
-    return {
+    const composite_scores = {
         size_score: round_number_to_decimals( size_score ),
         stability_score: round_number_to_decimals( stability_score ),
         performance_score: round_number_to_decimals( performance_score ),
         geo_score: round_number_to_decimals( geo_score ),
         score: round_number_to_decimals( score )
     }
+
+    // Send feedback to the mining pool
+    try {
+        const feedback = { composite_scores, workers_with_status }
+        const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+        const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
+        if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
+        const endpoint = `${ url }/miner/broadcast/worker/feedback`
+        log.info( `Sending feedback to mining pool ${ pool_label } at endpoint ${ endpoint }` )
+        const { success } = await fetch( endpoint, { ...fetch_options, method: 'POST', body: JSON.stringify( feedback ), headers: { 'Content-Type': 'application/json' } } )
+        log.info( `Feedback sent to mining pool ${ pool_label }, pool reported success: ${ success }` )
+        if( !success ) throw new Error( `Failed to send feedback to mining pool ${ pool_label } for unknown reason` )
+
+    } catch ( e ) {
+        log.warn( `Error sending feedback to mining pool ${ pool_label }:`, e.message )
+    }
+
+    // Return the scores
+    return composite_scores
 
 }
 
