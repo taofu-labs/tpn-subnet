@@ -1,11 +1,24 @@
 import { abort_controller, is_ipv4, log, shuffle_array } from "mentie"
-import { get_wireguard_config_directly_from_worker } from "../networking/worker.js"
+import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_validators } from "../networking/validators.js"
 import { get_workers } from "../database/workers.js"
 import { base_url } from "../networking/url.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES } = process.env
+let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SERVER_PUBLIC_HOST } = process.env
 
-export async function get_worker_config_as_miner( { geo, format='text', whitelist, blacklist, lease_seconds } ) {
+
+/**
+ * Retrieves WireGuard configuration from a worker as a mining pool.
+ * @param {Object} params - Configuration parameters.
+ * @param {string} params.geo - Geographic location code.
+ * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
+ * @param {string} [params.format='text'] - Response format (text or json).
+ * @param {string[]} [params.whitelist] - List of whitelisted IPs.
+ * @param {string[]} [params.blacklist] - List of blacklisted IPs.
+ * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
+ * @returns {Promise<string|Object|null>} - WireGuard configuration or null if no workers available.
+ */
+export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds } ) {
 
     // Get relevant workers
     let { workers: relevant_workers } = await get_workers( { country_code: geo, mining_pool_uid: 'internal', status: 'up', limit: 50 } )
@@ -32,25 +45,31 @@ export async function get_worker_config_as_miner( { geo, format='text', whitelis
         const worker = relevant_workers[ attempts ]
         attempts++
         if( !is_ipv4( worker.ip ) ) continue
-        config = await get_wireguard_config_directly_from_worker( { worker, format, lease_seconds } )
+        config = await get_config_directly_from_worker( { worker, type, format, lease_seconds } ).catch( e => {
+            log.info( `Error fetching ${ type } config from worker ${ worker.ip }: ${ e.message }` )
+            return null
+        } )
 
     }
 
     // On mock success
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = config || format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : "Mock WireGuard config"
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = config || format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
     
     // Return the config
     return config
 
 }
 
+/**
+ * Registers the mining pool with all known validators.
+ * @returns {Promise<{successes: Array, failures: Array}>} - Registration results with successes and failures.
+ */
 export async function register_mining_pool_with_validators() {
 
     // Get validator ip list
     const validator_ips = await get_validators( { ip_only: true } )
 
     // Formulate identity
-    let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SERVER_PUBLIC_HOST } = process.env
     const identity = { protocol, url: base_url, port }
     log.info( `Registering mining pool with validators:`, identity )
 
@@ -93,6 +112,10 @@ export async function register_mining_pool_with_validators() {
 
 }
 
+/**
+ * Registers all mining pool workers with validators by broadcasting worker list.
+ * @returns {Promise<{successes: Array, failures: Array}>} - Registration results with successes and failures.
+ */
 export async function register_mining_pool_workers_with_validators() {
 
     // Get validator ip list

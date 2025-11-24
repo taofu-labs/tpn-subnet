@@ -1,8 +1,7 @@
 import { cache, is_ipv4, log, multiline_trim, random_number_between, sanetise_ipv4, wait } from "mentie"
-import { get_git_branch_and_hash, run } from "../system/shell.js"
+import { run } from "../system/shell.js"
 import { generate_challenge } from "../scoring/challenge_response.js"
 import { get_free_interfaces } from "./network.js"
-const { branch, hash } = await get_git_branch_and_hash()
 
 
 // Timeout used for curl commands
@@ -69,6 +68,12 @@ export async function wait_for_ip_free( { ip_address, timeout_s=test_timeout_sec
 
 }
 
+/**
+ * Cleans up TPN network namespaces.
+ * @param {Object} [params] - Cleanup parameters.
+ * @param {string[]} [params.namespaces] - Array of namespace IDs to clean up. If not provided, cleans all TPN namespaces.
+ * @returns {Promise<boolean>} - True if namespaces were cleaned up, false otherwise.
+ */
 export async function clean_up_tpn_namespaces( { namespaces }={} ) {
 
     log.info( `Cleaning up ${ namespaces?.length || 'all' } namespaces` )

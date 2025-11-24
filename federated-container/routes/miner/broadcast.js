@@ -6,6 +6,7 @@ import { ip_geodata } from '../../modules/geolocation/helpers.js'
 import { write_workers } from '../../modules/database/workers.js'
 import { validate_and_annotate_workers } from '../../modules/scoring/score_workers.js'
 import { ip_from_req } from '../../modules/networking/network.js'
+import { is_validator_request } from '../../modules/networking/validators.js'
 const { CI_MODE } = process.env
 
 export const router = Router()
@@ -19,7 +20,7 @@ router.post( '/worker', async ( req, res ) => {
     try {
         
         // Get workerdata from request from the request
-        const { wireguard_config, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor } = req.body || {}
+        const { wireguard_config, mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor } = req.body || {}
         const { unspoofable_ip } = ip_from_req( req )
         
         // Validate inputs
@@ -27,7 +28,7 @@ router.post( '/worker', async ( req, res ) => {
 
         // Get worker data
         const { country_code, datacenter } = await ip_geodata( unspoofable_ip )
-        let worker = { ip: unspoofable_ip, country_code, datacenter, status: 'tbd', mining_pool_url, public_url, payment_address_evm, payment_address_bittensor }
+        let worker = { ip: unspoofable_ip, country_code, datacenter, status: 'tbd', mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor }
         log.info( `Received worker registration from ${ unspoofable_ip }:`, worker )
         worker = annotate_worker_with_defaults( worker )
         worker.wireguard_config = wireguard_config
@@ -62,4 +63,25 @@ router.post( '/worker', async ( req, res ) => {
         return res.status( 200 ).json( { error: e.message } )
 
     }
+} )
+
+/**
+ * Receive feedback from mining pools about worker scoring
+ */
+router.post( '/worker/feedback', async ( req, res ) => {
+
+    // Make sure endpoint was called by validator
+    const { uid, ip } = await is_validator_request( req )
+    if( !uid ) return res.status( 403 ).json( { error: `Forbidden, endpoint only for validators` } )
+    log.info( `Received worker feedback from validator ${ uid } (${ ip })` )
+
+    // Get the composite_scores and workers_with_status from the request body
+    const { composite_scores, workers_with_status } = req.body || {}
+
+    // Log the received feedback
+    log.debug( `Received worker feedback:`, { composite_scores, workers_with_status } )
+
+    // Respond with a success message
+    return res.json( { success: true } )
+
 } )

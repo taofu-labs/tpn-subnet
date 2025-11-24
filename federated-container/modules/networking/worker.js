@@ -1,5 +1,10 @@
 import { abort_controller, log, sanetise_string } from "mentie"
+const { SERVER_PUBLIC_PORT=3000 } = process.env
 
+/**
+ * Gets the configured mining pool URL for the worker, with fallback.
+ * @returns {string} - The mining pool URL.
+ */
 export const get_worker_mining_pool_url = () => {
 
     // Get url setting
@@ -22,21 +27,24 @@ export const get_worker_mining_pool_url = () => {
 export const MINING_POOL_URL = get_worker_mining_pool_url()
 
 /**
- * 
- * @param {Object} params 
- * @param {Object} params.worker - The worker object
- * @param {number} [params.max_retries=1] - The maximum number of retry attempts
- * @param {number} [params.lease_seconds=120] - The lease duration in seconds
- * @param {string} [params.format='json'] - The response format
- * @param {number} [params.timeout_ms=5_000] - The request timeout in milliseconds
- * @returns {Promise<Object|String>} - The WireGuard configuration
+ * Fetches WireGuard configuration directly from a worker node.
+ * @param {Object} params - Request parameters.
+ * @param {Object} params.worker - The worker object.
+ * @param {string} params.worker.ip - Worker's IP address.
+ * @param {number} [params.worker.public_port=3000] - Worker's public port.
+ * @param {number} [params.max_retries=1] - Maximum retry attempts.
+ * @param {number} [params.lease_seconds=120] - Lease duration in seconds.
+ * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
+ * @param {string} [params.format='text'] - Response format (text or json).
+ * @param {number} [params.timeout_ms=5000] - Request timeout in milliseconds.
+ * @returns {Promise<string|Object>} - WireGuard configuration.
  */
-export async function get_wireguard_config_directly_from_worker( { worker, max_retries=1, lease_seconds=120, format='text', timeout_ms=5_000 } ) {
+export async function get_config_directly_from_worker( { worker, max_retries=1, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000 } ) {
 
     const { ip, public_port=3000 } = worker
     const { CI_MOCK_WORKER_RESPONSES } = process.env
-    const query = `http://${ ip }:${ public_port }/api/lease/new?lease_seconds=${ lease_seconds }&format=${ format }`
-    log.info( `Fetching WireGuard config directly from worker at ${ query }` )
+    const query = `http://${ ip }:${ public_port }/api/lease/new?type=${ type }&lease_seconds=${ lease_seconds }&format=${ format }`
+    log.info( `Fetching ${ type } config directly from worker at ${ query }` )
 
     // Get config from workers
     let config = null
@@ -48,7 +56,7 @@ export async function get_wireguard_config_directly_from_worker( { worker, max_r
         const { fetch_options } = abort_controller( { timeout_ms } )
         log.info( `Attempt ${ attempts }/${ max_retries } to get ${ query }` )
         config = await fetch( query, fetch_options ).then( res => format === 'json' ? res.json() : res.text() )
-        log.info( `Received config from worker ${ ip }` )
+        log.info( `Received ${ type } config from worker ${ ip }` )
     
     }
 

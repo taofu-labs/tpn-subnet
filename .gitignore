@@ -169,3 +169,5 @@ wandb/
 .DS_Store
 wireguard
 .*
+federated-container/wg_configs/*
+federated-container/dante_passwords/*

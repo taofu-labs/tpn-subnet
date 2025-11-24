@@ -56,6 +56,7 @@ services:
       - container_cache:/app/cache
       - ../.git:/app/.git:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./dante_passwords:/passwords
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,8 +64,8 @@ services:
       - tpn-internal
       - tpn-external
     ports:
-      # - "127.0.0.1:3001:3000" # Make this container available from localhost so the neuron can access it
-      - 3000:3000
+      - "127.0.0.1:57287:${SERVER_PUBLIC_PORT:-3000}" # Make this container available from localhost so the neuron can access it, hardcoded to :57287 for the neuron
+      - "${SERVER_PUBLIC_PORT:-3000}:${SERVER_PUBLIC_PORT:-3000}"
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
@@ -76,7 +77,8 @@ services:
     privileged: true
     stdin_open: true
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test:
+        ["CMD", "curl", "-f", "http://localhost:${SERVER_PUBLIC_PORT:-3000}/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -147,7 +149,7 @@ services:
 
   # Watchtower - Automatic Updates
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
     environment:
@@ -219,6 +221,26 @@ services:
       retries: 3
       start_period: 60s
 
+  dante:
+    image: "taofuprotocol/tpn-dante:${TPN_IMAGE_TAG:-latest}"
+    build:
+      context: .
+      dockerfile: tpn_dante.Dockerfile
+    container_name: dante
+    restart: unless-stopped
+    environment:
+      - USER_COUNT=${DANTE_USER_COUNT:-256}
+    volumes:
+      - ./dante_passwords:/passwords
+      - dante_etc:/etc
+      - ./dante_logs:/var/log
+    ports:
+      - "${DANTE_PORT:-1080}:${DANTE_PORT:-1080}"
+    networks:
+      - tpn-external
+    profiles:
+      - worker
+
 networks:
   # Internal network - has internal connectivity only, cannot reach internet or be reached from it
   tpn-internal:
@@ -245,3 +267,4 @@ volumes:
   ip2location_data:
   container_cache:
   wireguard_config:
+  dante_etc:

@@ -173,7 +173,7 @@ def add_miner_args(cls, parser):
         "--miner.server",
         type=str,
         help="The url of the miner server.",
-        default="http://127.0.0.1:3000",
+        default="http://127.0.0.1:57287",
     )
 
 
@@ -257,7 +257,7 @@ def add_validator_args(cls, parser):
         "--validator_server_url",
         type=str,
         help="The url of the validator server.",
-        default="http://127.0.0.1:3000",
+        default="http://127.0.0.1:57287",
     )
 
 

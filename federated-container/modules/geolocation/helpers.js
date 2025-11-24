@@ -5,8 +5,9 @@ import { is_data_center } from './ip2location.js'
 export const region_names = new Intl.DisplayNames( [ 'en' ], { type: 'region' } )
 
 /**
- * @param {String} code - country code, case insensitive
- * @returns {String} - country name, falls back to code if unknown
+ * Converts a country code to its full country name.
+ * @param {string} code - Country code (case insensitive).
+ * @returns {string|undefined} - Country name, or undefined if unknown.
  */
 export const country_name_from_code = code => {
     if( !code ) return code

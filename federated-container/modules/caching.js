@@ -37,10 +37,10 @@ export const tpn_cache_keys = [
 ]
 
 /**
- * *
+ * Retrieves a value from the TPN cache.
  * @param {string} key - The key to retrieve the cached value for.
- * @param {any} [default_value=undefined] - The default value to return if the key is not found in the cache.
- * @returns {any} - The cached value associated with the key, or undefined if not found.
+ * @param {*} [default_value=undefined] - The default value to return if the key is not found in the cache.
+ * @returns {*} - The cached value associated with the key, or the default value if not found.
  */
 export function get_tpn_cache( key, default_value=undefined ) {
 
@@ -64,10 +64,12 @@ export function get_tpn_cache( key, default_value=undefined ) {
 
 /**
  * Sets a value in the TPN cache.
- * @param {string} key - The key to cache the value under.
- * @param {*} value - The value to cache.
- * @param {*} expires_in_ms - The expiration time in milliseconds.
- * @returns {Promise<*>} - A promise that resolves with the cache value
+ * @param {Object} params - The cache parameters.
+ * @param {string} params.key - The key to cache the value under.
+ * @param {*} params.value - The value to cache.
+ * @param {boolean} [params.merge=false] - Whether to merge with existing cache value.
+ * @param {number} [params.expires_in_ms] - The expiration time in milliseconds.
+ * @returns {*} - The cached value.
  */
 export function set_tpn_cache( { key, value, merge=false, expires_in_ms } ) {
 

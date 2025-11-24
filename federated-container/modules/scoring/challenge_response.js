@@ -4,9 +4,10 @@ import { log } from 'mentie'
 import { base_url } from '../networking/url.js'
 
 /**
- * @param {Object} params - Parameters for generating a challenge
- * @param {string} params.miner_uid - The unique identifier for the miner.
- * @returns {Promise<String>} The generated challenge.
+ * Generates a challenge-solution pair for verification purposes.
+ * @param {Object} [params] - Parameters for generating a challenge.
+ * @param {string} [params.tag] - Optional tag to associate with the challenge.
+ * @returns {Promise<{challenge: string, solution: string, challenge_url: string}>} - The generated challenge, solution, and challenge URL.
  */
 export async function generate_challenge( { tag }={} ) {
 

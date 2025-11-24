@@ -14,7 +14,6 @@ async function cleanup_expired_wireguard_configs() {
     log.debug( `Expired rows: ${ expired_rows.rows.map( row => row.id ).join( ', ' ) }` ) 
     // Delete all expired rows and their associated configs
     const expired_ids = expired_rows.rows.map( row => row.id )
-    const { WIREGUARD_PEER_COUNT=250 } = process.env
     log.debug( `Expired ids: ${ expired_ids.length } of ${ WIREGUARD_PEER_COUNT }` )
     if( expired_ids.length > 0 ) {
 

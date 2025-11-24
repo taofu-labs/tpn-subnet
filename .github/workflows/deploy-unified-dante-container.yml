@@ -1,12 +1,13 @@
 # .github/workflows/docker-deploy.yml
 
-name: Deploy Unified Wireguard Docker Image
+name: Deploy Unified Dante Docker Image
 
 on:
   push:
     # Trigger only when package.json is modified
     paths:
-      - "federated-container/tpn_wireguard.Dockerfile"
+      - "federated-container/tpn_dante.Dockerfile"
+      - "federated-container/dante/**"
     branches:
       - main
       - development
@@ -14,7 +15,7 @@ on:
 jobs:
   deploy:
     concurrency:
-      group: deploy-wireguard-${{ github.ref }}
+      group: deploy-dante-${{ github.ref }}
       cancel-in-progress: true
 
     runs-on: ubuntu-latest
@@ -53,10 +54,10 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ./federated-container/
-          file: ./federated-container/tpn_wireguard.Dockerfile
+          file: ./federated-container/tpn_dante.Dockerfile
           push: true
           tags: |
-            taofuprotocol/tpn-wireguard:${{ steps.version_check.outputs.version }}${{ github.ref == 'refs/heads/development' && '-dev' || '' }}
-            taofuprotocol/tpn-wireguard:latest${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
-          cache-from: type=gha,ref=taofuprotocol/tpn-wireguard:buildcache
-          cache-to: type=gha,ref=taofuprotocol/tpn-wireguard:buildcache,mode=max
+            taofuprotocol/tpn-dante:${{ steps.version_check.outputs.version }}${{ github.ref == 'refs/heads/development' && '-dev' || '' }}
+            taofuprotocol/tpn-dante:latest${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
+          cache-from: type=gha,ref=taofuprotocol/tpn-dante:buildcache
+          cache-to: type=gha,ref=taofuprotocol/tpn-dante:buildcache,mode=max

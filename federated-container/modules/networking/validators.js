@@ -68,10 +68,9 @@ export const get_validators = async ( { ip_only=false, overrides_only=false, ski
 }
 
 /**
- * Checks if request came from known validator ip
- * @param {Object} request - The request object
- * @returns {Promise<{ uid: number, ip: string }>} An object containing the validator's uid and ip address.
- * @description Checks if the request is from a validator by matching
+ * Checks if an HTTP request originates from a known validator.
+ * @param {Object} request - The HTTP request object.
+ * @returns {Promise<{uid: number, ip: string}|false>} - Validator identity or false if not a validator.
  */
 export async function is_validator_request( request ) {
 

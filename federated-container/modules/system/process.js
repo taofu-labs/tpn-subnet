@@ -1,6 +1,11 @@
 import { cache, log } from "mentie"
 import { close_pool } from "../database/postgres.js"
 
+/**
+ * Sets up graceful shutdown handlers for the server.
+ * @param {Object} server - The HTTP/HTTPS server instance.
+ * @param {Array} [intervals] - Array of interval IDs to clear on shutdown.
+ */
 export function handle_exit_gracefully( server, intervals ) {
 
     const handle_close = async reason => {

@@ -1,7 +1,7 @@
 import { is_ipv4, log, require_props, sanetise_string } from "mentie"
 import { country_name_from_code } from "./geolocation/helpers.js"
 
-const { CI_MODE } = process.env
+const { CI_MODE, SERVER_PUBLIC_PORT=3000 } = process.env
 export const default_mining_pool='https://pool.taofu.xyz'
 
 /**
@@ -44,11 +44,19 @@ export const is_valid_worker = ( worker ) => {
 
 }
 
+/**
+ * Annotates a worker object with default values for missing properties.
+ * @param {Object} worker - The worker object to annotate.
+ * @returns {Object} - The worker object with defaults applied.
+ */
 export const annotate_worker_with_defaults = worker => {
 
     if( !worker || typeof worker !== 'object' ) return worker
 
-    let { public_port=3000, ip, mining_pool_url=default_mining_pool, status='unknown' } = worker
+    // Warnings
+    if( !worker.public_port ) log.insane( `Worker is missing public_port:`, worker )
+
+    let { public_port=SERVER_PUBLIC_PORT, ip, mining_pool_url=default_mining_pool, status='unknown' } = worker
 
     return {
         ...worker,
@@ -60,6 +68,11 @@ export const annotate_worker_with_defaults = worker => {
 
 }
 
+/**
+ * Sanitizes and normalizes worker object properties.
+ * @param {Object} worker - The worker object to sanitize.
+ * @returns {Object} - The sanitized worker object.
+ */
 export const sanetise_worker = worker => {
 
     // If not object, return
@@ -84,7 +97,7 @@ export const sanetise_worker = worker => {
     // Sanetise public_port property
     if( worker?.public_port ) {
         let port = Number( worker.public_port )
-        if( isNaN( port ) || port < 1 || port > 65535 ) port = 3000
+        if( isNaN( port ) || port < 1 || port > 65535 ) port = SERVER_PUBLIC_PORT
         worker.public_port = port
     }
 
@@ -94,7 +107,7 @@ export const sanetise_worker = worker => {
 
 /**
  * Gets the current run mode and its associated flags.
- * @returns {Object<{ run_mode: string, worker_mode: boolean, miner_mode: boolean, validator_mode: boolean }>} - An object containing the run mode and its flags.
+ * @returns {{ mode: string, worker_mode: boolean, miner_mode: boolean, validator_mode: boolean }} - An object containing the run mode and its flags.
  */
 export const run_mode = () => {
     const { RUN_MODE } = process.env

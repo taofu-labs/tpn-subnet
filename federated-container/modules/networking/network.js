@@ -4,6 +4,11 @@ import { v4 as uuidv4 } from "uuid"
 import { run } from "../system/shell.js"
 const { CI_MODE } = process.env
 
+/**
+ * Extracts IP address information from an HTTP request.
+ * @param {Object} request - The HTTP request object.
+ * @returns {{unspoofable_ip: string, spoofable_ip: string}} - Object containing unspoofable and spoofable IP addresses.
+ */
 export function ip_from_req( request ) {
 
     // Extract the ip address from the request object
@@ -24,6 +29,11 @@ export function ip_from_req( request ) {
     return { unspoofable_ip, spoofable_ip }
 }
 
+/**
+ * Determines if an HTTP request originates from a local or internal network.
+ * @param {Object} request - The HTTP request object.
+ * @returns {boolean} - True if the request is from a local/internal IP, false otherwise.
+ */
 export function request_is_local( request ) {
 
     // Get the ip of the originating request
@@ -63,11 +73,12 @@ export function request_is_local( request ) {
 }
 
 /**
- * 
- * @param {Object} params - Parameters for the domain resolution.
+ * Resolves a domain name to its IP address with caching.
+ * @param {Object} params - Resolution parameters.
  * @param {string} params.domain - The domain to resolve.
- * @param {string} [params.fallback] - Fallback IP address to return if resolution fails.
- * @returns {Promise<{ ip: string }>} - A promise that resolves to an object containing the resolved IP address.
+ * @param {string} [params.fallback] - Fallback IP address if resolution fails.
+ * @param {number} [params.family=4] - IP version (4 or 6).
+ * @returns {Promise<{ip: string}>} - Resolved IP address.
  */
 export async function resolve_domain_to_ip( { domain, fallback, family=4 } ) {
 

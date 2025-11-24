@@ -1,8 +1,14 @@
 import jStat from 'jstat'
 
-
-// Cochranes formula calculates the sample size 'n'. With this sample size, we can be 'uptime_confidence_fraction' confident that our *measured* uptime from the sample will be within 'error_margin' of the *true* uptime of the entire node population.
-// e.g. using 'n' would mean that we are 99% sure that the uptime we are measuring from the sample is within 5% of the real uptime
+/**
+ * Calculates the sample size using Cochran's formula with finite population correction.
+ * @param {Object} params - Sample size parameters.
+ * @param {number} [params.uptime_confidence_fraction=0.99] - Confidence level (e.g., 0.99 for 99%).
+ * @param {number} [params.expected_proportion_up=0.99] - Expected proportion of nodes that are up.
+ * @param {number} [params.error_margin=0.05] - Desired margin of error.
+ * @param {number} params.node_count - Total population size.
+ * @returns {number} - Required sample size (rounded up).
+ */
 export function cochrane_sample_size( { uptime_confidence_fraction=.99, expected_proportion_up=.99, error_margin=.05, node_count } ) {
 
     // Calculate the z-score for the desired confidence level

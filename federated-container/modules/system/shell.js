@@ -51,7 +51,8 @@ export async function run( command, { silent=true, verbose=false, log_tag=`[ ${ 
 }
 
 /**
- * Checks the system for warnings related to available resources
+ * Checks the system for warnings related to available resources and configuration.
+ * @returns {Promise<void>}
  */
 export async function check_system_warnings() {
 

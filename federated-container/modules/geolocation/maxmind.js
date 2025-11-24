@@ -6,13 +6,11 @@ const { dirname } = import.meta
 const { MAXMIND_LICENSE_KEY, CI_MODE } = process.env
 
 /**
- * Initiates the Maxmind update process by spawning a child process that runs the "updatedb" npm script.
- *
- * The function spawns a process in the geoip-lite directory (relative to the current file) and uses a shell
- * to execute the command. It passes the MAXMIND_LICENSE_KEY as an argument to the script and logs the process's
- * stdout data to monitor progress.
- *
- * @returns {ChildProcess} The spawned child process handling the update.
+ * Initiates the Maxmind database update process.
+ * @param {Object} [params] - Update parameters.
+ * @param {Function} [params.on_err] - Callback for error events.
+ * @param {Function} [params.on_close] - Callback for process close event.
+ * @returns {ChildProcess|void} - The spawned child process or void in CI mode.
  */
 function start_maxmind_update( { on_err, on_close }={} ) {
 

@@ -7,41 +7,44 @@ WORKDIR /app
 # Memory default
 ENV MAX_PROCESS_RAM_MB=8192
 
-# Run available security updates
+# Install all dependencies
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt upgrade -y
+RUN apt update && apt install -y --no-install-recommends \
+    # curl for healthcheck
+    curl \
+    # certificates
+    ca-certificates \
+    # wireguard for vpn connections
+    wireguard wireguard-tools \
+    # networking tools
+    iproute2 dnsutils iputils-ping iptables \
+    # wg-quick dependencies
+    procps \
+    # git
+    git \
+    # ncat
+    netcat-openbsd \
+    # docker cli
+    docker.io \
+    # cleanup cache for image size reduction
+    && apt clean && rm -rf /var/lib/apt/lists/*
 
-# Install curl for the healthcheck
-RUN apt update && apt install -y curl
-
-# Install networking tools
-RUN apt update && apt install -y wireguard wireguard-tools
-RUN apt update && apt install -y iproute2 dnsutils iputils-ping iptables
-
-# wg-quick dependencies
-RUN apt update && apt install -y procps
-RUN apt update && apt install -y resolvconf || echo "resolvconf postinstall is expected to fail"
+# wg-quick resolver dependency
+RUN apt update && apt install -y --no-install-recommends resolvconf || echo "resolvconf postinstall is expected to fail"; apt clean && rm -rf /var/lib/apt/lists/*
 RUN echo '#!/bin/sh\nexit 0' > /var/lib/dpkg/info/resolvconf.postinst && chmod +x /var/lib/dpkg/info/resolvconf.postinst
 RUN dpkg --configure resolvconf
 
-# Install git
-RUN apt update && apt install -y git
+# Configure git
 RUN git config --global --add safe.directory /app
-
-# Install netcat
-RUN apt update && apt install -y netcat-openbsd
-
-# Install docker cli
-RUN apt update && apt install -y docker.io
 
 # Copy package management files
 COPY package*.json ./
 
 # Install dependencies, data files from maxmind and ip2location are downloaded later and not during build
-RUN npm i -g npm
-RUN npm ci --omit=dev
+RUN npm config set update-notifier false
+RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
-# Cachebuster
+# Cachebuster, used in local development to force rebuilds
 ARG CACHEBUST=1
 RUN echo "CACHEBUST=$CACHEBUST"
 

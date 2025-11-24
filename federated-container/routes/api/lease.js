@@ -10,6 +10,7 @@ import { ip_from_req, resolve_domain_to_ip } from "../../modules/networking/netw
 import { MINING_POOL_URL } from "../../modules/networking/worker.js"
 import { country_name_from_code } from "../../modules/geolocation/helpers.js"
 import { get_worker_countries_for_pool } from "../../modules/database/workers.js"
+import { test_socks5_connection } from "../../modules/networking/socks5.js"
 const { CI_MOCK_WORKER_RESPONSES } = process.env
 
 export const router = Router()
@@ -20,7 +21,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
     const handle_route = async () => {
 
-        // Caller validation based on run mode
+        // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
         log.insane( `Handling new lease request as ${ mode }` )
         if( miner_mode ) {
@@ -44,7 +45,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             }
         }
 
-        // 🤑 Payment logic
+        // Validator access controls
         if( validator_mode ) {
 
             // Get api key in x-api-key
@@ -66,12 +67,12 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Prepare validation props based on run mode
         const mandatory_props = [ 'lease_seconds' ]
-        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes' ]
+        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type' ]
 
         // Get all relevant data
         log.insane( `Request query params:`, Object.keys( req.query ), Object.values( req.query ), req.query )
         allow_props( req.query, [ ...mandatory_props, ...optional_props ], true )
-        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false } = req.query
+        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard' } = req.query
 
         // Backwards compatibility
         if( !`${ lease_seconds }`.length && `${ lease_minutes }`.length ) {
@@ -83,11 +84,12 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Sanetise and parse inputs for each prop set
         lease_seconds = lease_seconds && parseInt( lease_seconds, 10 )
         format = format && sanetise_string( format )
+        type = type && sanetise_string( type )
         geo = geo && `${ sanetise_string( geo ) }`.toUpperCase()
         whitelist = whitelist && sanetise_string( whitelist ).split( ',' )
         blacklist = blacklist && sanetise_string( blacklist ).split( ',' )
         priority = priority === 'true'
-        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority }
+        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type }
 
         // Geo availability check in non-worker mode, workers do not need geo check as they are static and only called with 'any'
         let geo_available = true
@@ -100,19 +102,25 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Validate inputs as specified in props
         if( !lease_seconds || isNaN( lease_seconds ) ) throw new Error( `Invalid lease_seconds: ${ lease_seconds }` )
         if( format?.length && ![ 'json', 'text' ].includes( format ) ) throw new Error( `Invalid format: ${ format }` )
+        if( type?.length && ![ 'wireguard', 'socks5' ].includes( type ) ) throw new Error( `Invalid type: ${ type }` )
         if( geo?.length && !geo_available ) throw new Error( `No workers found for geo: ${ geo }.` )
         if( whitelist?.length && whitelist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in whitelist` )
         if( blacklist?.length && blacklist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in blacklist` )
 
-        // Get relevant config based on run mode
+        // Get relevant wireguard config based on run mode
         log.debug( `Getting config as ${ mode } with params:`, config_meta )
         let config = null
         if( validator_mode ) config = await get_worker_config_as_validator( config_meta )
-        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )
+        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )        
         if( worker_mode ) config = await get_worker_config_as_worker( config_meta )
 
         // Validate config
         if( !config ) throw new Error( `${ mode } failed to get config for ${ geo }` )
+        if( type == 'socks5' ) {
+            const sock = format == 'text' ? config : `socks5://${ config.username }:${ config.password }@${ config.ip_address }:${ config.port }`
+            const valid = await test_socks5_connection( { sock } )
+            log.info( `Socks5 config validation result: ${ valid } for config: ${ sock }` )
+        }
 
         return config
 

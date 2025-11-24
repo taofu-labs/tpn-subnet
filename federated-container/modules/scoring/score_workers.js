@@ -3,16 +3,18 @@ import { parse_wireguard_config, test_wireguard_connection } from "../networking
 import { default_mining_pool, is_valid_worker } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
 import { get_workers, write_workers, write_worker_performance } from "../database/workers.js"
-import { get_wireguard_config_directly_from_worker } from "../networking/worker.js"
+import { get_config_directly_from_worker } from "../networking/worker.js"
 import { map_ips_to_geodata } from "../geolocation/ip_mapping.js"
 import { base_url } from "../networking/url.js"
+import { test_socks5_connection } from "../networking/socks5.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
 
 /**
- * 
- * @param {Object} params
- * @param {Object} params.worker - worker object to test
- * @returns {Promise<{ is_member: boolean } | { error: string }>} Result of membership verification
+ * Verifies if a worker is a member of the current mining pool.
+ * @param {Object} params - Verification parameters.
+ * @param {Object} params.worker - Worker object to test.
+ * @param {string} params.worker.public_url - Public URL of the worker.
+ * @returns {Promise<{is_member: boolean}|{error: string}>} - Result of membership verification.
  */
 async function verify_worker_membership( { worker } ) {
 
@@ -39,7 +41,9 @@ async function verify_worker_membership( { worker } ) {
 }
 
 /**
- * Miner function to test all known workers
+ * Tests and scores all known workers registered with the mining pool.
+ * @param {number} [max_duration_minutes=15] - Maximum duration in minutes before function times out.
+ * @returns {Promise<void>}
  */
 export async function score_all_known_workers( max_duration_minutes=15 ) {
 
@@ -69,9 +73,12 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
             // Skip non members
             if( worker.mining_pool_uid !== 'internal' ) return log.info( `Skipping worker ${ worker.public_url } as it is not a member of this mining pool` )
             
-            const wireguard_config = await get_wireguard_config_directly_from_worker( { worker } )
+            const wireguard_config = await get_config_directly_from_worker( { worker } )
             const { text_config, json_config } = parse_wireguard_config( { wireguard_config } )
             if( text_config ) workers[ index ].wireguard_config = text_config
+
+            const socks5_config = await get_config_directly_from_worker( { worker, type: 'socks5', format: 'text' } )
+            if( socks5_config ) workers[ index ].socks5_config = socks5_config
 
         } ) )
 
@@ -107,14 +114,14 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
 }
 
 /**
- * 
- * @param {Object} params
- * @param {Object} params.worker - Worker object
- * @param {string} params.worker.ip - IP address of the worker
- * @param {number} params.worker.public_port - Public port of the worker
- * @param {string} params.mining_pool_url - URL of the mining pool the worker is expected to be associated with
- * @param {boolean} params.throw_on_mismatch - Whether to throw an error on mismatch (default: false)
- * @returns 
+ * Verifies that a worker is associated with the expected mining pool.
+ * @param {Object} params - Verification parameters.
+ * @param {Object} params.worker - Worker object.
+ * @param {string} params.worker.ip - IP address of the worker.
+ * @param {number} params.worker.public_port - Public port of the worker.
+ * @param {string} params.mining_pool_url - Expected URL of the mining pool.
+ * @param {boolean} [params.throw_on_mismatch=false] - Whether to throw an error on mismatch.
+ * @returns {Promise<boolean>} - True if worker matches miner, false otherwise.
  */
 export async function worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch=false } ) {
 
@@ -191,13 +198,21 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
 
             // Validate that wireguard config works
             const { valid, message } = await test_wireguard_connection( { wireguard_config: text_config } )
-            if( !valid ) throw new Error( `Wireguard config invalid: ${ message }` )
+            if( !valid ) throw new Error( `Wireguard config invalid for ${ worker.ip }: ${ message }` )
+
+            // Test the socks5 config works
+            const { socks5_config: sock } = worker
+            const socks5_valid = await test_socks5_connection( { sock } )
+            if( !socks5_valid ) {
+                log.warn( `Socks5 config invalid for ${ worker.ip }, this will reject workers soon, update your workers!` )
+                // throw new Error( `Socks5 config invalid for ${ worker.ip }` )
+            }
 
             // Get the most recent country data for these workers
             const { country_code, datacenter } = await ip_geodata( worker.ip )
             test_result.country_code = country_code
             test_result.datacenter = datacenter
-
+    
             // Set test result
             test_result.success = true
             test_result.status = 'up'

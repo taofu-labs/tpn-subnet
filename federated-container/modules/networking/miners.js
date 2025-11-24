@@ -71,7 +71,9 @@ export async function is_miner_request( request ) {
 }
 
 /**
- * Convenience: resolve a miner by UID using cache.
+ * Resolves a miner by UID using cached data.
+ * @param {number|string} uid - The miner's unique identifier.
+ * @returns {{uid: number, ip: string}|{}} - Miner object or empty object if not found.
  */
 export function get_miner_by_uid( uid ) {
     const uid_to_ip = get_tpn_cache( 'miner_uid_to_ip', {} )
@@ -80,7 +82,9 @@ export function get_miner_by_uid( uid ) {
 }
 
 /**
- * Convenience: resolve a miner by IP using cache.
+ * Resolves a miner by IP address using cached data.
+ * @param {string} ip - The miner's IP address.
+ * @returns {{uid: number, ip: string}|{}} - Miner object or empty object if not found.
  */
 export function get_miner_by_ip( ip ) {
     if( !is_ipv4( ip ) ) return {}
@@ -95,19 +99,20 @@ export function get_miner_by_ip( ip ) {
  * @param {Object} params.worker - The worker object
  * @param {number} [params.max_retries=1] - The maximum number of retry attempts
  * @param {number} [params.timeout_ms=5_000] - The request timeout in milliseconds
+ * @param {string} [params.type='wireguard'] - The type of worker config to retrieve ('wireguard' or 'socks5')
  * @param {string} [params.format='text'] - The response format, either 'text' or 'json'
  * @param {number} [params.lease_seconds=120] - The lease duration in seconds
  * @param {string} params.mining_pool_uid - UID of the mining pool
  * @param {string} params.mining_pool_ip - IP address of the mining pool
  * @returns {Promise<Object|String>} - Promise resolving to the worker config
  */
-export async function get_worker_config_through_mining_pool( { worker, max_retries=1, timeout_ms=5_000,mining_pool_uid, mining_pool_ip, format='text', lease_seconds=120 } ) {
+export async function get_worker_config_through_mining_pool( { worker, max_retries=1, timeout_ms=5_000,mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120 } ) {
 
     // Get mining pool data
     const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
     if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
     const endpoint = `${ url }/api/lease/new`
-    const query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }`
+    const query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }`
 
     // Mock response if needed
     const { CI_MOCK_MINING_POOL_RESPONSES } = process.env

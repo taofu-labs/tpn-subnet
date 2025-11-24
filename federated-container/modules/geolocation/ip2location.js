@@ -211,10 +211,9 @@ export async function update_ip2location_bin() {
 }
 
 /**
- * Retrieves the connection type information for a given IP address.
- *
- * @param {string} ip_address - The IP address to lookup.
- * @returns {Promise<Object>} A promise that resolves to an object containing the connection type information.
+ * Checks if an IP address belongs to a datacenter.
+ * @param {string} ip_address - The IP address to check.
+ * @returns {Promise<boolean|string>} - True if datacenter, false otherwise, or 'ci.ci.ci.ci' in CI mode.
  */
 export async function is_data_center( ip_address ) {
 

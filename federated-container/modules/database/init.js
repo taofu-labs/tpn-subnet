@@ -137,6 +137,24 @@ export async function init_database() {
 
     }
 
+    // Create the WORKER_SOCKS5_CONFIGS table if it doesn't exist
+    if( worker_mode ) {
+        await pool.query( `
+            CREATE TABLE IF NOT EXISTS worker_socks5_configs (
+                id SERIAL PRIMARY KEY,
+                ip_address TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                password TEXT NOT NULL,
+                available BOOLEAN NOT NULL DEFAULT TRUE,
+                expires_at BIGINT NOT NULL,
+                updated BIGINT NOT NULL
+            )
+        ` )
+        log.info( `✅ Worker Socks5 configs table initialized` )
+
+    }
+
     // Create the TIMESTAMPS table if it doesn't exist
     await pool.query( `
         CREATE TABLE IF NOT EXISTS timestamps (

@@ -1,6 +1,6 @@
 {
   "name": "tpn-node",
-  "version": "1.0.31",
+  "version": "1.0.74",
   "description": "TPN Node docker container code, used for validators, miners, and workers",
   "main": "app.js",
   "type": "module",
@@ -8,11 +8,11 @@
     "airier": "^0.0.9",
     "eslint-plugin-import": "^2.32.0",
     "husky": "^9.1.7",
-    "nodemon": "^3.1.10",
+    "nodemon": "^3.1.11",
     "start-server-and-test": "^2.1.2"
   },
   "scripts": {
-    "lint": "eslint --fix src",
+    "lint": "eslint --fix modules routes app.js",
     "start": "RUN_MODE=oneshot node --env-file-if-exists .env --env-file-if-exists .env.development app.js",
     "start:docker": "docker compose build --build-arg CACHEBUST=$(date +%s) && docker compose up; docker compose down -v",
     "start:validator": "RUN_MODE=validator node --watch --env-file-if-exists .env --env-file-if-exists .env.validator app.js",
