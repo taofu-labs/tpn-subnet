@@ -29,7 +29,7 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
     if( valid_workers.length === 0 ) return { success: true, count: 0 }
 
     // Prepare the query with pg-format
-    const values = valid_workers.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown' } ) => [
+    const values = valid_workers.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown', connection_type='unknown' } ) => [
         ip,
         public_port,
         public_url,
@@ -39,10 +39,11 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
         mining_pool_url,
         mining_pool_uid,
         status,
+        connection_type,
         Date.now()
     ] )
     const query = format( `
-        INSERT INTO workers (ip, public_port, public_url, payment_address_evm, payment_address_bittensor, country_code, mining_pool_url, mining_pool_uid, status, updated_at)
+        INSERT INTO workers (ip, public_port, public_url, payment_address_evm, payment_address_bittensor, country_code, mining_pool_url, mining_pool_uid, status, connection_type, updated_at)
         VALUES %L
         ON CONFLICT (mining_pool_uid, mining_pool_url, ip) DO UPDATE SET
             ip = EXCLUDED.ip,
@@ -54,6 +55,7 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
             mining_pool_url = EXCLUDED.mining_pool_url,
             mining_pool_uid = EXCLUDED.mining_pool_uid,
             status = EXCLUDED.status,
+            connection_type = EXCLUDED.connection_type,
             updated_at = EXCLUDED.updated_at
     `, values )
 
@@ -317,15 +319,19 @@ export async function read_worker_broadcast_metadata( { mining_pool_uid, limit }
  * @param {string} params.status? - Status of the worker; defaults to null. Valid values are 'up', 'down', or 'unknown'.
  * @param {boolean} params.randomize? - If true, sample using tsm_system_rows extension to get random rows
  * @param {number} params.limit? - Maximum number of worker records to return.
+ * @param {string} params.connection_type? - Connection type of the worker; use 'any' to ignore this filter. Valid values are 'datacenter' or 'residential'.
  * @returns {Promise<{success: true, workers: any[]} | {success: false, message: string}>} Result indicating success with workers or a not-found message.
  * @throws {Error} If the Postgres pool is unavailable or if the database query fails.
  */
-export async function get_workers( { ip, mining_pool_uid, mining_pool_url, country_code, status, randomize, limit } ) {
+export async function get_workers( { ip, mining_pool_uid, mining_pool_url, country_code, status, randomize, limit, connection_type } ) {
     // Get the postgres pool
     const pool = await get_pg_pool()
 
     // If country_code is 'any' then remove it
     if( [ 'any', 'ANY', 'undefined', 'null', '' ].includes( country_code ) ) country_code = null
+
+    // If connection_type is 'any' then remove it
+    if( [ 'any', 'ANY', 'undefined', 'null', '' ].includes( connection_type ) ) connection_type = null
 
     // Force country code to capitals
     if( country_code ) country_code = `${ country_code }`.toUpperCase()
@@ -364,6 +370,10 @@ export async function get_workers( { ip, mining_pool_uid, mining_pool_url, count
     if( status ) {
         values.push( status )
         wheres.push( `status = $${ values.length }` )
+    }
+    if( connection_type ) {
+        values.push( connection_type )
+        wheres.push( `connection_type = $${ values.length }` )
     }
 
     // Create the limit clause

@@ -7,6 +7,7 @@ import { is_miner_request } from '../../modules/networking/miners.js'
 import { write_mining_pool_metadata } from '../../modules/database/mining_pools.js'
 import { map_ips_to_geodata } from '../../modules/geolocation/ip_mapping.js'
 import { resolve_domain_to_ip } from '../../modules/networking/network.js'
+import { ip_geodata } from '../../modules/geolocation/helpers.js'
 const { CI_MODE } = process.env
 
 export const router = Router()
@@ -29,6 +30,31 @@ router.post( '/workers', async ( req, res ) => {
         // Ensure workers is an array
         if( !Array.isArray( workers ) ) throw new Error( `Invalid workers format, must be an array` )
         log.info( `Received ${ workers.length } workers from mining pool ${ mining_pool_uid }@${ mining_pool_ip }, example: `, workers[0] )
+
+        // Check that the claimed countries and datacenter status are valid according to our db
+        const workers_geo = await Promise.all( workers.map( async ( { ip } ) => {
+            const { country_code, connection_type, datacenter } = await ip_geodata( ip )
+            return { ip, country_code, connection_type, datacenter }
+        } ) )
+
+        // Overwrite the claimed country codes and track mismatches
+        const geo_mismatches = []
+        workers = workers.map( ( worker ) => {
+
+            // Check is claimed data matches ours
+            const geo = workers_geo.find( g => g.ip === worker.ip )
+            if( !geo ) return worker
+            const country_matches = worker.country_code == geo.country_code
+            const connection_type_matches = worker.connection_type == geo.connection_type
+
+            // On match, keep
+            if( connection_type_matches && country_matches ) return worker
+
+            // On mismatch, log and overwrite
+            geo_mismatches.push( { worker, geo } )
+            return { ...worker, ...geo }
+
+        } )
 
         // Clean up the worker data
         workers = workers.reduce( ( acc, worker ) => {

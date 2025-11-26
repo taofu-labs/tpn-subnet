@@ -22,9 +22,8 @@ paths:
       tags: [Lease]
       summary: Request a new worker lease
       description: |
-        Returns a WireGuard configuration for the next available worker. Responses can be
-        a structured JSON object or a ready-to-use WireGuard profile in plain text, based
-        on the requested `format`.
+        Returns a WireGuard or SOCKS5 configuration for the next available worker. Responses can be
+        a structured JSON object or a ready-to-use profile string, based on the requested `format` and `type`.
       parameters:
         - name: lease_seconds
           in: query
@@ -33,6 +32,12 @@ paths:
             type: integer
             minimum: 1
           description: Requested lease duration in seconds.
+        - name: lease_minutes
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: Deprecated. When supplied, it is converted to `lease_seconds`.
         - name: format
           in: query
           schema:
@@ -40,8 +45,22 @@ paths:
             enum: [json, text]
             default: json
           description:
-            Response format. `text` returns a WireGuard config file; `json`
-            returns structured metadata.
+            Response format. `text` returns a ready-to-use profile string; `json`
+            returns structured metadata for the chosen transport.
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [wireguard, socks5]
+            default: wireguard
+          description: Worker transport to lease. Defaults to WireGuard.
+        - name: connection_type
+          in: query
+          schema:
+            type: string
+            enum: [any, datacenter, residential]
+            default: any
+          description: Request workers that match a specific connection class when supported.
         - name: geo
           in: query
           schema:
@@ -82,9 +101,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LeaseConfig"
+                oneOf:
+                  - $ref: "#/components/schemas/LeaseConfig"
+                  - $ref: "#/components/schemas/Socks5LeaseConfig"
               examples:
-                jsonConfig:
+                wireguardJson:
                   summary: WireGuard config as JSON
                   value:
                     interface:
@@ -97,6 +118,13 @@ paths:
                       PresharedKey: EXAMPLEStc9UjIPjcOVSA5iB8cANSv+ZxZKf2OLP71gkikc=
                       AllowedIPs: 0.0.0.0/0
                       Endpoint: 198.51.100.42:51820
+                socks5Json:
+                  summary: SOCKS5 lease as JSON
+                  value:
+                    username: u_demo
+                    password: p_secret
+                    ip_address: 203.0.113.42
+                    port: 1080
             text/plain:
               schema:
                 type: string
@@ -115,6 +143,9 @@ paths:
                     PresharedKey = EXAMPLE5sEDGxRoAkpzXibnCCLpSkhV3BNGIaH5XJDKiIG79OY=
                     AllowedIPs = 0.0.0.0/0
                     Endpoint = 203.0.113.54:51820
+                socks5Profile:
+                  summary: SOCKS5 config as plain text
+                  value: socks5://u_demo:p_secret@203.0.113.42:1080
         "500":
           $ref: "#/components/responses/InternalError"
   /api/lease/countries:
@@ -358,6 +389,24 @@ components:
             Endpoint:
               type: string
               description: Remote WireGuard endpoint in `host:port` format.
+    Socks5LeaseConfig:
+      type: object
+      required: [username, password, ip_address, port]
+      properties:
+        username:
+          type: string
+          description: SOCKS5 username allocated for this lease.
+        password:
+          type: string
+          description: SOCKS5 password allocated for this lease.
+        ip_address:
+          type: string
+          format: ipv4
+          description: SOCKS5 server address reachable by the client.
+        port:
+          type: integer
+          description: SOCKS5 server port.
+      description: Credentials returned when leasing a SOCKS5 proxy worker.
     CountryList:
       type: array
       items:

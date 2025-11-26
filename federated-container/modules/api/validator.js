@@ -13,12 +13,13 @@ import { resolve_domain_to_ip } from "../networking/network.js"
  * @param {string[]} [params.whitelist] - List of whitelisted IPs.
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
+ * @param {string} [params.connection_type='any'] - Connection type filter ('any', 'datacenter', 'residential').
  * @returns {Promise<string|Object|null>} - Worker configuration or null if no workers available.
  */
-export async function get_worker_config_as_validator( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds } ) {
+export async function get_worker_config_as_validator( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, connection_type='any' } ) {
     
     // Get relevant workers
-    let { workers: relevant_workers } = await get_workers( { country_code: geo, status: 'up', limit: 50, randomize: true } )
+    let { workers: relevant_workers } = await get_workers( { country_code: geo, status: 'up', limit: 50, randomize: true, connection_type } )
     log.info( `Found ${ relevant_workers.length } relevant workers for geo ${ geo }` )
     if( blacklist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => !blacklist.includes( ip ) )
     if( whitelist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => whitelist.includes( ip ) )
