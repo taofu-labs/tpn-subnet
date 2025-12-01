@@ -312,4 +312,4 @@ fi
 
 
 
-green -e "\n✅ Update completed successfully"
+green "\n✅ Update completed successfully"
