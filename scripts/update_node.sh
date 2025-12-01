@@ -177,7 +177,7 @@ if [ "$ENABLE_AUTOUPDATE" = "true" ]; then
         new_cron=$(printf "%s\n%s" "$new_cron" "$restart_command")
 
         # Add the correct restart_command
-        printf "%s\n%s\n" "$new_cron" "$restart_command" | crontab -
+        printf "%s\n" "$new_cron" | crontab -
         grey "Tab is now up to date"
 
     else
