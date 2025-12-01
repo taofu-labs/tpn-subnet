@@ -56,7 +56,7 @@ All servers share some of the same dependencies. No matter which you choose to r
 ```bash
 # Install the required system dependencies
 sudo apt update
-sudo apt install -y git jq
+sudo apt install -y git jq netcat-openbsd
 sudo apt upgrade -y # OPTIONAL, this updated system packages
 
 # Install docker

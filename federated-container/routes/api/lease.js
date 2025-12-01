@@ -67,12 +67,12 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Prepare validation props based on run mode
         const mandatory_props = [ 'lease_seconds' ]
-        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type' ]
+        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type', 'connection_type' ]
 
         // Get all relevant data
         log.insane( `Request query params:`, Object.keys( req.query ), Object.values( req.query ), req.query )
         allow_props( req.query, [ ...mandatory_props, ...optional_props ], true )
-        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard' } = req.query
+        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard', connection_type='any' } = req.query
 
         // Backwards compatibility
         if( !`${ lease_seconds }`.length && `${ lease_minutes }`.length ) {
@@ -89,7 +89,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         whitelist = whitelist && sanetise_string( whitelist ).split( ',' )
         blacklist = blacklist && sanetise_string( blacklist ).split( ',' )
         priority = priority === 'true'
-        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type }
+        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type, connection_type }
 
         // Geo availability check in non-worker mode, workers do not need geo check as they are static and only called with 'any'
         let geo_available = true
@@ -100,12 +100,13 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         }
 
         // Validate inputs as specified in props
-        if( !lease_seconds || isNaN( lease_seconds ) ) throw new Error( `Invalid lease_seconds: ${ lease_seconds }` )
-        if( format?.length && ![ 'json', 'text' ].includes( format ) ) throw new Error( `Invalid format: ${ format }` )
-        if( type?.length && ![ 'wireguard', 'socks5' ].includes( type ) ) throw new Error( `Invalid type: ${ type }` )
+        if( !lease_seconds || isNaN( lease_seconds ) ) throw new Error( `Invalid lease_seconds: ${ lease_seconds }. Must be a valid number greater than 0.` )
+        if( format?.length && ![ 'json', 'text' ].includes( format ) ) throw new Error( `Invalid format: ${ format }. Must be one of 'json', 'text'` )
+        if( type?.length && ![ 'wireguard', 'socks5' ].includes( type ) ) throw new Error( `Invalid type: ${ type }. Must be one of 'wireguard', 'socks5'` )
         if( geo?.length && !geo_available ) throw new Error( `No workers found for geo: ${ geo }.` )
         if( whitelist?.length && whitelist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in whitelist` )
         if( blacklist?.length && blacklist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in blacklist` )
+        if( connection_type?.length && ![ 'any', 'datacenter', 'residential' ].includes( connection_type ) ) throw new Error( `Invalid connection_type: ${ connection_type }. Must be one of 'any', 'datacenter', 'residential'` )
 
         // Get relevant wireguard config based on run mode
         log.debug( `Getting config as ${ mode } with params:`, config_meta )

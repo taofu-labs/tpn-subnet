@@ -12,8 +12,8 @@ const { CI_MODE } = process.env
 export const router = Router()
 
 /**
- * Handle the submission of worker lists from mining pools
- * @params {Object} req.body.workers - Array of worker objects with properties: ip, country_code
+ * Handle the submission of worker object from the worker itself
+ * @params {Object} req.body - Worker object as claimed by a worker node
  */
 router.post( '/worker', async ( req, res ) => {
 
@@ -27,8 +27,8 @@ router.post( '/worker', async ( req, res ) => {
         if( !wireguard_config ) throw new Error( `Missing WireGuard configuration in request` )
 
         // Get worker data
-        const { country_code, datacenter } = await ip_geodata( unspoofable_ip )
-        let worker = { ip: unspoofable_ip, country_code, datacenter, status: 'tbd', mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor }
+        const { country_code, connection_type } = await ip_geodata( unspoofable_ip )
+        let worker = { ip: unspoofable_ip, country_code, connection_type, status: 'tbd', mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor }
         log.info( `Received worker registration from ${ unspoofable_ip }:`, worker )
         worker = annotate_worker_with_defaults( worker )
         worker.wireguard_config = wireguard_config
@@ -66,7 +66,7 @@ router.post( '/worker', async ( req, res ) => {
 } )
 
 /**
- * Receive feedback from mining pools about worker scoring
+ * Receive feedback from validators about worker scoring
  */
 router.post( '/worker/feedback', async ( req, res ) => {
 

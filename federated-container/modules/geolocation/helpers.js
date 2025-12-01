@@ -87,7 +87,8 @@ export async function ip_geodata( ip ) {
     const cached_value = cache( `geoip:${ ip }` )
     if( cached_value ) return cached_value
     const { country } = geoip.lookup( ip ) || {}
-    const datacenter = !!ip || await is_data_center( ip )
-    const data = { country_code: country, datacenter }
+    const datacenter = !!ip && await is_data_center( ip )
+    const connection_type = datacenter ? 'datacenter' : 'residential'
+    const data = { country_code: country, datacenter, connection_type }
     return cache( `geoip:${ ip }`, data, 60_000 )
 }
