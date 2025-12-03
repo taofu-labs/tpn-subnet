@@ -82,7 +82,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             return null
         } )
 
-
+        attempts++
     }
 
 
