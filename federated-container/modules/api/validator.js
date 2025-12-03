@@ -34,33 +34,62 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
     // Shuffle the worker ip array
     shuffle_array( relevant_workers )
 
+    // Split the worker array into chunks
+    const workers_to_call_at_once = 3
+    const amount_of_chunks = Math.ceil( relevant_workers.length / workers_to_call_at_once )
+    const chunked_workers = Array.from( { length: amount_of_chunks }, ( _, i ) => {
+
+        // For every chunk, slice from the relevant workers
+        const start = i * workers_to_call_at_once
+        const end = start + workers_to_call_at_once
+        return relevant_workers.slice( start, end )
+
+    } )
+    log.info( `Split ${ relevant_workers.length } workers into ${ chunked_workers.length } chunks of up to ${ workers_to_call_at_once } workers each` )
+
     // Get config from workers
     let config = null
     let attempts = 0
-    while( !config && attempts < relevant_workers?.length ) {
+    while( !config && attempts < chunked_workers?.length ) {
 
-        const worker = relevant_workers[ attempts ]
+        // Get the workers in this chunk
+        const workers = chunked_workers[ attempts ]
 
-        // Check that worker consents to be with the mining pool
-        const matches = await worker_matches_miner( { worker, mining_pool_url: worker.mining_pool_url } )
-        if( !matches ) {
-            log.info( `Worker ${ worker.ip } does not consent to be used by mining pool ${ worker.mining_pool_url }, skipping` )
-            attempts++
-            continue
-        }
+        // Ask for configs for all workers in chunk, resolve with config from first successful
+        log.info( `Attempting to get ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length } with ${ workers.length } workers` )
+        config = await Promise.any( workers.map( async ( worker ) => {
 
-        // Fetch config
-        log.info( `Attempting to get ${ type } config from worker:`, worker )
-        const { ip, mining_pool_uid, mining_pool_url } = worker || {}
-        const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: mining_pool_url } )
-        attempts++
-        if( !is_ipv4( ip ) ) continue
-        config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds } ).catch( e => {
-            log.info( `Error fetching ${ type } config from worker ${ ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }: ${ e.message }` )
+            // Check if worker matches
+            const matches = await worker_matches_miner( { worker, mining_pool_url: worker.mining_pool_url } ).catch( e => false )
+            if( !matches ) {
+                log.info( `Worker ${ worker.ip } not confirmed to consent to be with the mining pool ${ worker.mining_pool_url }, skipping` )
+                throw new Error( `Worker ${ worker.ip } does not consent to mining pool ${ worker.mining_pool_url }` )
+            }
+
+            // Validate worker data
+            const { ip: worker_ip, mining_pool_url, mining_pool_uid } = worker || {}
+            const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: mining_pool_url } )
+            if( !is_ipv4( worker_ip ) ) throw new Error( `Worker ${ worker_ip } has invalid IP` )
+            if( !is_ipv4( mining_pool_ip ) ) throw new Error( `Mining pool ${ mining_pool_uid } has invalid IP` )
+            
+            // Get config
+            const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds } )
+            if( _config ) log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
+            return _config
+
+        } ) ).catch( e => {
+            if (e instanceof AggregateError) {
+                log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: All promises rejected.` )
+                e.errors.forEach((err, idx) => {
+                    log.info( `  [${idx+1}] Reason: ${err && err.message ? err.message : err}` )
+                });
+            } else {
+                log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: ${ e.message }` )
+            }
             return null
         } )
-        if( config ) log.info( `Successfully retrieved ${ type } config from worker ${ ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
 
+        attempts++
     }
 
 
