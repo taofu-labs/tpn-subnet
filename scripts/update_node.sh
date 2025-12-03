@@ -267,7 +267,7 @@ if [ "$RUN_MODE" != "worker" ]; then
         pip3 install -r requirements.txt
     
         echo "Repository has changes, restarting pm2 process $PM2_PROCESS_NAME..."
-        $PM2_BIN_PATH restart "$PM2_PROCESS_NAME"
+        $PM2_BIN_PATH restart "$PM2_PROCESS_NAME" || red "Failed to restart pm2 process $PM2_PROCESS_NAME. Please d so manually."
 
     else
         grey "No changes in the repository, skipping pm2 restart."
