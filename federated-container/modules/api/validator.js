@@ -55,45 +55,24 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         // Get the workers in this chunk
         const workers = chunked_workers[ attempts ]
 
-        // Make sure the workers match
-        const matched_workers = await Promise.all( workers.map( async ( worker ) => {
+        // Ask for configs for all workers in chunk, resolve with config from first successful
+        log.info( `Attempting to get ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length } with ${ workers.length } workers` )
+        config = await Promise.any( workers.map( async ( worker ) => {
+
+            // Check if worker matches
             const matches = await worker_matches_miner( { worker, mining_pool_url: worker.mining_pool_url } ).catch( e => false )
             if( !matches ) {
                 log.info( `Worker ${ worker.ip } not confirmed to consent to be with the mining pool ${ worker.mining_pool_url }, skipping` )
-                return null
+                throw new Error( `Worker ${ worker.ip } does not consent to mining pool ${ worker.mining_pool_url }` )
             }
-            return worker
-        } ) ).filter( w => w )
 
-        // If no matched workers, continue
-        if( !matched_workers?.length ) {
-            log.info( `No workers matching their claimed mining pool in chunk ${ attempts + 1 }/${ chunked_workers.length }, continuing` )
-            attempts++
-            continue
-        }
-
-        // Validate the workers in the chunk
-        const valid_workers = await Promise.all( matched_workers.map( async ( worker ) => {
-
-            // Resolve mining pool IP
-            const { ip: worker_ip, mining_pool_uid, mining_pool_url } = worker || {}
+            // Validate worker data
+            const { ip: worker_ip, mining_pool_url, mining_pool_uid } = worker || {}
             const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: mining_pool_url } )
-
-            // If the worker or pool have no valid ipv4, skip
-            if( !is_ipv4( worker_ip ) ) return false
-            if( !is_ipv4( mining_pool_ip ) ) return false
-
-            // Worker is valid
-            return { ...worker, mining_pool_ip }
-
-        } ) ).filter( w => w )
-
-        // Ask for configs for all workers in chunk, resolve with config from first successful
-        log.info( `Attempting to get ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length } with ${ valid_workers.length } valid workers` )
-        config = await Promise.any( valid_workers.map( async ( worker ) => {
+            if( !is_ipv4( worker_ip ) ) throw new Error( `Worker ${ worker_ip } has invalid IP` )
+            if( !is_ipv4( mining_pool_ip ) ) throw new Error( `Mining pool ${ mining_pool_uid } has invalid IP` )
             
             // Get config
-            const { ip: worker_ip, mining_pool_ip, mining_pool_uid } = worker || {}
             const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds } )
             if( _config ) log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
             return _config
