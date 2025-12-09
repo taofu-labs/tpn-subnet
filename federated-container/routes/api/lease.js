@@ -67,12 +67,12 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Prepare validation props based on run mode
         const mandatory_props = [ 'lease_seconds' ]
-        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type', 'connection_type' ]
+        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type', 'connection_type', 'feedback_url' ]
 
         // Get all relevant data
         log.insane( `Request query params:`, Object.keys( req.query ), Object.values( req.query ), req.query )
         allow_props( req.query, [ ...mandatory_props, ...optional_props ], true )
-        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard', connection_type='any' } = req.query
+        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard', connection_type='any', feedback_url } = req.query
 
         // Backwards compatibility
         if( !`${ lease_seconds }`.length && `${ lease_minutes }`.length ) {
@@ -89,7 +89,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         whitelist = whitelist && sanetise_string( whitelist ).split( ',' )
         blacklist = blacklist && sanetise_string( blacklist ).split( ',' )
         priority = priority === 'true'
-        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type, connection_type }
+        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type, connection_type, feedback_url }
 
         // Geo availability check in non-worker mode, workers do not need geo check as they are static and only called with 'any'
         let geo_available = true
