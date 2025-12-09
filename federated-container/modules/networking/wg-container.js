@@ -236,7 +236,7 @@ export async function restart_wg_container() {
  * @param {Object} options - The options for the WireGuard configuration.
  * @param {Object} [options.priority=false] - Whether to use one of the priority slots
  * @param {number} [options.lease_seconds=60] - The lease duration in seconds.
- * @params {string} [options.feedback_url] - URL to check with validator what the request status is
+ * @param {string} [options.feedback_url] - URL to check with validator what the request status is
  * @returns {Promise<Object>} A promise that resolves to an object containing the WireGuard configuration.
  * @returns {string} return.peer_config - The WireGuard peer configuration.
  * @returns {number} return.peer_id - The ID of the registered WireGuard lease.
