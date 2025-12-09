@@ -186,7 +186,8 @@ router.get( '/request/:id', ( req, res ) => {
 
     try {
         const { id } = req.params || {}
-        return res.json( { status: cache( `request_${ id }` ) } )
+        const value = cache( `request_${ id }` ) || {}
+        return res.json( value )
     } catch ( error ) {
         return res.status( 500 ).json( { error: `Error handling request route: ${ error.message }` } )
     }

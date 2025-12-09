@@ -89,6 +89,9 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         } )
 
 
+        // Increment attempts
+        attempts++
+
     }
 
     // When config was obtained, flat request_id as complete
