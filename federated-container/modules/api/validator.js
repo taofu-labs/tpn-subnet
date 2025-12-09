@@ -84,7 +84,14 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             return _config
 
         } ) ).catch( e => {
-            log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: ${ e.message }` )
+            if (e instanceof AggregateError) {
+                log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: All promises rejected.` )
+                e.errors.forEach((err, idx) => {
+                    log.info( `  [${idx+1}] Reason: ${err && err.message ? err.message : err}` )
+                });
+            } else {
+                log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: ${ e.message }` )
+            }
             return null
         } )
 
