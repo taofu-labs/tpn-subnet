@@ -1,8 +1,10 @@
-import { is_ipv4, log, shuffle_array } from "mentie"
+import { cache, is_ipv4, log, shuffle_array } from "mentie"
 import { get_workers } from "../database/workers.js"
 import { get_worker_config_through_mining_pool } from "../networking/miners.js"
 import { worker_matches_miner } from "../scoring/score_workers.js"
 import { resolve_domain_to_ip } from "../networking/network.js"
+import { base_url } from "../networking/url.js"
+import { v4 as uuidv4 } from 'uuid'
 
 /**
  * Retrieves worker VPN configuration as a validator by coordinating with mining pools.
@@ -35,7 +37,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
     shuffle_array( relevant_workers )
 
     // Split the worker array into chunks
-    const workers_to_call_at_once = 3
+    const workers_to_call_at_once = 10
     const amount_of_chunks = Math.ceil( relevant_workers.length / workers_to_call_at_once )
     const chunked_workers = Array.from( { length: amount_of_chunks }, ( _, i ) => {
 
@@ -46,6 +48,10 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     } )
     log.info( `Split ${ relevant_workers.length } workers into ${ chunked_workers.length } chunks of up to ${ workers_to_call_at_once } workers each` )
+
+    // Set up feedback url
+    const request_id = uuidv4()
+    const feedback_url = `${ base_url }/api/status/request/${ request_id }`
 
     // Get config from workers
     let config = null
@@ -73,7 +79,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             if( !is_ipv4( mining_pool_ip ) ) throw new Error( `Mining pool ${ mining_pool_uid } has invalid IP` )
             
             // Get config
-            const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds } )
+            const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds, feedback_url } )
             if( _config ) log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
             return _config
 
@@ -85,6 +91,11 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     }
 
+    // When config was obtained, flat request_id as complete
+    if( config ) {
+        log.debug( `Successfully obtained ${ type } config after ${ attempts + 1 } attempts, marking request_${ request_id } as 'complete' in cache` )
+        cache( `request_${ request_id }`, { status: 'complete' }, 60_000 )
+    }
 
     // Return the config
     return config

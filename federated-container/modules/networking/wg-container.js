@@ -2,7 +2,7 @@ import { cache, log, make_retryable, wait } from "mentie"
 import { promises as fs } from "fs"
 import { join } from "path"
 import { exec } from "child_process"
-import { register_wireguard_lease } from '../database/worker_wireguard.js'
+import { mark_config_as_free, register_wireguard_lease } from '../database/worker_wireguard.js'
 import { run } from "../system/shell.js"
 const { dirname } = import.meta
 const wireguard_folder = join( dirname, '../../', 'wg_configs' )
@@ -236,13 +236,14 @@ export async function restart_wg_container() {
  * @param {Object} options - The options for the WireGuard configuration.
  * @param {Object} [options.priority=false] - Whether to use one of the priority slots
  * @param {number} [options.lease_seconds=60] - The lease duration in seconds.
+ * @params {string} [options.feedback_url] - URL to check with validator what the request status is
  * @returns {Promise<Object>} A promise that resolves to an object containing the WireGuard configuration.
  * @returns {string} return.peer_config - The WireGuard peer configuration.
  * @returns {number} return.peer_id - The ID of the registered WireGuard lease.
  * @returns {number} return.peer_slots - The number of WireGuard peer slots.
  * @returns {number} return.expires_at - The expiration timestamp of the lease.
  */
-export async function get_valid_wireguard_config( { priority=false, lease_seconds=60 } ) {
+export async function get_valid_wireguard_config( { priority=false, lease_seconds=60, feedback_url } ) {
 
     // Check if wireguard server is ready
     const wg_ready = await wireguard_server_ready()
@@ -284,6 +285,27 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
     } )
     const wireguard_config = await retryable_read()
     log.info( `Read peer${ peer_id }.conf config file` )
+
+    // If feedback url was provided, use it to check if validator already was served
+    if( feedback_url ) {
+
+        // Decode url 
+        feedback_url = decodeURIComponent( feedback_url )
+
+        // First check what the request status is
+        const { status } = await fetch( feedback_url ).then( r => r.json() ).catch( e => {
+            log.warn( `Failed to fetch feedback URL ${ feedback_url } to check request status (suggests validator misconfiguration):`, e )
+            return {}
+        } )
+
+        // If status is complete, clear this config as free again
+        if( status === 'complete' ) {
+            log.info( `Lease request already marked as complete according to feedback URL ${ feedback_url }, marking config as free again` )
+            await mark_config_as_free( { peer_id } )
+            return { cancelled: true }
+        }
+
+    }
 
     return { wireguard_config, peer_id, peer_slots, expires_at }
     

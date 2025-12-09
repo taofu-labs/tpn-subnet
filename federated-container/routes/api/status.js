@@ -181,3 +181,11 @@ router.get( '/worker_performance', async ( req, res ) => {
         return res.status( 500 ).json( { error: `Error handling performance route: ${ error.message }` } )
     }
 } )
+
+router.get( '/request/:id', ( req, res ) => {
+
+    const { id } = req.params || {}
+
+    return res.json( { status: cache( `request_${ id }` ) } )
+
+} )
