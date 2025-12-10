@@ -113,7 +113,7 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
     const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
     if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
     const endpoint = `${ url }/api/lease/new`
-    const query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }&feedback_url=${ encodeURIComponent( feedback_url ) }`
+    const query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }${ feedback_url ? `&feedback_url=${ encodeURIComponent( feedback_url ) }` : '' }`
 
     // Mock response if needed
     const { CI_MOCK_MINING_POOL_RESPONSES } = process.env
