@@ -105,7 +105,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     // When config was obtained, flat request_id as complete
     if( config ) {
-        log.debug( `Successfully obtained ${ type } config after ${ attempts + 1 } attempts, marking request_${ request_id } as 'complete' in cache` )
+        log.debug( `Successfully obtained ${ type } config after ${ attempts } attempts, marking request_${ request_id } as 'complete' in cache` )
         cache( `request_${ request_id }`, { status: 'complete' }, 60_000 )
     }
 
