@@ -13,16 +13,21 @@ import { get_valid_socks5_config } from '../networking/dante-container.js'
  * @param {number} params.lease_seconds - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to prioritize this request.
  * @param {string} [params.format] - Response format (text or json).
+ * @param {string} [params.feedback_url] - URL for feedback on the request status.
  * @returns {Promise<string|Object>} - WireGuard configuration in requested format.
  */
-export async function get_worker_config_as_worker( { type='wireguard', lease_seconds, priority, format } ) {
+export async function get_worker_config_as_worker( { type='wireguard', lease_seconds, priority, format, feedback_url } ) {
 
     let config = null
 
     // Get relevant wireguard config
     if( type === 'wireguard' ) {
 
-        const { wireguard_config, peer_id, peer_slots, expires_at } = await get_valid_wireguard_config( { lease_seconds, priority } )
+        const { wireguard_config, peer_id, peer_slots, expires_at, cancelled } = await get_valid_wireguard_config( { lease_seconds, priority, feedback_url } )
+        if( cancelled ) {
+            log.info( `Lease request cancelled according to feedback URL ${ feedback_url }, not returning any config` )
+            return {}
+        }
         if( !wireguard_config ) throw new Error( `Failed to get valid wireguard config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
         log.info( `Obtained WireGuard config for peer_id ${ peer_id } with ${ peer_slots } slots, expires at ${ new Date( expires_at ).toISOString() }` )
 

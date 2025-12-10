@@ -13,6 +13,10 @@ const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES, CI_MOCK_WORKER_RESPONSES, CI_MIN
  */
 export async function score_mining_pools( max_duration_minutes=30 ) {
 
+    // Prepare traces
+    const traces = {}
+    let miner_uid_to_ip = get_tpn_cache( 'miner_uid_to_ip', {} )
+
     try {
 
 
@@ -35,7 +39,6 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
         
         // Wait for ip data
         attempts = 0
-        let miner_uid_to_ip = get_tpn_cache( 'miner_uid_to_ip', {} )
         while( !Object.keys( miner_uid_to_ip || {} )?.length && attempts < 5 ) {
             log.info( `[ WHILE ] No mining pool IPs found in cache, waiting 10 seconds and retrying...` )
             await wait( 10_000 )
@@ -88,12 +91,12 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
         for( const mining_pool_uid of valid_mining_pool_uids ) {
 
             // Score the mining pool
+            const mining_pool_ip = miner_uid_to_ip[ mining_pool_uid ]
             try {
 
                 log.info( `Starting scoring for mining pool ${ mining_pool_uid }` )
 
                 // Formulate pool label
-                const mining_pool_ip = miner_uid_to_ip[ mining_pool_uid ]
                 if( !mining_pool_ip ) {
                     log.info( `No IP found for mining pool ${ mining_pool_uid }, this should never happen` )
                     results[ mining_pool_uid ] = { mining_pool_ip, note: 'No IP found' }
@@ -114,6 +117,14 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
             } catch ( e ) {
                 results[ mining_pool_uid ] = { error: e.message }
                 log.info( `Error scoring mining pool ${ mining_pool_uid }:`, e.message )
+            } finally {
+
+                // Get run trace
+                const cache_key = `score_mining_pool_${ mining_pool_uid }_${ mining_pool_ip }`
+                const trace = cache( cache_key )
+                log.info( `Saving scoring trace for mining pool ${ mining_pool_uid }, set LOGLEVEL=debug to see details` )
+                traces[ mining_pool_uid ] = trace || []
+
             }
 
         }
@@ -129,6 +140,14 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
         // Unlock
         cache( `score_mining_pools_running`, false )
 
+        // Log traces for debugging
+        log.debug( `Mining pool scoring performance traces: `, traces )
+
+        // For each key in the traces, reset the cache key
+        const keys = Object.keys( traces )
+        const cache_keys = keys.map( mining_pool_uid => `score_mining_pool_${ mining_pool_uid }_${ miner_uid_to_ip[ mining_pool_uid ] }` )
+        cache_keys.forEach( key => cache( key, [] ) )
+
     }
 
 }
@@ -143,19 +162,26 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
 async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Prepare for scoring
+    const start = Date.now()
+    const elapsed_s = () => round_number_to_decimals( ( Date.now() - start ) / 1000, 2 )
+    const cache_key = `score_mining_pool_${ mining_pool_uid }_${ mining_pool_ip }`
     const pool_label = `${ mining_pool_uid }@${ mining_pool_ip }`
     log.info( `Scoring mining pool ${ pool_label }` )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Starting scoring for mining pool ${ pool_label }` ] )
 
     // Get the latest broadcast metadata of the worker data
     const [ { last_known_worker_pool_size, updated }={} ]= await read_worker_broadcast_metadata( { mining_pool_uid, mining_pool_ip, limit: 1 } )
     if( !updated ) throw new Error( `No worker broadcast metadata found for mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Retrieved worker broadcast metadata for mining pool ${ pool_label }, last known worker pool size: ${ last_known_worker_pool_size }` ] )
 
     // Grab the latest workers
     const { success: workers_success, workers } = await get_workers( { mining_pool_uid, limit: last_known_worker_pool_size, status: 'up' } )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Retrieved ${ workers.length } workers for mining pool ${ pool_label }` ] )
     if( !workers_success ) throw new Error( `No workers found for mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
 
     // Calculate sample size to use
     const sample_size = cochrane_sample_size( { node_count: workers.length } )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Calculated sample size of ${ sample_size } for mining pool ${ pool_label } from total workers ${ workers.length }` ] )
 
     // Select random workers of sample size
     const selected_workers = sample_size >= workers.length ? workers : []
@@ -169,21 +195,27 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Annotate the selected workers with a wireguard config for testing in paralell
     await Promise.allSettled( selected_workers.map( async ( worker, index ) => {
+        cache.merge( cache_key, [ `${ elapsed_s() }s - Fetching worker config for ${ worker.ip } in mining pool ${ pool_label }` ] )
         const text_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: 'text', lease_seconds: 120 } )
+        cache.merge( cache_key, [ `${ elapsed_s() }s - Fetched worker config for ${ worker.ip } in mining pool ${ pool_label }` ] )
         if( text_config ) selected_workers[ index ].wireguard_config = text_config
         if( !text_config ) log.info( `Error fetching worker config for ${ worker.ip }` )
     } ) )
 
     // Score the selected workers
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Validating and annotating ${ selected_workers.length } workers for mining pool ${ pool_label }` ] )
     const { successes, failures, workers_with_status } = await validate_and_annotate_workers( { workers_with_configs: selected_workers } )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Completed validating and annotating workers for mining pool ${ pool_label }` ] )
     log.info( `Scored workers for mining pool ${ pool_label }, successes: ${ successes?.length }, failures: ${ failures?.length }. Status annotated: ${ workers_with_status?.length }` )
     log.debug( `Failure exerpt: `, failures?.slice( 0, 3 ) )
 
     // Save updated worker data to database
     await write_workers( { workers: workers_with_status, mining_pool_uid, mining_pool_ip } )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Wrote updated worker data to database for mining pool ${ pool_label }` ] )
 
     // Get the context needed to calculate scores
     const countries_in_pool = await get_worker_countries_for_pool( { mining_pool_uid, mining_pool_ip } )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Retrieved ${ countries_in_pool.length } unique countries for mining pool ${ pool_label }` ] )
 
     // Calculate stability score (up fraction)
     const stability_fraction = successes.length / selected_workers.length
@@ -237,6 +269,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
         geo_score: round_number_to_decimals( geo_score ),
         score: round_number_to_decimals( score )
     }
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Completed scoring for mining pool ${ pool_label }` ] )
 
     // Send feedback to the mining pool
     try {
@@ -248,6 +281,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
         log.info( `Sending feedback to mining pool ${ pool_label } at endpoint ${ endpoint }` )
         const { success } = await fetch( endpoint, { ...fetch_options, method: 'POST', body: JSON.stringify( feedback ), headers: { 'Content-Type': 'application/json' } } )
         log.info( `Feedback sent to mining pool ${ pool_label }, pool reported success: ${ success }` )
+        cache.merge( cache_key, [ `${ elapsed_s() }s - Sent feedback to mining pool ${ pool_label }, success: ${ success }` ] )
         if( !success ) throw new Error( `Failed to send feedback to mining pool ${ pool_label } for unknown reason` )
 
     } catch ( e ) {
