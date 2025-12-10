@@ -15,6 +15,7 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
 
     // Prepare traces
     const traces = {}
+    let miner_uid_to_ip = get_tpn_cache( 'miner_uid_to_ip', {} )
 
     try {
 
@@ -38,7 +39,6 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
         
         // Wait for ip data
         attempts = 0
-        let miner_uid_to_ip = get_tpn_cache( 'miner_uid_to_ip', {} )
         while( !Object.keys( miner_uid_to_ip || {} )?.length && attempts < 5 ) {
             log.info( `[ WHILE ] No mining pool IPs found in cache, waiting 10 seconds and retrying...` )
             await wait( 10_000 )
@@ -122,6 +122,7 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
                 // Get run trace
                 const cache_key = `score_mining_pool_${ mining_pool_uid }_${ mining_pool_ip }`
                 const trace = cache( cache_key )
+                log.info( `Saving scoring trace for mining pool ${ mining_pool_uid }, set LOGLEVEL=debug to see details` )
                 traces[ mining_pool_uid ] = trace || []
 
             }
@@ -141,6 +142,11 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
 
         // Log traces for debugging
         log.debug( `Mining pool scoring performance traces: `, traces )
+
+        // For each key in the traces, reset the cache key
+        const keys = Object.keys( traces )
+        const cache_keys = keys.map( mining_pool_uid => `score_mining_pool_${ mining_pool_uid }_${ miner_uid_to_ip[ mining_pool_uid ] }` )
+        cache_keys.forEach( key => cache( key, [] ) )
 
     }
 
