@@ -144,7 +144,6 @@ router.get( [ '/config/countries', '/lease/countries' ], async ( req, res ) => {
 
     const handle_route = async () => {
 
-
         // Validate inputs
         if( ![ 'json', 'text' ].includes( format ) ) throw new Error( `Invalid format: ${ format }` )
         if( ![ 'code', 'name' ].includes( type ) ) throw new Error( `Invalid type: ${ type }` )
