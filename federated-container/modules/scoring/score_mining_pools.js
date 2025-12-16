@@ -245,7 +245,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     let median_test_length_s = middle_values.reduce( ( acc, val ) => acc + val, 0 ) / middle_values.length
     log.info( `Mean test length for ${ pool_label } ${ mean_test_length_s } based on ${ successes.length } tests and ${ middle_values.length } values` )
     log.info( `Median test length for ${ pool_label } ${ median_test_length_s } based on ${ successes.length } tests` )
-    const s_considered_good = 10
+    const s_considered_good = 20
     const performance_score = Math.min( 100 / ( median_test_length_s / s_considered_good ), 100 )
     const performance_fraction = performance_score / 100
 
@@ -279,8 +279,8 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
         if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
         const endpoint = `${ url }/miner/broadcast/worker/feedback`
         log.info( `Sending feedback to mining pool ${ pool_label } at endpoint ${ endpoint }` )
-        const { success } = await fetch( endpoint, { ...fetch_options, method: 'POST', body: JSON.stringify( feedback ), headers: { 'Content-Type': 'application/json' } } )
-        log.info( `Feedback sent to mining pool ${ pool_label }, pool reported success: ${ success }` )
+        const { success, ...rest } = await fetch( endpoint, { ...fetch_options, method: 'POST', body: JSON.stringify( feedback ), headers: { 'Content-Type': 'application/json' } } ).then( res => res.json() ).catch( e => ( { success: false, error: e.message } ) )
+        log.info( `Feedback sent to mining pool ${ pool_label }, pool reported success: ${ success }`, { rest } )
         cache.merge( cache_key, [ `${ elapsed_s() }s - Sent feedback to mining pool ${ pool_label }, success: ${ success }` ] )
         if( !success ) throw new Error( `Failed to send feedback to mining pool ${ pool_label } for unknown reason` )
 

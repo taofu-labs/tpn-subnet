@@ -79,9 +79,9 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
 }
 
 /**
- * 
+ * Writes worker performance entries to the database for tracking worker status over time.
  * @param {Object} params 
- * @param {Array<{ip: string, status: string }>} params.workers - array with worker data
+ * @param {Array<{ip: string, status: string, public_port: number}>} params.workers - Array with worker data
  * @returns {Promise<{ success: boolean, count: number }>} - Result object with success status and number of entries written
  * @throws {Error} - If there is an error writing to the database
  */
@@ -192,14 +192,19 @@ async function mark_workers_stale( { mining_pool_uid, active_workers=[] } ) {
 }
 
 /**
- * Gets the number of unique country_code instances for workers where mining pool uid and ip are given
- * @param {Object<{ mining_pool_uid: string: string }>} params - optional
- * @returns {Promise<[string]>} Country codes for the workers of this pool
+ * Gets the unique country_code instances for workers of a given mining pool.
+ * @param {Object} params
+ * @param {string} [params.mining_pool_uid] - Unique identifier of the mining pool (optional)
+ * @param {string} [params.connection_type] - Connection type filter ('any', 'datacenter', 'residential'); 'any' returns all
+ * @returns {Promise<string[]>} Country codes for the workers of this pool
  */
-export async function get_worker_countries_for_pool( { mining_pool_uid }={} ) {
+export async function get_worker_countries_for_pool( { mining_pool_uid, connection_type }={} ) {
 
     // Get the postgres pool
     const pool = await get_pg_pool()
+
+    // If connection_type is 'any' then ignore the filter
+    if( [ 'any', 'ANY', 'undefined', 'null', '' ].includes( connection_type ) ) connection_type = null
 
     // Formulate query
     const wheres = [ 'status = $1' ]
@@ -208,6 +213,12 @@ export async function get_worker_countries_for_pool( { mining_pool_uid }={} ) {
     if( mining_pool_uid ) {
         values.push( mining_pool_uid )
         wheres.push( `mining_pool_uid = $${ values.length }` )
+    }
+
+    if( connection_type ) {
+        if( ![ 'datacenter', 'residential' ].includes( connection_type ) ) throw new Error( `Invalid connection_type: ${ connection_type }` )
+        values.push( connection_type )
+        wheres.push( `connection_type = $${ values.length }` )
     }
 
     const query = `
@@ -219,6 +230,7 @@ export async function get_worker_countries_for_pool( { mining_pool_uid }={} ) {
     try {
         log.debug( `Fetching worker countries for pool ${ mining_pool_uid || 'all pools' } with query: ${ query } and values: `, values )
         const result = await pool.query( query, values )
+        log.debug( `Fetched worker countries for pool ${ mining_pool_uid || 'all pools' }: `, result.rows )
         return result.rows.map( row => row.country_code )
     } catch ( e ) {
         throw new Error( `Error fetching worker countries for pool ${ mining_pool_uid }: ${ e.message }` )
@@ -230,7 +242,6 @@ export async function get_worker_countries_for_pool( { mining_pool_uid }={} ) {
  * Writes or updates worker broadcast metadata for a mining pool in Postgres.
  * @param {Object} params - Input parameters.
  * @param {string} params.mining_pool_uid - Unique identifier of the mining pool.
- * @param {string} params.mining_pool_ip - IP address of the mining pool.
  * @param {Array<object>} params.workers - Array of worker descriptors; only the length is used.
  * @returns {Promise<{success: true, last_known_worker_pool_size: number, updated: number}>} Result indicating success with metadata.
  * @throws {Error} If the Postgres pool is unavailable or if the database write fails.
@@ -324,6 +335,7 @@ export async function read_worker_broadcast_metadata( { mining_pool_uid, limit }
  * @throws {Error} If the Postgres pool is unavailable or if the database query fails.
  */
 export async function get_workers( { ip, mining_pool_uid, mining_pool_url, country_code, status, randomize, limit, connection_type } ) {
+
     // Get the postgres pool
     const pool = await get_pg_pool()
 
@@ -384,19 +396,28 @@ export async function get_workers( { ip, mining_pool_uid, mining_pool_url, count
         values.push( limit )
         limit_q = `LIMIT $${ values.length }`
     }
+
+    // ⚠️ NOTE TO FUTURE SELVES: the previous tablesample approach filters BEFORE where queries. doing this well requires pre-filtering like select * from (select * from workers tablesample system_rows(10)) as sampled where ...
+    // given thousands of rows, order by random() is fast enough. Reconsider if we get to millions of rows or extremely high throughput
+    // if( randomize_limit ) {
+    //     values.push( limit )
+    //     limit_q = `TABLESAMPLE SYSTEM_ROWS ($${ values.length })`
+    // }
+
+    // In case of randomize, order by random
     if( randomize_limit ) {
         values.push( limit )
-        limit_q = `TABLESAMPLE SYSTEM_ROWS ($${ values.length })`
+        limit_q = `ORDER BY RANDOM() LIMIT $${ values.length }`
     }
+
     if( !limit && randomize ) log.warn( `Randomize cannot sample without a limit` )
 
     // Prepare the query
     const query = `
         SELECT *
         FROM workers
-        ${ randomize_limit ? limit_q : '' }
         ${ wheres.length > 0 ? `WHERE ${ wheres.join( ' AND ' ) }` : '' }
-        ${ simple_limit ? limit_q : '' }
+        ${ limit_q }
     `
 
     // Execute the query

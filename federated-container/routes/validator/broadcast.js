@@ -117,6 +117,9 @@ router.post( '/mining_pool', async ( req, res ) => {
         let { protocol, url, port } = req.body || {}
         log.info( `Received mining pool metadata from miner ${ mining_pool_uid }@${ mining_pool_ip }:`, { protocol, url, port } )
 
+        // Fix misconfigurations
+        url = url?.replace( 'http://http://', 'http://' )?.replace( 'https://https://', 'https://' )
+
         // Normalise
         protocol = sanetise_string( protocol )
         url = sanetise_string( url )
