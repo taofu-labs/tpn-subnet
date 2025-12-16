@@ -140,15 +140,16 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
 router.get( [ '/config/countries', '/lease/countries' ], async ( req, res ) => {
 
-    const { format='json', type='code' } = req.query || {}
+    const { format='json', type='code', connection_type='any' } = req.query || {}
 
     const handle_route = async () => {
 
         // Validate inputs
         if( ![ 'json', 'text' ].includes( format ) ) throw new Error( `Invalid format: ${ format }` )
         if( ![ 'code', 'name' ].includes( type ) ) throw new Error( `Invalid type: ${ type }` )
+        if( ![ 'any', 'datacenter', 'residential' ].includes( connection_type ) ) throw new Error( `Invalid connection_type: ${ connection_type }` )
 
-        const country_codes = await get_worker_countries_for_pool()
+        const country_codes = await get_worker_countries_for_pool( { connection_type } )
         const country_names = country_codes.map( country_name_from_code )
 
         if( format == 'json' && type == 'code' ) return country_codes

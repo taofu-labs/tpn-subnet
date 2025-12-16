@@ -170,6 +170,13 @@ paths:
             enum: [code, name]
             default: code
           description: Select between ISO country codes and localized names.
+        - name: connection_type
+          in: query
+          schema:
+            type: string
+            enum: [any, datacenter, residential]
+            default: any
+          description: Filter countries by worker connection class. Use `any` to include all connection types.
       responses:
         "200":
           description: Country list resolved from the worker pool.
@@ -202,6 +209,47 @@ paths:
                     Denmark
                     Paraguay
                     Slovenia
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/config/countries:
+    get:
+      tags: [Lease]
+      summary: List available worker countries (alias)
+      description: Alias for `/api/lease/countries`. Returns supported worker geographies as ISO codes or human readable names.
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, text]
+            default: json
+          description:
+            Response format. `json` returns an array; `text` returns newline
+            separated values.
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [code, name]
+            default: code
+          description: Select between ISO country codes and localized names.
+        - name: connection_type
+          in: query
+          schema:
+            type: string
+            enum: [any, datacenter, residential]
+            default: any
+          description: Filter countries by worker connection class. Use `any` to include all connection types.
+      responses:
+        "200":
+          description: Country list resolved from the worker pool.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountryList"
+            text/plain:
+              schema:
+                type: string
         "500":
           $ref: "#/components/responses/InternalError"
   /api/stats:

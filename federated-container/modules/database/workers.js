@@ -195,12 +195,16 @@ async function mark_workers_stale( { mining_pool_uid, active_workers=[] } ) {
  * Gets the unique country_code instances for workers of a given mining pool.
  * @param {Object} params
  * @param {string} [params.mining_pool_uid] - Unique identifier of the mining pool (optional)
+ * @param {string} [params.connection_type] - Connection type filter ('any', 'datacenter', 'residential'); 'any' returns all
  * @returns {Promise<string[]>} Country codes for the workers of this pool
  */
-export async function get_worker_countries_for_pool( { mining_pool_uid }={} ) {
+export async function get_worker_countries_for_pool( { mining_pool_uid, connection_type }={} ) {
 
     // Get the postgres pool
     const pool = await get_pg_pool()
+
+    // If connection_type is 'any' then ignore the filter
+    if( [ 'any', 'ANY', 'undefined', 'null', '' ].includes( connection_type ) ) connection_type = null
 
     // Formulate query
     const wheres = [ 'status = $1' ]
@@ -209,6 +213,12 @@ export async function get_worker_countries_for_pool( { mining_pool_uid }={} ) {
     if( mining_pool_uid ) {
         values.push( mining_pool_uid )
         wheres.push( `mining_pool_uid = $${ values.length }` )
+    }
+
+    if( connection_type ) {
+        if( ![ 'datacenter', 'residential' ].includes( connection_type ) ) throw new Error( `Invalid connection_type: ${ connection_type }` )
+        values.push( connection_type )
+        wheres.push( `connection_type = $${ values.length }` )
     }
 
     const query = `
