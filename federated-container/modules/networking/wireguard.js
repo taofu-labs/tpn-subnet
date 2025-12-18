@@ -308,11 +308,14 @@ export async function test_wireguard_connection( { wireguard_config, verbose=CI_
     // Write the config file and set permissions.
     const write_config_command = `
         # Write the WireGuard config to a temporary file
+        echo "Writing WireGuard config to ${ tmp_config_path } and ${ wg_config_path }" && \
         printf "%s" "${ text_config }" > ${ tmp_config_path } && \
         chmod 600 ${ tmp_config_path } && \
+        ls -lah ${ tmp_config_path } && \
         wg-quick strip ${ tmp_config_path } > ${ wg_config_path } && \
         chmod 600 ${ wg_config_path }
         # Log the config files
+        ls -lah /tmp/ && \
         tail -n +1 -v ${ tmp_config_path } && \
         tail -n +1 -v ${ wg_config_path }
     `
@@ -430,7 +433,7 @@ export async function test_wireguard_connection( { wireguard_config, verbose=CI_
 
         // Write the wireguard config to a file
         const config_cmd = await run( write_config_command, { silent: !verbose, log_tag, verbose } )
-        if( config_cmd.error || config_cmd.stderr ) throw new Error( `Error writing wireguard config: ${ config_cmd.error } ${ config_cmd.stderr }` )
+        if( config_cmd.error || config_cmd.stderr ) throw new Error( `Error writing wireguard config: err ${ config_cmd.error } stderr ${ config_cmd.stderr } stdout ${ config_cmd.stdout }` )
 
         // loop over network commands
         const network_setup_commands = split_ml_commands( network_setup_command )
