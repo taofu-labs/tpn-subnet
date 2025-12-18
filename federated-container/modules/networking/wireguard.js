@@ -3,6 +3,8 @@ import { run } from "../system/shell.js"
 import { generate_challenge } from "../scoring/challenge_response.js"
 import { get_free_interfaces } from "./network.js"
 
+// Global path config
+const tmp_folder = '/etc/wireguard'
 
 // Timeout used for curl commands
 const { CI_MODE } = process.env
@@ -154,7 +156,7 @@ export async function clean_up_tpn_interfaces( { interfaces, ip_addresses, dryru
         log.debug( `Cleaning up interface ${ interface_id } link, route, config` )
         await run( `ip link delete ${ interface_id }`, { silent: true } )
         await run( `ip route flush table ${ interface_id }`, { silent: true } )
-        await run( `rm -f /tmp/${ interface_id }.conf`,  { silent: true } )
+        await run( `rm -f ${ tmp_folder }/${ interface_id }.conf`,  { silent: true } )
         log.debug( `Deleted interface ${ interface_id } and all associated entries` )
     }
 
@@ -302,8 +304,8 @@ export async function test_wireguard_connection( { wireguard_config, verbose=CI_
     const { Address, Endpoint } = json_config.interface
 
     // Path for the WireGuard configuration file.
-    const tmp_config_path = `/tmp/${ server_id }.conf`
-    const wg_config_path = `/tmp/wg_${ server_id }.conf`
+    const tmp_config_path = `${ tmp_folder }/${ server_id }.conf`
+    const wg_config_path = `${ tmp_folder }/wg_${ server_id }.conf`
 
     // Write the config file and set permissions.
     const write_config_command = `
@@ -315,7 +317,7 @@ export async function test_wireguard_connection( { wireguard_config, verbose=CI_
         wg-quick strip ${ tmp_config_path } > ${ wg_config_path } && \
         chmod 600 ${ wg_config_path }
         # Log the config files
-        ls -lah /tmp/ && \
+        ls -lah ${ tmp_folder }/ && \
         tail -n +1 -v ${ tmp_config_path } && \
         tail -n +1 -v ${ wg_config_path }
     `
