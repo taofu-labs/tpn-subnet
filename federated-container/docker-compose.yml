@@ -51,7 +51,6 @@ services:
 
     volumes:
       - ./wg_configs:/app/wg_configs
-      - ./wg_tmp:/wg_tmp
       - maxmind_data:/app/node_modules/geoip-lite/data
       - ip2location_data:/app/ip2location_data
       - container_cache:/app/cache

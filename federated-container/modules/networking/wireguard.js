@@ -4,7 +4,7 @@ import { generate_challenge } from "../scoring/challenge_response.js"
 import { get_free_interfaces } from "./network.js"
 
 // Global tmp folder path
-const tmp_folder = `/wg_tmp`
+const tmp_folder = `/etc/wireguard`
 
 // Timeout used for curl commands
 const { CI_MODE } = process.env
