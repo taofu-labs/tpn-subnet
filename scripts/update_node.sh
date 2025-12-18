@@ -288,12 +288,12 @@ if [ -n "$NETCAT_AVAILABLE" ]; then
     if nc -zv localhost "$SERVER_PUBLIC_PORT" >/dev/null 2>&1; then
         green "✅ Public port $SERVER_PUBLIC_PORT/tcp is open."
     else 
-        echo "🚨 Warning: Public port $USER@$SERVER_PUBLIC_PORT:$SERVER_PUBLIC_PORT/tcp is not open. It is recommended to open it in your firewall for proper node functionality."
+        echo "Note: Public port $USER@$SERVER_PUBLIC_HOST:$SERVER_PUBLIC_PORT/tcp is not open. While not strictly required due to docker's port forwarding, it is recommended to open it in your firewall."
     fi
     if nc -zvu localhost "$WIREGUARD_SERVERPORT" >/dev/null 2>&1; then
         green "✅ Wireguard port $WIREGUARD_SERVERPORT/udp is open."
     else 
-        echo "🚨 Warning: Wireguard port $USER@$SERVER_PUBLIC_PORT:$WIREGUARD_SERVERPORT/udp is not open. It is recommended to open it in your firewall for proper node functionality."
+        echo "Note: Wireguard port $USER@$SERVER_PUBLIC_HOST:$WIREGUARD_SERVERPORT/udp is not open. While not strictly required due to docker's port forwarding, it is recommended to open it in your firewall."
     fi
 
     # For worker mode, dante port MUST be open because the container does not bypass local firewall rules
@@ -301,7 +301,7 @@ if [ -n "$NETCAT_AVAILABLE" ]; then
         if nc -zv localhost "$DANTE_PORT" >/dev/null 2>&1; then
             green "✅ Dante port $DANTE_PORT/tcp is open."
         else 
-            red "🚨 Error: Dante port $USER@$SERVER_PUBLIC_PORT:$DANTE_PORT/tcp is not open. Please open it in your firewall for proper worker functionality."
+            red "🚨 Error: Dante port $USER@$SERVER_PUBLIC_HOST:$DANTE_PORT/tcp is not open. You MUST explicitly open this port for the worker to function properly."
         fi
     fi
 
