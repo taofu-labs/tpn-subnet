@@ -310,10 +310,10 @@ export async function test_wireguard_connection( { wireguard_config, verbose=CI_
         # Write the WireGuard config to a temporary file
         echo "Writing WireGuard config to ${ tmp_config_path } and ${ wg_config_path }" && \
         printf "%s" "${ text_config }" > ${ tmp_config_path } && \
-        chmod 600 ${ tmp_config_path } && \
+        chmod 644 ${ tmp_config_path } && \
         ls -lah ${ tmp_config_path } && \
         wg-quick strip ${ tmp_config_path } > ${ wg_config_path } && \
-        chmod 600 ${ wg_config_path }
+        chmod 644 ${ wg_config_path }
         # Log the config files
         ls -lah /tmp/ && \
         tail -n +1 -v ${ tmp_config_path } && \
