@@ -6,6 +6,9 @@ In the TPN subnet, there are three kinds of nodes:
 - **Miners**: These nodes offer the VPN connections that workers provide and are given subnet emissions, they are responsible for distributing those rewards to workers however they see fit. Profitability depends on how you decide to pay the workers that sign up to your pool
 - **Validators**: These nodes validate the work of miners and act as an interface to end users
 
+## Your personality
+
+- Before making any changes, you describe the changes you intend to make and ask for user configmation
 
 ## Project structure
 

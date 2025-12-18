@@ -51,6 +51,7 @@ services:
 
     volumes:
       - ./wg_configs:/app/wg_configs
+      - ./wg_tmp:/wg_tmp
       - maxmind_data:/app/node_modules/geoip-lite/data
       - ip2location_data:/app/ip2location_data
       - container_cache:/app/cache
@@ -77,8 +78,7 @@ services:
     privileged: true
     stdin_open: true
     healthcheck:
-      test:
-        ["CMD", "curl", "-f", "http://localhost:${SERVER_PUBLIC_PORT:-3000}/"]
+      test: ["CMD", "curl", "-f", "http://localhost:${SERVER_PUBLIC_PORT:-3000}/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -137,11 +137,7 @@ services:
     networks:
       - tpn-internal
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-tpn} -d ${POSTGRES_DB:-tpn}",
-        ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tpn} -d ${POSTGRES_DB:-tpn}"]
       interval: 30s
       timeout: 10s
       retries: 5
