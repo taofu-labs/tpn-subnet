@@ -301,7 +301,7 @@ if [ -n "$NETCAT_AVAILABLE" ]; then
         if nc -zv localhost "$DANTE_PORT" >/dev/null 2>&1; then
             green "✅ Dante port $DANTE_PORT/tcp is open."
         else 
-            red "🚨 Error: Dante port $USER@$SERVER_PUBLIC_HOST:$DANTE_PORT/tcp is not open. You MUST explicitly open this port for the worker to function properly"
+            red "🚨 Error: Dante port $USER@$SERVER_PUBLIC_HOST:$DANTE_PORT/tcp is not open. You MUST explicitly open this port for the worker to function properly."
         fi
     fi
 
