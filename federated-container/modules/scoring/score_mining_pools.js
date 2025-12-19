@@ -245,7 +245,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     // Calculate median test length by grabbing the middle value if odd, or averaging the two
     const middle_values = successes.map( w => w.test_duration_s || no_response_penalty_s ).sort( ( a, b ) => a - b ).slice( Math.floor( ( successes.length - 1 ) / 2 ), Math.ceil( ( successes.length + 1 ) / 2 ) )
     let median_test_length_s = Infinity
-    if( middle_values.length ) middle_values.reduce( ( acc, val ) => acc + val, 0 ) / middle_values.length
+    if( middle_values.length ) median_test_length_s = middle_values.reduce( ( acc, val ) => acc + val, 0 ) / middle_values.length
     log.info( `Mean test length for ${ pool_label } ${ mean_test_length_s } based on ${ successes.length } tests and ${ middle_values.length } values` )
     log.info( `Median test length for ${ pool_label } ${ median_test_length_s } based on ${ successes.length } tests` )
     const s_considered_good = 20
