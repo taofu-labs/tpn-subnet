@@ -218,7 +218,8 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     cache.merge( cache_key, [ `${ elapsed_s() }s - Retrieved ${ countries_in_pool.length } unique countries for mining pool ${ pool_label }` ] )
 
     // Calculate stability score (up fraction)
-    const stability_fraction = successes.length / selected_workers.length
+    let stability_fraction = 0
+    if( selected_workers.length ) stability_fraction = successes.length / selected_workers.length 
     const stability_score = stability_fraction * 100
 
     // Calculate size score, defined as the ranking of the size against the last_known_worker_pool_size 
@@ -226,7 +227,8 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Calculate performance score
     const no_response_penalty_s = 60
-    const mean_test_length_s = successes.reduce( ( acc, worker_test ) => {
+    let mean_test_length_s = Infinity
+    if( successes.length ) mean_test_length_s = successes.reduce( ( acc, worker_test ) => {
         let { ip, test_duration_s, error } = worker_test || {}
         if( !test_duration_s ) {
             log.warn( `No test duration for a successful worker ${ ip } in pool ${ pool_label }, err:`, error )
@@ -242,7 +244,8 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Calculate median test length by grabbing the middle value if odd, or averaging the two
     const middle_values = successes.map( w => w.test_duration_s || no_response_penalty_s ).sort( ( a, b ) => a - b ).slice( Math.floor( ( successes.length - 1 ) / 2 ), Math.ceil( ( successes.length + 1 ) / 2 ) )
-    let median_test_length_s = middle_values.reduce( ( acc, val ) => acc + val, 0 ) / middle_values.length
+    let median_test_length_s = Infinity
+    if( middle_values.length ) median_test_length_s = middle_values.reduce( ( acc, val ) => acc + val, 0 ) / middle_values.length
     log.info( `Mean test length for ${ pool_label } ${ mean_test_length_s } based on ${ successes.length } tests and ${ middle_values.length } values` )
     log.info( `Median test length for ${ pool_label } ${ median_test_length_s } based on ${ successes.length } tests` )
     const s_considered_good = 20
