@@ -9,7 +9,7 @@ import { run_mode } from "./modules/validations.js"
 import { readFile } from 'fs/promises'
 const { version } = JSON.parse( await readFile( new URL( './package.json', import.meta.url ) ) )
 const { branch, hash } = await get_git_branch_and_hash()
-const { CI_MODE, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START } = process.env
+const { CI_MODE, FORCE_REFRESH, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START } = process.env
 const { DAEMON_INTERVAL_SECONDS=CI_MODE === 'true' ? 60 : 300 } = process.env
 const { mode, worker_mode, validator_mode, miner_mode } = run_mode()
 const last_start = cache( 'last_start', new Date().toISOString() )
@@ -255,7 +255,7 @@ if( CI_MODE === 'true' ) {
 }
 
 // CI more refresh one  WG config for testing
-if( CI_MODE === 'true' && worker_mode ) {
+if( FORCE_REFRESH === 'true' && worker_mode ) {
     const { replace_wireguard_config } = await import( './modules/networking/wg-container.js' )
     const peer_id = 2
     log.info( `🤡 CI mode: refreshing WG config ${ peer_id } every 5 minutes for testing` )
