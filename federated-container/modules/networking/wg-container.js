@@ -6,6 +6,7 @@ import { mark_config_as_free, register_wireguard_lease } from '../database/worke
 import { run } from "../system/shell.js"
 const { dirname } = import.meta
 const wireguard_folder = join( dirname, '../../', 'wg_configs' )
+const wireguard_container_config_folder = '/config'
 const { CI_MODE, CI_MOCK_WG_CONTAINER, WIREGUARD_PEER_COUNT=254 } = process.env
 
 /**
@@ -192,6 +193,273 @@ export async function delete_wireguard_configs( ids=[] ) {
         log.info( `Deleted wireguard configs: ${ ids.join( ', ' ) }` )
     } catch ( e ) {
         log.error( `Error in delete_wireguard_configs:`, e )
+    }
+
+}
+
+/**
+ * Executes a command in the wireguard docker container.
+ * @param {string} command - The command to execute inside the container.
+ * @returns {Promise<{stdout: string|null, stderr: string|null, error: Error|null}>}
+ */
+async function exec_in_wireguard_container( command ) {
+    const docker_command = `docker exec wireguard ${ command }`
+    log.debug( `Executing in wireguard container: ${ command }` )
+    return run( docker_command )
+}
+
+/**
+ * Generates new wireguard keys (private key, public key, and preshared key).
+ * @returns {Promise<{private_key: string, public_key: string, preshared_key: string}>}
+ */
+async function generate_wireguard_keys() {
+
+    // Generate private key and derive public key
+    const { stdout: private_key_raw } = await exec_in_wireguard_container( 'wg genkey' )
+    const private_key = private_key_raw?.trim()
+    if( !private_key ) throw new Error( 'Failed to generate private key' )
+
+    // Generate public key from private key
+    const { stdout: public_key_raw } = await exec_in_wireguard_container( `bash -c "echo '${ private_key }' | wg pubkey"` )
+    const public_key = public_key_raw?.trim()
+    if( !public_key ) throw new Error( 'Failed to generate public key' )
+
+    // Generate preshared key
+    const { stdout: preshared_key_raw } = await exec_in_wireguard_container( 'wg genpsk' )
+    const preshared_key = preshared_key_raw?.trim()
+    if( !preshared_key ) throw new Error( 'Failed to generate preshared key' )
+
+    return { private_key, public_key, preshared_key }
+}
+
+/**
+ * Replaces the keys in a wireguard config to invalidate existing connections.
+ * This updates the config file, the running interface, and marks the config as available.
+ * If any step fails, the old keys and config are restored.
+ * 
+ * @param {Object} params
+ * @param {number} params.peer_id - The peer ID corresponding to the config (e.g., 1 for peer1)
+ * @returns {Promise<{success: boolean, new_keys?: {private_key: string, public_key: string, preshared_key: string}}>}
+ */
+export async function replace_wireguard_config( { peer_id } ) {
+
+    if( CI_MODE && CI_MOCK_WG_CONTAINER ) {
+        log.info( `🤡 Mocking wireguard config replacement for peer${ peer_id }` )
+        await mark_config_as_free( { peer_id } )
+        return { success: true, new_keys: { private_key: 'mock', public_key: 'mock', preshared_key: 'mock' } }
+    }
+
+    // Store original state for rollback
+    let original_config = null
+    let original_private_key = null
+    let original_public_key = null
+    let original_preshared_key = null
+    let original_server_config = null
+    let interface_modified = false
+
+    const peer_folder = `peer${ peer_id }`
+    const peer_config_path = join( wireguard_folder, peer_folder, `${ peer_folder }.conf` )
+    const container_peer_folder = `${ wireguard_container_config_folder }/${ peer_folder }`
+    const server_config_path = `${ wireguard_container_config_folder }/wg_confs/wg0.conf`
+
+    /**
+     * Restores the original keys and config if replacement fails.
+     */
+    const rollback = async () => {
+        log.warn( `Rolling back wireguard config changes for peer${ peer_id }` )
+
+        try {
+            // Restore key files in the container
+            if( original_private_key ) {
+                await exec_in_wireguard_container( `bash -c "echo '${ original_private_key }' > ${ container_peer_folder }/privatekey-${ peer_folder }"` )
+            }
+            if( original_public_key ) {
+                await exec_in_wireguard_container( `bash -c "echo '${ original_public_key }' > ${ container_peer_folder }/publickey-${ peer_folder }"` )
+            }
+            if( original_preshared_key ) {
+                await exec_in_wireguard_container( `bash -c "echo '${ original_preshared_key }' > ${ container_peer_folder }/presharedkey-${ peer_folder }"` )
+            }
+
+            // Restore client config file
+            if( original_config ) {
+                await fs.writeFile( peer_config_path, original_config, 'utf8' )
+            }
+
+            // Restore the running interface if it was modified
+            if( interface_modified && original_public_key ) {
+                // Remove any new peer that might have been added
+                const { stdout: current_public_key_raw } = await exec_in_wireguard_container( `cat ${ container_peer_folder }/publickey-${ peer_folder }` )
+                const current_public_key = current_public_key_raw?.trim()
+                if( current_public_key && current_public_key !== original_public_key ) {
+                    await exec_in_wireguard_container( `wg set wg0 peer ${ current_public_key } remove` ).catch( () => {} )
+                }
+
+                // Re-add the original peer
+                const address_match = original_config?.match( /Address\s*=\s*([^\n]+)/ )
+                const client_ip = address_match?.[1]?.trim()
+                if( client_ip ) {
+                    const client_ip_cidr = client_ip.includes( '/' ) ? client_ip : `${ client_ip }/32`
+                    const preshared_key_file = `${ container_peer_folder }/presharedkey-${ peer_folder }`
+                    await exec_in_wireguard_container( 
+                        `wg set wg0 peer ${ original_public_key } preshared-key ${ preshared_key_file } allowed-ips ${ client_ip_cidr }` 
+                    )
+                }
+            }
+
+            // Restore server config
+            if( original_server_config ) {
+                const escaped_config = original_server_config.replace( /\\/g, '\\\\' ).replace( /"/g, '\\"' ).replace( /\$/g, '\\$' )
+                await exec_in_wireguard_container( `bash -c "echo \\"${ escaped_config }\\" > ${ server_config_path }"` )
+            }
+
+            log.info( `Rollback complete for peer${ peer_id }` )
+        } catch ( rollback_error ) {
+            log.error( `Error during rollback for peer${ peer_id }:`, rollback_error )
+        }
+    }
+
+    try {
+
+        log.info( `Replacing wireguard config for peer${ peer_id }` )
+
+        // Read and store the current config for rollback
+        original_config = await fs.readFile( peer_config_path, 'utf8' )
+        log.debug( `Current config for peer${ peer_id }:`, original_config )
+
+        // Extract the Address (client IP) from the current config
+        const address_match = original_config.match( /Address\s*=\s*([^\n]+)/ )
+        const client_ip = address_match?.[1]?.trim()
+        if( !client_ip ) throw new Error( `Could not extract Address from peer${ peer_id } config` )
+
+        // Store original keys from the container for rollback
+        const { stdout: old_private_key_raw } = await exec_in_wireguard_container( `cat ${ container_peer_folder }/privatekey-${ peer_folder }` )
+        original_private_key = old_private_key_raw?.trim()
+
+        const { stdout: old_public_key_raw } = await exec_in_wireguard_container( `cat ${ container_peer_folder }/publickey-${ peer_folder }` )
+        original_public_key = old_public_key_raw?.trim()
+        log.debug( `Old public key for peer${ peer_id }: ${ original_public_key }` )
+
+        const { stdout: old_preshared_key_raw } = await exec_in_wireguard_container( `cat ${ container_peer_folder }/presharedkey-${ peer_folder }` )
+        original_preshared_key = old_preshared_key_raw?.trim()
+
+        // Store original server config for rollback
+        const { stdout: server_config_raw } = await exec_in_wireguard_container( `cat ${ server_config_path }` )
+        original_server_config = server_config_raw
+
+        // Generate new keys
+        log.info( `Generating new keys for peer${ peer_id }` )
+        const { private_key, public_key, preshared_key } = await generate_wireguard_keys()
+        log.info( `Generated new keys for peer${ peer_id }` )
+
+        // Update the key files in the container
+        await exec_in_wireguard_container( `bash -c "echo '${ private_key }' > ${ container_peer_folder }/privatekey-${ peer_folder }"` )
+        await exec_in_wireguard_container( `bash -c "echo '${ public_key }' > ${ container_peer_folder }/publickey-${ peer_folder }"` )
+        await exec_in_wireguard_container( `bash -c "echo '${ preshared_key }' > ${ container_peer_folder }/presharedkey-${ peer_folder }"` )
+        log.info( `Updated key files for peer${ peer_id }` )
+
+        // Update the client config file with new keys
+        let updated_config = original_config
+            .replace( /PrivateKey\s*=\s*[A-Za-z0-9+/=]+/, `PrivateKey = ${ private_key }` )
+            .replace( /PresharedKey\s*=\s*[A-Za-z0-9+/=]+/, `PresharedKey = ${ preshared_key }` )
+        await fs.writeFile( peer_config_path, updated_config, 'utf8' )
+        log.info( `Updated client config file for peer${ peer_id }` )
+
+        // Update the running wireguard interface by removing old peer and adding new one
+        // First remove the old peer using the old public key
+        if( original_public_key ) {
+            log.info( `Removing old peer ${ peer_id } from wg0 interface` )
+            await exec_in_wireguard_container( `wg set wg0 peer ${ original_public_key } remove` )
+            interface_modified = true
+        }
+
+        // Add the new peer with new keys using the preshared key file we just wrote
+        log.info( `Adding new peer ${ peer_id } to wg0 interface` )
+        const client_ip_cidr = client_ip.includes( '/' ) ? client_ip : `${ client_ip }/32`
+        const preshared_key_file = `${ container_peer_folder }/presharedkey-${ peer_folder }`
+        await exec_in_wireguard_container( 
+            `wg set wg0 peer ${ public_key } preshared-key ${ preshared_key_file } allowed-ips ${ client_ip_cidr }` 
+        )
+
+        // Update the server config file (wg0.conf) for persistence across restarts
+        if( original_server_config && original_public_key ) {
+
+            // Replace the old public key with the new one in the server config
+            let updated_server_config = original_server_config
+                .replace( new RegExp( `PublicKey\\s*=\\s*${ original_public_key.replace( /[+/=]/g, '\\$&' ) }` ), `PublicKey = ${ public_key }` )
+                .replace( 
+                    new RegExp( `(# ${ peer_folder }[\\s\\S]*?)PresharedKey\\s*=\\s*[A-Za-z0-9+/=]+` ), 
+                    `$1PresharedKey = ${ preshared_key }` 
+                )
+
+            // Write updated server config
+            const escaped_config = updated_server_config.replace( /\\/g, '\\\\' ).replace( /"/g, '\\"' ).replace( /\$/g, '\\$' )
+            await exec_in_wireguard_container( `bash -c "echo \\"${ escaped_config }\\" > ${ server_config_path }"` )
+            log.info( `Updated server config file (wg0.conf)` )
+
+        }
+
+        // Mark the config as available in the database
+        await mark_config_as_free( { peer_id } )
+        log.info( `Marked peer${ peer_id } config as free in database` )
+
+        return { success: true, new_keys: { private_key, public_key, preshared_key } }
+
+    } catch ( e ) {
+
+        log.error( `Error in replace_wireguard_config for peer${ peer_id }:`, e )
+        await rollback()
+        return { success: false }
+
+    }
+
+}
+
+/**
+ * Replaces wireguard configs for multiple peers to invalidate existing connections.
+ * If an empty array is provided, all existing configs will be replaced.
+ * 
+ * @param {Object} params
+ * @param {Array<number>} [params.peer_ids=[]] - Array of peer IDs to replace. If empty, replaces all configs.
+ * @returns {Promise<{success: boolean, results: Array<{peer_id: number, success: boolean}>}>}
+ */
+export async function replace_wireguard_configs( { peer_ids=[] }={} ) {
+
+    try {
+
+        // If no peer IDs provided, get all existing config IDs
+        let ids_to_replace = peer_ids
+        if( !ids_to_replace.length ) {
+            log.info( `No peer IDs specified, replacing all wireguard configs` )
+            const config_count = await count_wireguard_configs()
+            ids_to_replace = Array.from( { length: config_count }, ( _, i ) => i + 1 )
+        }
+
+        log.info( `Replacing wireguard configs for peers: ${ ids_to_replace.join( ', ' ) }` )
+
+        // Replace each config sequentially to avoid race conditions
+        const results = []
+        for( const peer_id of ids_to_replace ) {
+            const result = await replace_wireguard_config( { peer_id } )
+            results.push( { peer_id, success: result.success } )
+        }
+
+        // Check if all replacements succeeded
+        const all_success = results.every( r => r.success )
+        const failed_count = results.filter( r => !r.success ).length
+
+        if( all_success ) {
+            log.info( `Successfully replaced all ${ results.length } wireguard configs` )
+        } else {
+            log.warn( `Replaced wireguard configs with ${ failed_count }/${ results.length } failures` )
+        }
+
+        return { success: all_success, results }
+
+    } catch ( e ) {
+
+        log.error( `Error in replace_wireguard_configs:`, e )
+        return { success: false, results: [] }
+
     }
 
 }

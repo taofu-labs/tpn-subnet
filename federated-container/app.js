@@ -253,3 +253,18 @@ if( CI_MODE === 'true' ) {
     await pull()
     intervals.push( setInterval( pull, interval ) )
 }
+
+// CI more refresh one  WG config for testing
+if( CI_MODE === 'true' && worker_mode ) {
+    const { replace_wireguard_config } = await import( './modules/networking/wg-container.js' )
+    const peer_id = 2
+    log.info( `🤡 CI mode: refreshing WG config ${ peer_id } every 5 minutes for testing` )
+    await replace_wireguard_config( { peer_id } )
+    log.info( `🤡 CI mode: initial WG config ${ peer_id } replacement done` )
+    intervals.push( setInterval( async () => {
+        log.info( `🤡 CI mode: refreshing WG config ${ peer_id }` )
+        await replace_wireguard_config( { peer_id } )
+        log.info( `🤡 CI mode: refreshed WG config ${ peer_id }` )
+    }, 5 * 60_000 ) )
+}
+
