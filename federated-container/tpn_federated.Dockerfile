@@ -7,6 +7,10 @@ WORKDIR /app
 # Memory default
 ENV MAX_PROCESS_RAM_MB=8192
 
+# Cachebuster, used in local development to force rebuilds
+ARG CACHEBUST=1
+RUN echo "CACHEBUST=$CACHEBUST"
+
 # Install all dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt update && apt install -y --no-install-recommends \
@@ -43,13 +47,6 @@ COPY package*.json ./
 # Install dependencies, data files from maxmind and ip2location are downloaded later and not during build
 RUN npm config set update-notifier false
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
-
-# If docker cli reports 'too old', update docker
-RUN docker version | grep -q 'too old' && apt update && apt install -y --no-install-recommends docker.io || echo "docker cli is up to date"; apt clean && rm -rf /var/lib/apt/lists/*
-
-# Cachebuster, used in local development to force rebuilds
-ARG CACHEBUST=1
-RUN echo "CACHEBUST=$CACHEBUST"
 
 # Copy application code
 COPY app.js ./
