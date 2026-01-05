@@ -44,6 +44,9 @@ COPY package*.json ./
 RUN npm config set update-notifier false
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
 
+# If docker cli reports 'too old', update docker
+RUN docker version | grep -q 'too old' && apt update && apt install -y --no-install-recommends docker.io || echo "docker cli is up to date"; apt clean && rm -rf /var/lib/apt/lists/*
+
 # Cachebuster, used in local development to force rebuilds
 ARG CACHEBUST=1
 RUN echo "CACHEBUST=$CACHEBUST"
