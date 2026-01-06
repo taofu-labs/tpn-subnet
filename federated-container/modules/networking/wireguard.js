@@ -28,6 +28,9 @@ export async function wait_for_ip_free( { ip_address, timeout_s=test_timeout_sec
     // Check if the ip address is valid
     if( !ip_address ) throw new Error( `No ip address provided` )
 
+    // Sanetise the ip address
+    ip_address = sanetise_ipv4( { ip: ip_address, validate: true, error_on_invalid: true } )
+
     // Check the cache for the ip address being in process
     let ip_being_processed = cache( `ip_being_processed_${ ip_address }` )
 
@@ -131,11 +134,15 @@ export async function clean_up_tpn_interfaces( { interfaces, ip_addresses, dryru
     // Get all interfaces associated with the ip addresses
     if( ip_addresses ) {
         log.info( `Getting all interfaces associated with ip addresses:`, ip_addresses )
-        const interfaces_of_ips = await Promise.all( ip_addresses.map( ip => {
-            const { stdout } = run( `ip addr show | grep ${ ip } | awk -F' ' '{print $2}'` )
-            if( stdout?.includes( 'tpn' ) ) return stdout?.trim()
+        let interfaces_of_ips = await Promise.all( ip_addresses.map( async ip => {
+            ip = sanetise_ipv4( { ip } )
+            const { stdout } = await run( `ip addr show | grep ${ ip } | awk -F' ' '{print $2}'` )
+            const trimmed = stdout?.trim()
+            if( trimmed?.includes( 'tpn' ) ) return trimmed
             return null
-        } ) ).split( '\n' ).filter( line => line?.includes( 'tpn' ) ).trim()
+        } ) )
+        // Filter out null values
+        interfaces_of_ips = interfaces_of_ips.filter( iface => iface !== null )
         log.debug( `Found interfaces associated with ip addresses:`, interfaces_of_ips )
         interfaces = interfaces ? [ ...interfaces, ...interfaces_of_ips ] : interfaces_of_ips
     }
