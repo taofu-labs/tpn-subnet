@@ -191,7 +191,6 @@ class Miner(BaseMinerNeuron):
                 'uid': uid,
                 'ip': self.metagraph.axons[uid].ip,
                 'validator_trust': neuron.validator_trust,
-                'trust': neuron.trust,
                 "alpha_stake": float(self.metagraph.alpha_stake[uid].item()),
                 'stake_weight': float(self.metagraph.S[uid].item()),
                 'block': block,
@@ -220,7 +219,7 @@ def check_if_miner_registered(neuron):
     Check if the miner is registered in the metagraph.
     """
     
-    subtensor = bt.subtensor(config=neuron.config)
+    subtensor = bt.Subtensor(config=neuron.config)
     metagraph = subtensor.metagraph(neuron.config.netuid)
 
     is_registered = neuron.wallet.hotkey.ss58_address in metagraph.hotkeys

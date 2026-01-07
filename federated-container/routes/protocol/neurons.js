@@ -9,7 +9,7 @@ export const router = Router()
 
 /**
  * Route to handle neuron broadcasts
- * @params {Object} req.body.neurons - Array of neuron objects with properties: uid, ip, validator_trust, trust, alpha_stake, stake_weight, block, hotkey, coldkey
+ * @params {Object} req.body.neurons - Array of neuron objects with properties: uid, ip, validator_trust, alpha_stake, stake_weight, block, hotkey, coldkey
  */
 router.post( "/broadcast/neurons", async ( req, res ) => {
 
@@ -21,7 +21,7 @@ router.post( "/broadcast/neurons", async ( req, res ) => {
         const { neurons=[] } = req.body || {}
 
         // Validate that all properties are present
-        let valid_entries = neurons.filter( entry => require_props( entry, [ 'uid', 'ip', 'validator_trust', 'trust', 'alpha_stake', 'stake_weight', 'block', 'hotkey', 'coldkey' ], false ) )
+        let valid_entries = neurons.filter( entry => require_props( entry, [ 'uid', 'ip', 'validator_trust', 'alpha_stake', 'stake_weight', 'block', 'hotkey', 'coldkey' ], false ) )
         log.info( `Valid neuron entries: ${ valid_entries.length } of ${ neurons.length } ` )
         log.insane( valid_entries )
 
