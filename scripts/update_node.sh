@@ -210,9 +210,11 @@ cd "$TPN_DIR" || exit 1
 pull_output=$(git pull 2>&1)
 printf "%s\n" "$pull_output"
 if printf "%s\n" "$pull_output" | grep -q "Already up to date."; then
+    grey "Repository is already up to date. No need to restart daemons."
     REPO_UP_TO_DATE=1
 else
     REPO_UP_TO_DATE=0
+    grey "Repository updated with new changes. Will restart daemons as needed."
 fi
 
 # Check if git pull resulted in "you have divergent branches", only if we are on development branch
@@ -271,14 +273,12 @@ fi
 # Function to check and install Python 3.10+
 ensure_python_310() {
 
-    grey "Checking for Python 3.10 or higher..."
     local python_cmd=""
 
     # Try to find Python 3.10 or higher
     for py_version in python3.12 python3.11 python3.10; do
         if command -v "$py_version" >/dev/null 2>&1; then
             python_cmd="$py_version"
-            grey "Found suitable Python version: $($python_cmd --version 2>&1)"
             break
         fi
     done
@@ -288,7 +288,6 @@ ensure_python_310() {
         py_ver=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
         if [ "$(printf '%s\n3.10' "$py_ver" | sort -V | head -n1)" = "3.10" ]; then
             python_cmd="python3"
-            grey "Using default python3 version: $($python_cmd --version 2>&1)"
         fi
     fi
 
@@ -299,16 +298,11 @@ ensure_python_310() {
             sudo apt-get update -qq
             sudo apt-get install -y python3.10 python3.10-venv python3.10-dev
             python_cmd="python3.10"
-            grey "Python 3.10 installed successfully."
         else
             red "Error: Cannot install Python 3.10 automatically. Please install Python 3.10 or higher manually."
             exit 1
         fi
     fi
-
-    # Verify the Python version
-    py_version=$($python_cmd --version 2>&1 | awk '{print $2}')
-    echo "Using Python $py_version ($python_cmd)"
 
     # Return the python command via echo
     echo "$python_cmd"
@@ -322,6 +316,7 @@ if [ "$RUN_MODE" != "worker" ]; then
 
         # Ensure Python 3.10+ is available
         PYTHON_CMD=$(ensure_python_310)
+        grey "Using Python command: $PYTHON_CMD. $($PYTHON_CMD --version 2>&1)"
 
         # Update python dependencies
         echo "Repository has changes, updating python dependencies..."
