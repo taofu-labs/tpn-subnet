@@ -9,7 +9,7 @@ import { run_mode } from "./modules/validations.js"
 import { readFile } from 'fs/promises'
 const { version } = JSON.parse( await readFile( new URL( './package.json', import.meta.url ) ) )
 const { branch, hash } = await get_git_branch_and_hash()
-const { CI_MODE, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START } = process.env
+const { CI_MODE, FORCE_REFRESH, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START } = process.env
 const { DAEMON_INTERVAL_SECONDS=CI_MODE === 'true' ? 60 : 300 } = process.env
 const { mode, worker_mode, validator_mode, miner_mode } = run_mode()
 const last_start = cache( 'last_start', new Date().toISOString() )
@@ -253,3 +253,20 @@ if( CI_MODE === 'true' ) {
     await pull()
     intervals.push( setInterval( pull, interval ) )
 }
+
+// CI more refresh one  WG config for testing
+if( FORCE_REFRESH === 'true' && worker_mode ) {
+    const { replace_wireguard_config } = await import( './modules/networking/wg-container.js' )
+    let replacements = 0
+    const peer_id = 2
+    log.info( `🤡 CI mode: refreshing WG config ${ peer_id } every 5 minutes for testing` )
+    await replace_wireguard_config( { peer_id } )
+    log.info( `🤡 CI mode: initial WG config ${ peer_id } replacement done` )
+    intervals.push( setInterval( async () => {
+        replacements++
+        log.info( `🤡 CI mode: refreshing run ${ replacements } WG config ${ peer_id }` )
+        await replace_wireguard_config( { peer_id } )
+        log.info( `🤡 CI mode: refresh ${ replacements } WG config ${ peer_id }` )
+    }, 5 * 60_000 ) )
+}
+

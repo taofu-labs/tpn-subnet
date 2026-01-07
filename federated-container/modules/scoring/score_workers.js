@@ -232,21 +232,31 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
     } )
     
     // Wait for all workers to be scored
-    let workers_with_status = await Promise.allSettled( scoring_queue )
-    const [ successes, failures ] = workers_with_status.reduce( ( acc, worker ) => {
+    let workers_test_results = await Promise.allSettled( scoring_queue )
+    const [ successes, failures ] = workers_test_results.reduce( ( acc, promise_test_result_obj ) => {
     
         // If the status was fulfilled and the result is success == true, it counts as a win, otherwise it is a fail;
-        const { status, value={} } = worker
-        const { success, error } = value
-        if( error ) value.reason += ` - promise resolved ${ status }, error ${ error }`
-        if( success ) acc[0].push( value )
-        else acc[1].push( value )
-    
+        const { status, value: test_result={}, reason } = promise_test_result_obj
+
+        // 2 Failure cases exist, promise rejected, or promise fulfilled but success == false
+        const promise_success = status === 'fulfilled'
+        const test_success = test_result.success === true
+        const overall_success = promise_success && test_success
+        
+        // On promise fail, annotate the result with the reason to match the test result structure. This should never happen given the use of try/catch/finally above
+        if( !promise_success ) {
+            test_result.error = ` - promise rejected, error: ${ reason }`
+            test_result.success = false
+        }
+
+        if( overall_success ) acc[0].push( test_result )
+        else acc[1].push( test_result )
+
         return acc
     }, [ [], [ ...invalid_workers ] ] )
 
     // Isolate the allSettled values for the workers with status
-    workers_with_status = workers_with_status.map( worker => worker?.value || {} )
+    const workers_with_status = workers_test_results.map( worker => worker?.value ).filter( worker => worker )
 
     return { successes, failures, workers_with_status }
 

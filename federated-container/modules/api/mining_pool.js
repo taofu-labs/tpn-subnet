@@ -53,7 +53,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     }
 
     // On mock success
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = config || format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
     
     // Return the config
     return config
