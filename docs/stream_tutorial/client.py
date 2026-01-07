@@ -26,10 +26,10 @@ async def query_synapse(my_uid, wallet_name, hotkey, network, netuid):
     )
 
     # create a wallet instance with provided wallet name and hotkey
-    wallet = bt.wallet(name=wallet_name, hotkey=hotkey)
+    wallet = bt.Wallet(name=wallet_name, hotkey=hotkey)
 
     # instantiate the metagraph with provided network and netuid
-    metagraph = bt.metagraph(
+    metagraph = bt.Metagraph(
         netuid=netuid, network=network, sync=True, lite=False
     )
 
@@ -37,7 +37,7 @@ async def query_synapse(my_uid, wallet_name, hotkey, network, netuid):
     axon = metagraph.axons[my_uid]
 
     # Create a Dendrite instance to handle client-side communication.
-    dendrite = bt.dendrite(wallet=wallet)
+    dendrite = bt.Dendrite(wallet=wallet)
 
     async def main():
         responses = await dendrite(

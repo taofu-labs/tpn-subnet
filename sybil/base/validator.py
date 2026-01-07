@@ -61,7 +61,7 @@ class BaseValidatorNeuron(BaseNeuron):
         if self.config.mock:
             self.dendrite = MockDendrite(wallet=self.wallet)
         else:
-            self.dendrite = bt.dendrite(wallet=self.wallet)
+            self.dendrite = bt.Dendrite(wallet=self.wallet)
         bt.logging.info(f"Dendrite: {self.dendrite}")
 
         # Init sync with the network. Updates the metagraph.
@@ -89,7 +89,7 @@ class BaseValidatorNeuron(BaseNeuron):
 
         bt.logging.info("serving ip to chain...")
         try:
-            self.axon = bt.axon(wallet=self.wallet, config=self.config)
+            self.axon = bt.Axon(wallet=self.wallet, config=self.config)
 
             try:
                 self.subtensor.serve_axon(
@@ -273,7 +273,7 @@ class BaseValidatorNeuron(BaseNeuron):
         # Set the weights on chain via our subtensor connection.
         # Retry 20 times if it fails
         for _ in range(20):
-            result, msg = self.subtensor.set_weights(
+            response = self.subtensor.set_weights(
                 wallet=self.wallet,
                 netuid=self.config.netuid,
                 uids=uint_uids,
@@ -282,11 +282,11 @@ class BaseValidatorNeuron(BaseNeuron):
                 wait_for_inclusion=False,
                 version_key=self.spec_version,
             )
-            if result is True:
+            if response.success:
                 bt.logging.info("set_weights on chain successfully!")
                 break
             else:
-                bt.logging.error("set_weights failed. Retrying... ", msg)
+                bt.logging.error(f"set_weights failed. Retrying... {response.message}")
 
     def resync_metagraph(self):
         """Resyncs the metagraph and updates the hotkeys and moving averages based on the new metagraph."""

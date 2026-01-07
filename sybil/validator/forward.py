@@ -80,7 +80,6 @@ async def broadcast_neurons(metagraph, server_url):
             'uid': uid,
             'ip': metagraph.axons[uid].ip,
             'validator_trust': neuron.validator_trust,
-            'trust': neuron.trust,
             "alpha_stake": float(metagraph.alpha_stake[uid].item()),
             'stake_weight': float(metagraph.S[uid].item()),
             'block': block,

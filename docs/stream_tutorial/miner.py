@@ -32,11 +32,11 @@ class StreamMiner(ABC):
         bt.logging.set_config(config=self.config.logging)
 
         # Wallet holds cryptographic information, ensuring secure transactions and communication.
-        self.wallet = wallet or bt.wallet(config=self.config)
+        self.wallet = wallet or bt.Wallet(config=self.config)
         bt.logging.info(f"Wallet {self.wallet}")
 
         # subtensor manages the blockchain connection, facilitating interaction with the Bittensor blockchain.
-        self.subtensor = subtensor or bt.subtensor(config=self.config)
+        self.subtensor = subtensor or bt.Subtensor(config=self.config)
         bt.logging.info(f"Subtensor: {self.subtensor}")
         bt.logging.info(
             f"Running miner for subnet: {self.config.netuid} on network: {self.subtensor.chain_endpoint} with config:"
@@ -59,7 +59,7 @@ class StreamMiner(ABC):
             bt.logging.info(f"Running miner on uid: {self.my_subnet_uid}")
 
         # The axon handles request processing, allowing validators to send this process requests.
-        self.axon = axon or bt.axon(
+        self.axon = axon or bt.Axon(
             wallet=self.wallet, port=self.config.axon.port
         )
         # Attach determiners which functions are called when servicing a request.
@@ -283,7 +283,7 @@ class StreamingTemplateMiner(StreamMiner):
         """
         parser = argparse.ArgumentParser(description="Streaming Miner Configs")
         self.add_args(parser)
-        return bt.config(parser)
+        return bt.Config(parser)
 
     def add_args(cls, parser: argparse.ArgumentParser):
         """

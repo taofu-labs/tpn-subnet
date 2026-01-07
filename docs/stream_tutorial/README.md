@@ -236,7 +236,7 @@ class StreamingTemplateMiner(prompting.Miner):
         """
         parser = argparse.ArgumentParser(description="Streaming Miner Configs")
         self.add_args(parser)
-        return bt.config(parser)
+        return bt.Config(parser)
 
     def add_args(cls, parser: argparse.ArgumentParser):
         """
@@ -367,10 +367,10 @@ syn = MyStreamingSynapse(
 )
 
 # Create a wallet instance that must be registered on the network
-wallet = bt.wallet(name="default", hotkey="default")
+wallet = bt.Wallet(name="default", hotkey="default")
 
 # Instantiate the metagraph
-metagraph = bt.metagraph(
+metagraph = bt.Metagraph(
     netuid=8, network="test", sync=True, lite=False
 )
 
@@ -379,7 +379,7 @@ my_uid = 1
 axon = metagraph.axons[my_uid]
 
 # Create a Dendrite instance to handle client-side communication.
-dendrite = bt.dendrite(wallet=wallet)
+dendrite = bt.Dendrite(wallet=wallet)
 
 
 This is an async function so we can use the `await` keyword when querying the server with the dendrite object.
@@ -439,11 +439,11 @@ syn = prompting.protocol.StreamPrompting(
 syn
 
 # create a wallet instance that must be registered on the network
-wallet = bt.wallet(name="default", hotkey="default")
+wallet = bt.Wallet(name="default", hotkey="default")
 wallet
 
 # instantiate the metagraph
-metagraph = bt.metagraph(
+metagraph = bt.Metagraph(
     netuid=8, network="test", sync=True, lite=False
 )
 metagraph
@@ -453,7 +453,7 @@ axon = metagraph.axons[62]
 axon
 
 # Create a Dendrite instance to handle client-side communication.
-d = bt.dendrite(wallet=wallet)
+d = bt.Dendrite(wallet=wallet)
 d
 
 
