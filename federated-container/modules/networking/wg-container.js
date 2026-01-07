@@ -384,21 +384,20 @@ export async function replace_wireguard_config( { peer_id } ) {
         )
 
         // Update the server config file (wg0.conf) for persistence across restarts
-        if( original_server_config && original_public_key ) {
+        if( original_server_config && original_public_key && original_preshared_key ) {
 
-            // Replace the old public key with the new one in the server config
+            // Replace the old keys with the new ones in the server config
             let updated_server_config = original_server_config
                 .replace( new RegExp( `PublicKey\\s*=\\s*${ original_public_key.replace( /[+/=]/g, '\\$&' ) }` ), `PublicKey = ${ public_key }` )
-                .replace( 
-                    new RegExp( `(# ${ peer_folder }[\\s\\S]*?)PresharedKey\\s*=\\s*[A-Za-z0-9+/=]+` ), 
-                    `$1PresharedKey = ${ preshared_key }` 
-                )
+                .replace( new RegExp( `PresharedKey\\s*=\\s*${ original_preshared_key.replace( /[+/=]/g, '\\$&' ) }` ), `PresharedKey = ${ preshared_key }` )
 
             // Write updated server config
             const escaped_config = updated_server_config.replace( /\\/g, '\\\\' ).replace( /"/g, '\\"' ).replace( /\$/g, '\\$' )
             await exec_in_wireguard_container( `bash -c "echo \\"${ escaped_config }\\" > ${ server_config_path }"` )
             log.info( `Updated server config file (wg0.conf)` )
 
+        } else {
+            throw new Error( `Missing original config data for peer${ peer_id }: server_config=${ !!original_server_config }, public_key=${ !!original_public_key }, preshared_key=${ !!original_preshared_key }` )
         }
 
         // Mark the config as available in the database
@@ -528,7 +527,7 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
     const expires_at = Date.now() + lease_seconds * 1000
     const priority_slots = 1
     let safe_start = priority_slots + 1
-    if( safe_start < peer_slots ) safe_start = 1
+    if( safe_start > peer_slots ) safe_start = 1
     const config_parameters = {
         expires_at,
         end_id: peer_slots,
