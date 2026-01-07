@@ -283,7 +283,7 @@ class StreamingTemplateMiner(StreamMiner):
         """
         parser = argparse.ArgumentParser(description="Streaming Miner Configs")
         self.add_args(parser)
-        return bt.config(parser)
+        return bt.Config(parser)
 
     def add_args(cls, parser: argparse.ArgumentParser):
         """

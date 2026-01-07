@@ -271,4 +271,4 @@ def config(cls):
     bt.logging.add_args(parser)
     bt.Axon.add_args(parser)
     cls.add_args(parser)
-    return bt.config(parser)
+    return bt.Config(parser)

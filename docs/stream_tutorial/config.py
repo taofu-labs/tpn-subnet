@@ -98,7 +98,7 @@ def get_config() -> "bt.Config":
 
     # Activating the parser to read any command-line inputs.
     # To print help message, run python3 template/miner.py --help
-    config = bt.config(parser)
+    config = bt.Config(parser)
 
     # Logging captures events for diagnosis or understanding miner's behavior.
     config.full_path = os.path.expanduser(
