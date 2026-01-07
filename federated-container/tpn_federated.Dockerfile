@@ -7,10 +7,6 @@ WORKDIR /app
 # Memory default
 ENV MAX_PROCESS_RAM_MB=8192
 
-# Cachebuster, used in local development to force rebuilds
-ARG CACHEBUST=1
-RUN echo "CACHEBUST=$CACHEBUST"
-
 # Install all dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt update && apt install -y --no-install-recommends \
@@ -28,17 +24,9 @@ RUN apt update && apt install -y --no-install-recommends \
     git \
     # ncat
     netcat-openbsd \
-    # gpg for docker repo
-    gnupg \
+    # docker cli
+    docker.io \
     # cleanup cache for image size reduction
-    && apt clean && rm -rf /var/lib/apt/lists/*
-
-# Install Docker CLI from official Docker repository
-RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list \
-    && apt update && apt install -y --no-install-recommends docker-ce-cli \
     && apt clean && rm -rf /var/lib/apt/lists/*
 
 # wg-quick resolver dependency
@@ -55,6 +43,10 @@ COPY package*.json ./
 # Install dependencies, data files from maxmind and ip2location are downloaded later and not during build
 RUN npm config set update-notifier false
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev
+
+# Cachebuster, used in local development to force rebuilds
+ARG CACHEBUST=1
+RUN echo "CACHEBUST=$CACHEBUST"
 
 # Copy application code
 COPY app.js ./
