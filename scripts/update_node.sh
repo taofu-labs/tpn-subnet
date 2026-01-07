@@ -122,6 +122,7 @@ if [ "$RUN_MODE" != "worker" ] && [ "$RUN_MODE" != "miner" ] && [ "$RUN_MODE" !=
     red "RUN_MODE must be one of worker, miner, or validator. Current value: '$RUN_MODE'." >&2
     exit 1
 fi
+grey "Operating in $RUN_MODE mode."
 
 # Set default pm2 process name if not provided
 PM2_PROCESS_NAME=${PM2_PROCESS_NAME:-tpn_$RUN_MODE}
