@@ -191,7 +191,6 @@ class Miner(BaseMinerNeuron):
                 'uid': uid,
                 'ip': self.metagraph.axons[uid].ip,
                 'validator_trust': neuron.validator_trust,
-                'trust': neuron.trust,
                 "alpha_stake": float(self.metagraph.alpha_stake[uid].item()),
                 'stake_weight': float(self.metagraph.S[uid].item()),
                 'block': block,
