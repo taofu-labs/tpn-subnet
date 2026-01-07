@@ -38,20 +38,6 @@ jobs:
             echo "Version changed, proceeding with deployment."
             echo "deploy=true" >> $GITHUB_OUTPUT
             echo "version=$CUR_VERSION" >> $GITHUB_OUTPUT
-            
-            # Check if minor or major version changed (not just patch)
-            PREV_MAJOR=$(echo "$PREV_VERSION" | cut -d. -f1)
-            PREV_MINOR=$(echo "$PREV_VERSION" | cut -d. -f2)
-            CUR_MAJOR=$(echo "$CUR_VERSION" | cut -d. -f1)
-            CUR_MINOR=$(echo "$CUR_VERSION" | cut -d. -f2)
-            
-            if [ "$PREV_MAJOR" != "$CUR_MAJOR" ] || [ "$PREV_MINOR" != "$CUR_MINOR" ]; then
-              echo "Major or minor version changed, will bust cache."
-              echo "cachebust=true" >> $GITHUB_OUTPUT
-            else
-              echo "Only patch version changed, keeping cache."
-              echo "cachebust=false" >> $GITHUB_OUTPUT
-            fi
           fi
         shell: bash
 
@@ -79,6 +65,5 @@ jobs:
           tags: |
             taofuprotocol/tpn-federated:${{ steps.version_check.outputs.version }}${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
             taofuprotocol/tpn-federated:latest${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
-          build-args: ${{ steps.version_check.outputs.cachebust == 'true' && format('CACHEBUST={0}', github.run_id) || '' }}
           cache-from: type=gha,ref=taofuprotocol/tpn-federated:buildcache
           cache-to: type=gha,ref=taofuprotocol/tpn-federated:buildcache,mode=max
