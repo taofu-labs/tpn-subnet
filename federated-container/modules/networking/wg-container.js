@@ -1,4 +1,4 @@
-import { cache, log, make_retryable, wait } from "mentie"
+import { abort_controller, cache, log, make_retryable, wait } from "mentie"
 import { promises as fs } from "fs"
 import { join } from "path"
 import { exec } from "child_process"
@@ -87,11 +87,11 @@ export async function wireguard_server_ready( grace_window_ms=5_000, peer_id=1 )
 
             // Check if wireguard folder exists
             log.info( `Checking if wireguard folder exists at ${ wireguard_folder }` )
-            const folder_exists = await fs.stat( wireguard_folder )
+            const folder_exists = await fs.stat( wireguard_folder ).catch( () => false )
             if( !folder_exists ) throw new Error( 'Wireguard folder does not exist' )
 
             // Check if the folder list has at least one peer folder with valid config in wireguard/peer1/peer1.conf
-            const has_config = await fs.stat( config_path )
+            const has_config = await fs.stat( config_path ).catch( () => false )
             if( !has_config ) throw new Error( 'Wireguard config does not exist' )
 
             return true
@@ -563,7 +563,8 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
         feedback_url = decodeURIComponent( feedback_url )
 
         // First check what the request status is
-        const { status } = await fetch( feedback_url ).then( r => r.json() ).catch( e => {
+        const { fetch_options } = abort_controller( { timeout_ms: 10000 } )
+        const { status } = await fetch( feedback_url, fetch_options ).then( r => r.json() ).catch( e => {
             log.warn( `Failed to fetch feedback URL ${ feedback_url } to check request status (suggests validator misconfiguration):`, e )
             return {}
         } )
