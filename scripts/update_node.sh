@@ -137,6 +137,7 @@ else
     export TPN_IMAGE_TAG='latest'
 fi
 
+
 # Generate docker command base
 DOCKER_CMD=(docker compose -f "$TPN_DIR/federated-container/docker-compose.yml")
 
@@ -213,6 +214,23 @@ else
     REPO_UP_TO_DATE=0
 fi
 
+# Check if git pull resulted in "you have divergent branches", only if we are on development branch
+if [ "$CURRENT_BRANCH" = "development" ] && printf "%s\n" "$pull_output" | grep -qi "have divergent branches"; then
+    red "Error: Your local branch has diverged from the remote branch. Do you want me to discard local changes and reset to remote? (y/n)"
+    read -r answer
+    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+        echo "Resetting local branch to remote state..."
+        git switch development
+        git fetch origin
+        git reset --hard origin/development
+        git pull
+        REPO_UP_TO_DATE=0
+    else
+        red "Aborting update due to divergent branches."
+        exit 1
+    fi
+fi
+
 # Pop the stash if it was created
 if [ "$stash_created" = true ]; then
     echo "Restoring stashed changes on branch $CURRENT_BRANCH."
@@ -249,22 +267,77 @@ fi
 # Bring node back up
 "${DOCKER_CMD[@]}" up -d
 
+# Function to check and install Python 3.10+
+ensure_python_310() {
+    local python_cmd=""
+
+    # Try to find Python 3.10 or higher
+    for py_version in python3.12 python3.11 python3.10; do
+        if command -v "$py_version" >/dev/null 2>&1; then
+            python_cmd="$py_version"
+            break
+        fi
+    done
+
+    # If no suitable Python found, check if default python3 is 3.10+
+    if [ -z "$python_cmd" ] && command -v python3 >/dev/null 2>&1; then
+        py_ver=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+        if [ "$(printf '%s\n3.10' "$py_ver" | sort -V | head -n1)" = "3.10" ]; then
+            python_cmd="python3"
+        fi
+    fi
+
+    # If still no suitable Python, install Python 3.10
+    if [ -z "$python_cmd" ]; then
+        echo "Python 3.10 or higher not found. Installing Python 3.10..."
+        if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y python3.10 python3.10-venv python3.10-dev
+            python_cmd="python3.10"
+        else
+            red "Error: Cannot install Python 3.10 automatically. Please install Python 3.10 or higher manually."
+            exit 1
+        fi
+    fi
+
+    # Verify the Python version
+    py_version=$($python_cmd --version 2>&1 | awk '{print $2}')
+    echo "Using Python $py_version ($python_cmd)"
+
+    # Return the python command via echo
+    echo "$python_cmd"
+}
+
 # Restart the pm2 process if needed, only for non worker nodes
 if [ "$RUN_MODE" != "worker" ]; then
 
     # Restart neuron process if repo has changes
     if [ "$REPO_UP_TO_DATE" -eq 0 ]; then
 
+        # Ensure Python 3.10+ is available
+        PYTHON_CMD=$(ensure_python_310)
+
         # Update python dependencies
         echo "Repository has changes, updating python dependencies..."
-        cd ~/tpn-subnet
-        python3 -m venv venv
+        cd "$TPN_DIR"
+
+        # Create or update virtual environment
+        if [ ! -d "venv" ]; then
+            echo "Creating virtual environment with $PYTHON_CMD..."
+            $PYTHON_CMD -m venv venv
+        fi
+
         source venv/bin/activate
         TPN_CACHE="$HOME/.tpn_cache"
         mkdir -p $TPN_CACHE
         export TMPDIR=$TPN_CACHE
         export WANDB_CACHE_DIR=$TPN_CACHE
-        pip3 install -r requirements.txt
+
+        echo "Installing Python dependencies..."
+        if ! pip install -r requirements.txt; then
+            red "Failed to install Python dependencies"
+            exit 1
+        fi
     
         echo "Repository has changes, restarting pm2 process $PM2_PROCESS_NAME..."
         $PM2_BIN_PATH restart "$PM2_PROCESS_NAME" || red "Failed to restart pm2 process $PM2_PROCESS_NAME. Please do so manually."
