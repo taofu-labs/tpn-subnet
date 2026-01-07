@@ -191,56 +191,84 @@ else
     grey "Autoupdate disabled, skipping crontab check."
 fi
 
-# Stash local changes before pulling
-echo "Stashing local changes before pulling on branch $CURRENT_BRANCH."
-pre_stash_ref=$(git -C "$TPN_DIR" rev-parse --verify --quiet refs/stash || true)
-if git -C "$TPN_DIR" stash push -m "Stash before update on $(date)" >/dev/null 2>&1; then
-    post_stash_ref=$(git -C "$TPN_DIR" rev-parse --verify --quiet refs/stash || true)
-    if [ "$pre_stash_ref" != "$post_stash_ref" ]; then
-        stash_created=true
-    else
-        grey "No changes to stash."
-    fi
-else
-    echo "Failed to stash changes, continuing anyway."
-fi
-
-# Update the TPN repository
+# Check for divergent branches before pulling (development branch only)
 cd "$TPN_DIR" || exit 1
-pull_output=$(git pull 2>&1)
-printf "%s\n" "$pull_output"
-if printf "%s\n" "$pull_output" | grep -q "Already up to date."; then
-    grey "Repository is already up to date. No need to restart daemons."
-    REPO_UP_TO_DATE=1
-else
-    REPO_UP_TO_DATE=0
-    grey "Repository updated with new changes. Will restart daemons as needed."
-fi
+will_hard_reset=false
 
-# Check if git pull resulted in "you have divergent branches", only if we are on development branch
-if [ "$CURRENT_BRANCH" = "development" ] && printf "%s\n" "$pull_output" | grep -qi "have divergent branches"; then
-    red "Error: Your local branch has diverged from the remote branch. Do you want me to discard local changes and reset to remote? (y/n)"
-    read -r answer
-    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
-        echo "Resetting local branch to remote state..."
-        git switch development
-        git fetch origin
-        git reset --hard origin/development
-        git pull
-        REPO_UP_TO_DATE=0
-    else
-        red "Aborting update due to divergent branches."
-        exit 1
+if [ "$CURRENT_BRANCH" = "development" ]; then
+    echo "Checking for divergent branches on development..."
+    git fetch origin development >/dev/null 2>&1
+
+    # Check if branches have diverged
+    LOCAL_COMMIT=$(git rev-parse development)
+    REMOTE_COMMIT=$(git rev-parse origin/development)
+    BASE_COMMIT=$(git merge-base development origin/development)
+
+    if [ "$LOCAL_COMMIT" != "$REMOTE_COMMIT" ] && [ "$LOCAL_COMMIT" != "$BASE_COMMIT" ] && [ "$REMOTE_COMMIT" != "$BASE_COMMIT" ]; then
+        # Branches have diverged
+        red "Warning: Your local development branch has diverged from the remote branch."
+
+        # Check if running interactively (has terminal input)
+        if [ -t 0 ]; then
+            # Interactive mode: prompt user
+            red "Do you want to discard local changes and reset to remote? (y/n)"
+            read -r answer
+            if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+                will_hard_reset=true
+            else
+                red "Aborting update due to divergent branches."
+                exit 1
+            fi
+        else
+            # Non-interactive mode (cron): auto-reset
+            echo "Running in non-interactive mode (cron), auto-resetting to remote state..."
+            will_hard_reset=true
+        fi
     fi
 fi
 
-# Pop the stash if it was created
-if [ "$stash_created" = true ]; then
-    echo "Restoring stashed changes on branch $CURRENT_BRANCH."
-    if git -C "$TPN_DIR" stash pop >/dev/null 2>&1; then
-        stash_popped=true
+# Perform hard reset if needed
+if [ "$will_hard_reset" = true ]; then
+    echo "Resetting local branch to remote state..."
+    git reset --hard origin/development
+    grey "Branch reset to origin/development."
+    REPO_UP_TO_DATE=0
+    # Skip stash creation and restoration since we just reset
+    stash_created=false
+else
+    # Stash local changes before pulling
+    echo "Stashing local changes before pulling on branch $CURRENT_BRANCH."
+    pre_stash_ref=$(git -C "$TPN_DIR" rev-parse --verify --quiet refs/stash || true)
+    if git -C "$TPN_DIR" stash push -m "Stash before update on $(date)" >/dev/null 2>&1; then
+        post_stash_ref=$(git -C "$TPN_DIR" rev-parse --verify --quiet refs/stash || true)
+        if [ "$pre_stash_ref" != "$post_stash_ref" ]; then
+            stash_created=true
+        else
+            grey "No changes to stash."
+        fi
     else
-        echo "Failed to pop stash, continuing anyway."
+        echo "Failed to stash changes, continuing anyway."
+    fi
+
+    # Update the TPN repository
+    pull_output=$(git pull 2>&1)
+    printf "%s\n" "$pull_output"
+    if printf "%s\n" "$pull_output" | grep -q "Already up to date."; then
+        grey "Repository is already up to date. No need to restart daemons."
+        REPO_UP_TO_DATE=1
+    else
+        REPO_UP_TO_DATE=0
+        grey "Repository updated with new changes. Will restart daemons as needed."
+    fi
+
+    # Pop the stash if it was created
+    if [ "$stash_created" = true ]; then
+        echo "Restoring stashed changes on branch $CURRENT_BRANCH."
+        if git -C "$TPN_DIR" stash pop >/dev/null 2>&1; then
+            stash_popped=true
+        else
+            echo "Failed to pop stash, continuing anyway."
+        fi
     fi
 fi
 
