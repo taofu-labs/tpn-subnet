@@ -370,7 +370,7 @@ syn = MyStreamingSynapse(
 wallet = bt.wallet(name="default", hotkey="default")
 
 # Instantiate the metagraph
-metagraph = bt.metagraph(
+metagraph = bt.Metagraph(
     netuid=8, network="test", sync=True, lite=False
 )
 
@@ -443,7 +443,7 @@ wallet = bt.wallet(name="default", hotkey="default")
 wallet
 
 # instantiate the metagraph
-metagraph = bt.metagraph(
+metagraph = bt.Metagraph(
     netuid=8, network="test", sync=True, lite=False
 )
 metagraph

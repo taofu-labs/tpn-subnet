@@ -29,7 +29,7 @@ async def query_synapse(my_uid, wallet_name, hotkey, network, netuid):
     wallet = bt.wallet(name=wallet_name, hotkey=hotkey)
 
     # instantiate the metagraph with provided network and netuid
-    metagraph = bt.metagraph(
+    metagraph = bt.Metagraph(
         netuid=netuid, network=network, sync=True, lite=False
     )
 
