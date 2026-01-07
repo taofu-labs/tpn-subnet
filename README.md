@@ -34,7 +34,7 @@ Emissions for miners on this subnet are based linearly on your worker pool size 
 This means that counter to the old version of this subnet:
 
 1. There is NO BENEFIT to running multiple miners, you should focus on workers. If you run many workers, running your own pool can be a good strategy. Operating multiple mining pools has no benefit unless you are distributing rewards to third party workers in some novel way
-2. Geographic uniqueness and pool size are both very important, you can find the code that scores mining pools [in this file](https://github.com/taofu-labs/tpn-subnet/blob/main/federated-container/modules/scoring/score_mining_pools.js#L136)
+2. Geographic uniqueness and pool size are both very important, you can find the code that scores mining pools [in this file](https://github.com/taofu-labs/tpn-subnet/blob/main/federated-container/modules/scoring/score_mining_pools.js#L162)
 3. While speed and bandwidth size will matter soon, at this stage what matters most is that your workers and mining pool respond with reasonable speed. What matters most there is having a decent CPU and not being stingy on RAM
 
 ## Preparing your machine
