@@ -220,7 +220,7 @@ def check_if_miner_registered(neuron):
     Check if the miner is registered in the metagraph.
     """
     
-    subtensor = bt.subtensor(config=neuron.config)
+    subtensor = bt.Subtensor(config=neuron.config)
     metagraph = subtensor.metagraph(neuron.config.netuid)
 
     is_registered = neuron.wallet.hotkey.ss58_address in metagraph.hotkeys

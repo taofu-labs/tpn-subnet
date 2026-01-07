@@ -31,11 +31,11 @@ import bittensor as bt
 #   def dummy( synapse: Dummy ) -> Dummy:
 #       synapse.dummy_output = synapse.dummy_input + 1
 #       return synapse
-#   axon = bt.axon().attach( dummy ).serve(netuid=...).start()
+#   axon = bt.Axon().attach( dummy ).serve(netuid=...).start()
 
 # ---- validator ---
 # Example usage:
-#   dendrite = bt.dendrite()
+#   dendrite = bt.Dendrite()
 #   dummy_output = dendrite.query( Dummy( dummy_input = 1 ) )
 #   assert dummy_output == 2
 
