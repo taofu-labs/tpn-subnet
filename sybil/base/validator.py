@@ -282,11 +282,19 @@ class BaseValidatorNeuron(BaseNeuron):
                 wait_for_inclusion=False,
                 version_key=self.spec_version,
             )
-            if response.success:
+            # Check if response is a tuple (as expected in bittensor 9.10.1)
+            if isinstance(response, tuple):
+                success, message = response
+            else:
+                # Fallback for forward compatibility or if return type changes
+                success = getattr(response, "success", True)
+                message = getattr(response, "message", "")
+
+            if success:
                 bt.logging.info("set_weights on chain successfully!")
                 break
             else:
-                bt.logging.error(f"set_weights failed. Retrying... {response.message}")
+                bt.logging.error(f"set_weights failed. Retrying... {message}")
 
     def resync_metagraph(self):
         """Resyncs the metagraph and updates the hotkeys and moving averages based on the new metagraph."""
