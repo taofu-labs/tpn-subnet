@@ -53,13 +53,13 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             const valid_keys = `${ process.env.VALIDATOR_LEASE_API_KEYS || '' }`.split( ',' ).map( key => key.trim() ).filter( key => key.length )
             if( !valid_keys.length ) {
                 log.info( `Validator has no api key set in VALIDATOR_LEASE_API_KEYS, denying lease requests by default` )
-                log.info( `🤡 Not blocking access yet until dev portal is live` )
-                // throw new Error( `This validator does not serve leases publicly due to it's configuration` )
+                // log.info( `🤡 Not blocking access yet until dev portal is live` )
+                throw new Error( `This validator does not serve leases publicly due to it's configuration` )
             }
             if( valid_keys.length && ( !api_key || !valid_keys.includes( api_key ) ) ) {
                 log.warn( `Attempted access with invalid API key: ${ api_key }` )
-                log.info( `🤡 Not blocking access yet until dev portal is live` )
-                // throw new Error( `Invalid or missing API key` )
+                // log.info( `🤡 Not blocking access yet until dev portal is live` )
+                throw new Error( `Invalid or missing API key` )
             }
             log.info( `Validator lease request accepted with valid API key` )
 
