@@ -1,6 +1,6 @@
 {
   "name": "tpn-node",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "TPN Node docker container code, used for validators, miners, and workers",
   "main": "app.js",
   "type": "module",
@@ -34,6 +34,7 @@
     "node-pg-format": "^1.3.5",
     "pg": "^8.16.3",
     "pg-format": "^1.0.4",
+    "semver": "^7.7.3",
     "unzipper": "^0.12.3",
     "uuid": "^13.0.0"
   }

@@ -7,6 +7,7 @@ import { get_config_directly_from_worker } from "../networking/worker.js"
 import { map_ips_to_geodata } from "../geolocation/ip_mapping.js"
 import { base_url } from "../networking/url.js"
 import { test_socks5_connection } from "../networking/socks5.js"
+import { score_node_version } from "./score_node.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
 
 /**
@@ -192,6 +193,9 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             const { json_config, text_config, mining_pool_url } = worker
             if( CI_MODE === 'true' ) log.info( `Validating worker ${ worker.ip } with config:`, worker )
 
+            // Check that the worker is up to date
+            const { version_valid, version } = await score_node_version( worker )
+            if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
 
             // Check that the worker broadcasts mining pool membership
             await worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch: true } )
