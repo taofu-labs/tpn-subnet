@@ -103,10 +103,11 @@ export async function check_system_warnings() {
                 `MAXMIND_LICENSE_KEY`, 
                 `IP2LOCATION_DOWNLOAD_TOKEN`,
                 `SWAG_DOMAIN_NAME`,
-                `SWAG_EMAIL`
+                `SWAG_EMAIL`,
+                `ADMIN_API_KEY`
             ] : [],
             ...validator_mode ? [
-                // No additional validator-specific vars currently
+                `VALIDATOR_LEASE_API_KEYS`
             ] : [],
             ...miner_mode ? [ 
                 `MINING_POOL_WEBSITE_URL`,
