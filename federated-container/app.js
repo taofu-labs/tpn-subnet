@@ -4,10 +4,9 @@ import { restore_tpn_cache_from_disk } from "./modules/caching.js"
 import { ip_from_req } from "./modules/networking/network.js"
 
 // Get relevant environment data
-import { get_git_branch_and_hash, check_system_warnings, run } from './modules/system/shell.js'
+import { get_git_branch_and_hash, check_system_warnings, run, get_node_version } from './modules/system/shell.js'
 import { run_mode } from "./modules/validations.js"
-import { readFile } from 'fs/promises'
-const { version } = JSON.parse( await readFile( new URL( './package.json', import.meta.url ) ) )
+const { version } = await get_node_version()
 const { branch, hash } = await get_git_branch_and_hash()
 const { CI_MODE, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START } = process.env
 const { DAEMON_INTERVAL_SECONDS=CI_MODE === 'true' ? 60 : 300 } = process.env

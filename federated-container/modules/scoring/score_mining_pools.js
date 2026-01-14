@@ -5,6 +5,7 @@ import { cochrane_sample_size } from "../math/samples.js"
 import { validate_and_annotate_workers } from "./score_workers.js"
 import { read_mining_pool_metadata, write_pool_score } from "../database/mining_pools.js"
 import { get_miners, get_worker_config_through_mining_pool } from "../networking/miners.js"
+import { score_node_version } from "./score_node.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES, CI_MOCK_WORKER_RESPONSES, CI_MINER_IP_OVERRIDES } = process.env
 
 /**
@@ -169,6 +170,11 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     log.info( `Scoring mining pool ${ pool_label }` )
     cache.merge( cache_key, [ `${ elapsed_s() }s - Starting scoring for mining pool ${ pool_label }` ] )
 
+    // Test pool version
+    const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
+    const { version_valid, version } = await score_node_version( { public_url: url, ip: mining_pool_ip, port } )
+    if( !version_valid ) throw new Error( `Mining pool ${ pool_label } is running an outdated version: ${ version }` )
+
     // Get the latest broadcast metadata of the worker data
     const [ { last_known_worker_pool_size, updated }={} ]= await read_worker_broadcast_metadata( { mining_pool_uid, mining_pool_ip, limit: 1 } )
     if( !updated ) throw new Error( `No worker broadcast metadata found for mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
@@ -278,7 +284,6 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     try {
         const feedback = { composite_scores, workers_with_status }
         const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
-        const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
         if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
         const endpoint = `${ url }/miner/broadcast/worker/feedback`
         log.info( `Sending feedback to mining pool ${ pool_label } at endpoint ${ endpoint }` )

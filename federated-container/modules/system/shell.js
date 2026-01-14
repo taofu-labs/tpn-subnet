@@ -1,6 +1,7 @@
 import { exec } from 'child_process'
 import { cache, log } from 'mentie'
 import { run_mode } from '../validations.js'
+import { readFile } from 'fs/promises'
 
 
 /**
@@ -102,10 +103,11 @@ export async function check_system_warnings() {
                 `MAXMIND_LICENSE_KEY`, 
                 `IP2LOCATION_DOWNLOAD_TOKEN`,
                 `SWAG_DOMAIN_NAME`,
-                `SWAG_EMAIL`
+                `SWAG_EMAIL`,
+                `ADMIN_API_KEY`
             ] : [],
             ...validator_mode ? [
-                // No additional validator-specific vars currently
+                `VALIDATOR_LEASE_API_KEYS`
             ] : [],
             ...miner_mode ? [ 
                 `MINING_POOL_WEBSITE_URL`,
@@ -135,6 +137,7 @@ export async function get_git_branch_and_hash() {
     try {
         const cache_branch = cache( 'git_branch' )
         const cache_hash = cache( 'git_hash' )
+        const cache_last_commit_date = cache( 'git_last_commit_date' )
         const branch = cache_branch || await new Promise( ( resolve, reject ) => {
             exec( 'git rev-parse --abbrev-ref HEAD', ( error, stdout ) => {
                 if( error ) return reject( error )
@@ -151,9 +154,36 @@ export async function get_git_branch_and_hash() {
                 resolve( commit_hash )
             } )
         } )
-        return { branch, hash }
+        const last_commit_date = cache_last_commit_date || await new Promise( ( resolve, reject ) => {
+            exec( 'git log -1 --format=%cd --date=iso-strict', ( error, stdout ) => {
+                if( error ) return reject( error )
+                const commit_date = stdout.trim()
+                cache( 'git_last_commit_date', commit_date )
+                resolve( commit_date )
+            } )
+        } )
+        return { branch, hash, last_commit_date }
     } catch ( e ) {
         log.error( `Failed to get git branch and hash: ${ e.message }` )
         return { branch: 'unknown', hash: 'unknown' }
     }
+}
+
+/**
+ * Retrieves the current Node.js version and caches it for future use.
+ * @returns {Promise<string>} The current Node.js version.
+ */
+export async function get_node_version() {
+
+    // Check for cached value
+    const cached_version = cache( 'node_version' )
+    if( cached_version ) return cached_version
+
+    // Read version from package.json
+    const { version } = JSON.parse( await readFile( new URL( '../../package.json', import.meta.url ) ) )
+
+    // Cache and return version
+    cache( 'node_version', version )
+    return version
+
 }
