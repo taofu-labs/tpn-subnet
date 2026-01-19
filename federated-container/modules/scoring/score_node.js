@@ -32,7 +32,7 @@ export async function score_node_version( { ip, public_url, port=3000, grace_win
         // Get this node's version info
         const { version: local_version } = await get_node_version()
         const { branch: local_branch, hash: local_hash, last_commit_date: local_last_commit_date } = await get_git_branch_and_hash()
-        log.info( `Scoring node version for IP ${ ip } at ${ public_url } against local version ${ local_version } (branch: ${ local_branch }, hash: ${ local_hash })` )
+        log.debug( `Scoring node version for IP ${ ip } at ${ public_url } against local version ${ local_version } (branch: ${ local_branch }, hash: ${ local_hash })` )
 
 
         // Call the node / endpoint to check the branch, version, hash
@@ -80,6 +80,7 @@ export async function score_node_version( { ip, public_url, port=3000, grace_win
             exact_match,
             within_grace_period
         } )
+        log.debug( `Node ${ ip } version ${ remote_version } is ${ version_valid ? 'valid ✅' : 'invalid ❌' }` )
         return { version_valid, version: remote_version, exact_match }
 
     } catch ( e ) {
