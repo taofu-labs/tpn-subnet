@@ -171,7 +171,7 @@ export async function get_git_branch_and_hash() {
 
 /**
  * Retrieves the current Node.js version and caches it for future use.
- * @returns {Promise<string>} The current Node.js version.
+ * @returns {Promise<{ version: string }>} An object containing the Node.js version.
  */
 export async function get_node_version() {
 
@@ -180,10 +180,12 @@ export async function get_node_version() {
     if( cached_version ) return cached_version
 
     // Read version from package.json
-    const { version } = JSON.parse( await readFile( new URL( '../../package.json', import.meta.url ) ) )
+    const path = new URL( '../../package.json', import.meta.url )
+    log.debug( `Reading node version from package.json at`, path )
+    const { version } = JSON.parse( await readFile( path ) )
 
     // Cache and return version
     cache( 'node_version', version )
-    return version
+    return { version }
 
 }
