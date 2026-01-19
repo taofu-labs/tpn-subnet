@@ -177,12 +177,15 @@ export async function get_node_version() {
 
     // Check for cached value
     const cached_version = cache( 'node_version' )
-    if( cached_version ) return cached_version
+    if( cached_version ) {
+        log.debug( `Using cached node version: ${ cached_version }` )
+        return { version: cached_version }
+    }
 
     // Read version from package.json
     const path = new URL( '../../package.json', import.meta.url )
-    log.debug( `Reading node version from package.json at`, path )
     const { version } = JSON.parse( await readFile( path ) )
+    log.debug( `Retrieved node version from package.json: :`, { version, path } )
 
     // Cache and return version
     cache( 'node_version', version )
