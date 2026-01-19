@@ -32,10 +32,13 @@ export async function score_node_version( { ip, public_url, port=3000, grace_win
         // Get this node's version info
         const { version: local_version } = await get_node_version()
         const { branch: local_branch, hash: local_hash, last_commit_date: local_last_commit_date } = await get_git_branch_and_hash()
+        log.info( `Scoring node version for IP ${ ip } at ${ public_url } against local version ${ local_version } (branch: ${ local_branch }, hash: ${ local_hash })` )
+
 
         // Call the node / endpoint to check the branch, version, hash
         const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
-        const { branch: remote_branch, version: remote_version, hash: remote_hash } = await fetch( `http://${ ip }:${ port }`, fetch_options ).then( res => res.json() )
+        const { branch: remote_branch, version: remote_version, hash: remote_hash } = await fetch( public_url, fetch_options ).then( res => res.json() )
+        if( !remote_version ) throw new Error( `No version returned from node at ${ public_url }` )
 
         // Check if the remote semver is higher than local
         const [ local_major, local_minor, local_patch ] = local_version.split( '.' ).map( n => parseInt( n ) )
@@ -65,6 +68,18 @@ export async function score_node_version( { ip, public_url, port=3000, grace_win
         // Define if valid
         const version_valid = semver_equal_or_within_grace
 
+        log.insane( `Node ${ ip } version scoring details:`, { 
+            local_version,
+            local_branch,
+            local_hash,
+            remote_version,
+            remote_branch,
+            remote_hash,
+            min_semver_string,
+            semver_equal_or_within_grace,
+            exact_match,
+            within_grace_period
+        } )
         return { version_valid, version: remote_version, exact_match }
 
     } catch ( e ) {
