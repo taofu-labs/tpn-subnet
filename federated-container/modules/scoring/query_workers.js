@@ -1,7 +1,6 @@
 import { cache, log, round_number_to_decimals } from "mentie"
 import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_worker_config_through_mining_pool } from "../networking/miners.js"
-import { parse_wireguard_config } from "../networking/wireguard.js"
 import { run_mode } from "../validations.js"
 import { get_worker_config_as_worker } from "../api/worker.js"
 
@@ -40,16 +39,21 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
         if( worker_mode ) {
 
             // Worker generates configs from itself
+            log.info( `Fetching worker configs directly as worker for ${ worker.ip }` )
             wireguard_config = await get_worker_config_as_worker( { type: `wireguard`, lease_seconds, format: `text` } )
             socks5_config = await get_worker_config_as_worker( { type: `socks5`, lease_seconds, format: `text` } )
 
         } else if( miner_mode ) {
 
+            // Miner fetches configs directly from worker
+            log.info( `Fetching worker configs directly from worker for ${ worker.ip }` )
             wireguard_config = await get_config_directly_from_worker( { worker, lease_seconds } )
             socks5_config = await get_config_directly_from_worker( { worker, type: `socks5`, format: `text`, lease_seconds } )
 
         } else if( validator_mode ) {
 
+            // Validator fetches configs through mining pool
+            log.info( `Fetching worker configs through mining pool for ${ worker.ip }` )
             wireguard_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: `text`, lease_seconds } )
             trace( `Fetched worker config for ${ worker.ip }` )
 
@@ -59,24 +63,25 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
         }
 
         // Build annotated worker
-        const annotated = { ...worker }
-
-        if( wireguard_config ) {
-            const { text_config } = parse_wireguard_config( { wireguard_config } )
-            if( text_config ) annotated.wireguard_config = text_config
-        }
-
-        if( socks5_config ) annotated.socks5_config = socks5_config
+        const annotated = { ...worker, wireguard_config, socks5_config }
+        log.info( `Annotated worker ${ worker.ip } with configs` )
 
         // Log warnings on missing configs
-        if( !wireguard_config ) log.info( `Error fetching worker config for ${ worker.ip }` )
-        if( !socks5_config ) log.info( `Error fetching worker socks5 config for ${ worker.ip }` )
+        if( !wireguard_config ) log.info( `Error fetching worker wireguard for ${ worker.ip }` )
+        if( !socks5_config ) log.info( `Error fetching worker socks5 for ${ worker.ip }` )
 
         return annotated
 
     } ) )
 
     // Extract values from settled results
-    return results.map( result => result.value || result.reason )
+    const workers_with_configs = results.map( ( result, index ) => {
+        if( result.status === 'fulfilled' ) return result.value
+        log.error( `Error fetching configs for worker ${ workers[ index ]?.ip }:`, result.reason )
+        return workers[ index ]
+    } )
+    log.info( `Annotated ${ workers_with_configs.length } workers with configs in ${ get_elapsed() }s` )
+
+    return workers_with_configs
 
 }

@@ -218,11 +218,11 @@ export async function update_ip2location_bin() {
 export async function is_data_center( ip_address ) {
 
     // Check for cached value
-    log.debug( `Checking for cached value for IP address ${ ip_address }` )
+    log.insane( `Checking for cached value for IP address ${ ip_address }` )
     const cache_key = `is_dc_${ ip_address }`
     let cached_value = cache( cache_key )
     if( typeof cached_value == 'boolean' ) {
-        log.debug( `Returning cached value for IP address ${ ip_address }` )
+        log.insane( `Returning cached value for IP address ${ ip_address }` )
         return cached_value
     }
 
@@ -235,7 +235,7 @@ export async function is_data_center( ip_address ) {
     // Check database file metadata
     const { mtimeMs } = fs.statSync( database_file_location )
     const database_age_ms = Date.now() - mtimeMs
-    log.debug( `Database file age: ${ database_age_ms } ms` )
+    log.insane( `Database file age: ${ database_age_ms } ms` )
 
     // Get connection type
     ip2location.open( database_file_location )
@@ -244,10 +244,10 @@ export async function is_data_center( ip_address ) {
 
     // Check against known datacenter providers
     const is_datacenter = datacenter_patterns.some( pattern => pattern.test( automated_service_name ) )
-    log.info( `Retrieved connection type for IP address ${ ip_address } hos ted by ${ automated_service_name }: ${ is_datacenter }` )
+    log.insane( `Retrieved connection type for IP address ${ ip_address } hos ted by ${ automated_service_name }: ${ is_datacenter }` )
     
     cached_value = cache( cache_key, is_datacenter, 5 * 60_000 )
-    log.debug( `Returning connection type for IP address ${ ip_address }: `, cached_value )
+    log.insane( `Returning connection type for IP address ${ ip_address }: `, cached_value )
     return cached_value
 
 }
