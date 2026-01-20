@@ -7,6 +7,7 @@ import { write_workers } from '../../modules/database/workers.js'
 import { validate_and_annotate_workers } from '../../modules/scoring/score_workers.js'
 import { ip_from_req } from '../../modules/networking/network.js'
 import { is_validator_request } from '../../modules/networking/validators.js'
+import { add_configs_to_workers } from '../../modules/scoring/query_workers.js'
 const { CI_MODE } = process.env
 
 export const router = Router()
@@ -22,10 +23,12 @@ router.post( '/worker', async ( req, res ) => {
         // Get workerdata from request from the request
         const { wireguard_config, socks5_config, mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor } = req.body || {}
         const { unspoofable_ip } = ip_from_req( req )
+        log.debug( `Received worker registration request from ${ unspoofable_ip }: `, req.body )
         
         // Validate inputs
-        if( !wireguard_config ) throw new Error( `Missing WireGuard configuration in request` )
-        if( !socks5_config ) throw new Error( `Missing Socks5 configuration in request` )
+        // ⚠️ BACKWARD COMPATIBILITY: uncomment after van 25th
+        // if( !wireguard_config ) throw new Error( `Missing WireGuard configuration in request from ${ unspoofable_ip }` )
+        // if( !socks5_config ) throw new Error( `Missing Socks5 configuration in request from ${ unspoofable_ip }` )
 
         // Get worker data
         const { country_code, connection_type } = await ip_geodata( unspoofable_ip )
@@ -36,6 +39,15 @@ router.post( '/worker', async ( req, res ) => {
         // Attach configs
         worker.wireguard_config = wireguard_config
         worker.socks5_config = socks5_config
+
+        // If configs missing, try to get them
+        // ⚠️ BACKWARD COMPATIBILITY: delete after van 25th 
+        if( !worker.wireguard_config || !worker.socks5_config ) {
+            log.info( `Worker ${ worker.ip } missing configs, attempting to fetch directly from worker` )
+            const [ worker_with_configs ] = await add_configs_to_workers( { workers: [ worker ], lease_seconds: 120 } )
+            worker = { ...worker, ...worker_with_configs }
+            log.debug( `Fetched missing configs for worker ${ worker.ip }: `, worker )
+        }
         
         // Validate worker data
         if( !is_valid_worker( worker ) ) throw new Error( `Invalid worker data received` )

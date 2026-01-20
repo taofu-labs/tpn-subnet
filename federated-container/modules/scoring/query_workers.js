@@ -41,7 +41,6 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
 
             // Worker generates configs from itself
             wireguard_config = await get_worker_config_as_worker( { type: `wireguard`, lease_seconds, format: `text` } )
-
             socks5_config = await get_worker_config_as_worker( { type: `socks5`, lease_seconds, format: `text` } )
 
         } else if( miner_mode ) {
