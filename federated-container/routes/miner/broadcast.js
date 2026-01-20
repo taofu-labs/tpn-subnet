@@ -20,18 +20,24 @@ router.post( '/worker', async ( req, res ) => {
     try {
         
         // Get workerdata from request from the request
-        const { wireguard_config, mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor } = req.body || {}
+        const { wireguard_config, socks5_config, mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor } = req.body || {}
         const { unspoofable_ip } = ip_from_req( req )
         
         // Validate inputs
         if( !wireguard_config ) throw new Error( `Missing WireGuard configuration in request` )
+        if( !socks5_config ) throw new Error( `Missing Socks5 configuration in request` )
 
         // Get worker data
         const { country_code, connection_type } = await ip_geodata( unspoofable_ip )
         let worker = { ip: unspoofable_ip, country_code, connection_type, status: 'tbd', mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor }
         log.info( `Received worker registration from ${ unspoofable_ip }:`, worker )
         worker = annotate_worker_with_defaults( worker )
+
+        // Attach configs
         worker.wireguard_config = wireguard_config
+        worker.socks5_config = socks5_config
+        
+        // Validate worker data
         if( !is_valid_worker( worker ) ) throw new Error( `Invalid worker data received` )
 
         // Check that worker is valid

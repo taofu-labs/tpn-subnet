@@ -82,7 +82,7 @@ export async function register_with_mining_pool() {
 
         // Post to the miner
         const query = `${ MINING_POOL_URL }/miner/broadcast/worker`
-        log.info( `Registering with mining pool ${ MINING_POOL_URL } at ${ query }` )
+        log.info( `Registering with mining pool ${ MINING_POOL_URL } at ${ query } with`, worker_with_configs )
 
         const { registered, worker, error } = await fetch( query, {
             method: 'POST',
