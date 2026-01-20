@@ -4,9 +4,9 @@ import { cache, log } from "mentie"
 import { get_pool_scores } from "../../modules/database/mining_pools.js"
 import { request_is_local } from "../../modules/networking/network.js"
 import { get_workers } from "../../modules/database/workers.js"
-import { get_config_directly_from_worker } from "../../modules/networking/worker.js"
 import { parse_wireguard_config } from "../../modules/networking/wireguard.js"
 import { validate_and_annotate_workers, worker_matches_miner } from "../../modules/scoring/score_workers.js"
+import { get_worker_config_as_validator } from "../../modules/api/validator.js"
 
 
 export const router = Router()
@@ -109,12 +109,16 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
 
         // Fetch wireguard and socks5 configs for each member worker
         await Promise.allSettled( member_workers.map( async ( worker, index ) => {
-            const wireguard_config = await get_config_directly_from_worker( { worker } )
+            log.debug( `Fetching audit configs for worker ${ worker.ip }` )
+            const wireguard_config = await get_worker_config_as_validator( { worker } )
             const { text_config } = parse_wireguard_config( { wireguard_config } )
+            log.insane( `Parsed wireguard config for worker ${ worker.ip }:`, wireguard_config )
             if( text_config ) member_workers[ index ].wireguard_config = text_config
 
-            const socks5_config = await get_config_directly_from_worker( { worker, type: 'socks5', format: 'text' } )
+            log.debug( `Fetching socks5 config for worker ${ worker.ip }` )
+            const socks5_config = await get_worker_config_as_validator( { worker, type: 'socks5', format: 'text' } )
             if( socks5_config ) member_workers[ index ].socks5_config = socks5_config
+            log.insane( `Parsed socks5 config for worker ${ worker.ip }:`, socks5_config )
         } ) )
 
         // Test all member workers

@@ -28,6 +28,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             const is_validator = await is_validator_request( req )
             if( !is_validator ) {
                 const { unspoofable_ip } = ip_from_req( req )
+                log.debug( `Denied lease request to miner from non-validator IP: ${ unspoofable_ip }` )
                 throw new Error( `Miners only accept lease requests from validators, which you (${ unspoofable_ip }) are not` )
             }
         }
@@ -39,8 +40,9 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             let { unspoofable_ip } = ip_from_req( req )
             const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: hostname } )
             const ip_match = sanetise_ipv4( { ip: unspoofable_ip } ) === sanetise_ipv4( { ip: mining_pool_ip } )
+            log.debug( `Worker lease request from ${ unspoofable_ip }, mining pool resolved ip is ${ mining_pool_ip }, match: ${ ip_match }` )
             if( !ip_match ) {
-                log.warn( `Attempted access denied for ${ mining_pool_ip }` )
+                log.warn( `Attempted access denied for ${ mining_pool_ip } because it does not match caller IP ${ unspoofable_ip }` )
                 throw new Error( `Worker does not accept lease requests from ${ unspoofable_ip }` )
             }
         }
@@ -112,7 +114,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         log.debug( `Getting config as ${ mode } with params:`, config_meta )
         let config = null
         if( validator_mode ) config = await get_worker_config_as_validator( config_meta )
-        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )        
+        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )
         if( worker_mode ) config = await get_worker_config_as_worker( config_meta )
 
         // Validate config
