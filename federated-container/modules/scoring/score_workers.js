@@ -1,45 +1,13 @@
-import { abort_controller, cache, log, sanetise_string } from "mentie"
+import { cache, log } from "mentie"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
 import { default_mining_pool, is_valid_worker, run_mode } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
 import { get_workers, write_workers, write_worker_performance } from "../database/workers.js"
-import { get_config_directly_from_worker } from "../networking/worker.js"
+import { add_configs_to_workers } from "./query_workers.js"
 import { map_ips_to_geodata } from "../geolocation/ip_mapping.js"
-import { base_url } from "../networking/url.js"
 import { test_socks5_connection } from "../networking/socks5.js"
 import { score_node_version } from "./score_node.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
-
-/**
- * Verifies if a worker is a member of the current mining pool.
- * @param {Object} params - Verification parameters.
- * @param {Object} params.worker - Worker object to test.
- * @param {string} params.worker.public_url - Public URL of the worker.
- * @returns {Promise<{is_member: boolean}|{error: string}>} - Result of membership verification.
- */
-async function verify_worker_membership( { worker } ) {
-
-    try {
-
-        // Query the worker for its mining pool membership
-        const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
-        const { version, MINING_POOL_URL } = await fetch( worker.public_url, fetch_options ).then( res => res.json() )
-        if( !MINING_POOL_URL ) throw new Error( `Worker did not return a mining pool URL` )
-        
-        // Check that the mining pool URL matches our base URL
-        const is_member = sanetise_string( MINING_POOL_URL ) === sanetise_string( base_url )
-
-        // If not member, log and return false
-        if( !is_member ) log.info( `Worker ${ worker.public_url } running v${ version } reports mining pool URL ${ MINING_POOL_URL } which does not match our base URL ${ base_url }` )
-
-        return { is_member }
-        
-    } catch ( e ) {
-        log.info( `Error verifying worker ${ worker.public_url } membership: ${ e.message }:`, e )
-        return { error: e.message }
-    }
-
-}
 
 /**
  * Tests and scores all known workers registered with the mining pool.
@@ -65,30 +33,12 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
         if( !workers?.length ) return log.info( `No known workers to score` )
         if( CI_MODE === 'true' ) log.info( `Got ${ workers.length } workers to score, first: `, workers?.[0] )
 
-        // If workers are no longer members, and their membership used to be 'internal', mark them as 'external' now
-        await Promise.allSettled( workers.map( async ( worker, index ) => {
-            const { is_member } = await verify_worker_membership( { worker } )
-            if( is_member === false && worker.mining_pool_uid === 'internal' ) workers[ index ].mining_pool_uid = 'external'
-        } ) )
-
-        // Get a config directly from each worker
+        // Fetch wireguard and socks5 configs from each worker
         log.info( `Fetching wireguard config from ${ workers.length } workers...` )
-        await Promise.allSettled( workers.map( async ( worker, index ) => {
-
-            // Skip non members
-            if( worker.mining_pool_uid !== 'internal' ) return log.info( `Skipping worker ${ worker.public_url } as it is not a member of this mining pool` )
-            
-            const wireguard_config = await get_config_directly_from_worker( { worker } )
-            const { text_config, json_config } = parse_wireguard_config( { wireguard_config } )
-            if( text_config ) workers[ index ].wireguard_config = text_config
-
-            const socks5_config = await get_config_directly_from_worker( { worker, type: 'socks5', format: 'text' } )
-            if( socks5_config ) workers[ index ].socks5_config = socks5_config
-
-        } ) )
+        const workers_with_configs = await add_configs_to_workers( { workers } )
 
         // Test all known workers
-        const { successes, failures } = await validate_and_annotate_workers( { workers_with_configs: workers } )
+        const { successes, failures } = await validate_and_annotate_workers( { workers_with_configs } )
 
         // Save all worker data
         const annotated_workers = [

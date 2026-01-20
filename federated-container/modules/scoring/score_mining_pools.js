@@ -3,8 +3,9 @@ import { get_tpn_cache } from "../caching.js"
 import { get_worker_countries_for_pool, get_workers, read_worker_broadcast_metadata, write_workers } from "../database/workers.js"
 import { cochrane_sample_size } from "../math/samples.js"
 import { validate_and_annotate_workers } from "./score_workers.js"
+import { add_configs_to_workers } from "./query_workers.js"
 import { read_mining_pool_metadata, write_pool_score } from "../database/mining_pools.js"
-import { get_miners, get_worker_config_through_mining_pool } from "../networking/miners.js"
+import { get_miners } from "../networking/miners.js"
 import { score_node_version } from "./score_node.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES, CI_MOCK_WORKER_RESPONSES, CI_MINER_IP_OVERRIDES } = process.env
 
@@ -199,29 +200,19 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     }
     log.info( `Selected ${ selected_workers.length } workers for scoring from mining pool ${ pool_label }` )
 
-    // Annotate the selected workers with a wireguard and socks5 config for testing in paralell
-    await Promise.allSettled( selected_workers.map( async ( worker, index ) => {
-
-        // Get worker config through the mining pool
-        cache.merge( cache_key, [ `${ elapsed_s() }s - Fetching worker config for ${ worker.ip } in mining pool ${ pool_label }` ] )
-        const text_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: 'text', lease_seconds: 120 } )
-        cache.merge( cache_key, [ `${ elapsed_s() }s - Fetched worker config for ${ worker.ip } in mining pool ${ pool_label }` ] )
-        
-        // Also get socks5 config
-        const sock5_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: 'socks5', lease_seconds: 120 } )
-        cache.merge( cache_key, [ `${ elapsed_s() }s - Fetched worker socks5 config for ${ worker.ip } in mining pool ${ pool_label }` ] )
-        
-        // Attach configs to worker
-        if( sock5_config ) worker.socks5_config = sock5_config
-        if( text_config ) selected_workers[ index ].wireguard_config = text_config
-        if( !text_config ) log.info( `Error fetching worker config for ${ worker.ip }` )
-        if( !sock5_config ) log.info( `Error fetching worker socks5 config for ${ worker.ip }` )
-        
-    } ) )
+    // Annotate the selected workers with a wireguard and socks5 config
+    const workers_with_configs = await add_configs_to_workers( {
+        workers: selected_workers,
+        mining_pool_uid,
+        mining_pool_ip,
+        lease_seconds: 120,
+        elapsed_s,
+        cache_key
+    } )
 
     // Score the selected workers
-    cache.merge( cache_key, [ `${ elapsed_s() }s - Validating and annotating ${ selected_workers.length } workers for mining pool ${ pool_label }` ] )
-    const { successes, failures, workers_with_status } = await validate_and_annotate_workers( { workers_with_configs: selected_workers } )
+    cache.merge( cache_key, [ `${ elapsed_s() }s - Validating and annotating ${ workers_with_configs.length } workers for mining pool ${ pool_label }` ] )
+    const { successes, failures, workers_with_status } = await validate_and_annotate_workers( { workers_with_configs } )
     cache.merge( cache_key, [ `${ elapsed_s() }s - Completed validating and annotating workers for mining pool ${ pool_label }` ] )
     log.info( `Scored workers for mining pool ${ pool_label }, successes: ${ successes?.length }, failures: ${ failures?.length }. Status annotated: ${ workers_with_status?.length }` )
     log.debug( `Failure exerpt: `, failures?.slice( 0, 3 ) )
