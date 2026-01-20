@@ -16,7 +16,7 @@ import { add_configs_to_workers } from "../scoring/query_workers.js"
  * @param {string} [params.feedback_url] - URL for feedback on the request status.
  * @returns {Promise<string|Object>} - WireGuard configuration in requested format.
  */
-export async function get_worker_config_as_worker( { type='wireguard', lease_seconds, priority, format, feedback_url } ) {
+export async function get_worker_config_as_worker( { type='wireguard', lease_seconds, priority, format='text', feedback_url } ) {
 
     let config = null
 

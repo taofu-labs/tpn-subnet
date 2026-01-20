@@ -40,24 +40,24 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
 
             // Worker generates configs from itself
             log.info( `Fetching worker configs directly as worker for ${ worker.ip }` )
-            wireguard_config = await get_worker_config_as_worker( { type: `wireguard`, lease_seconds, format: `text` } )
-            socks5_config = await get_worker_config_as_worker( { type: `socks5`, lease_seconds, format: `text` } )
+            wireguard_config = await get_worker_config_as_worker( { lease_seconds } )
+            socks5_config = await get_worker_config_as_worker( { type: `socks5`, lease_seconds } )
 
         } else if( miner_mode ) {
 
             // Miner fetches configs directly from worker
             log.info( `Fetching worker configs directly from worker for ${ worker.ip }` )
             wireguard_config = await get_config_directly_from_worker( { worker, lease_seconds } )
-            socks5_config = await get_config_directly_from_worker( { worker, type: `socks5`, format: `text`, lease_seconds } )
+            socks5_config = await get_config_directly_from_worker( { worker, type: `socks5`, lease_seconds } )
 
         } else if( validator_mode ) {
 
             // Validator fetches configs through mining pool
             log.info( `Fetching worker configs through mining pool for ${ worker.ip }` )
-            wireguard_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: `text`, lease_seconds } )
+            wireguard_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, lease_seconds } )
             trace( `Fetched worker config for ${ worker.ip }` )
 
-            socks5_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: `socks5`, lease_seconds } )
+            socks5_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, type: `socks5`, lease_seconds } )
             trace( `Fetched worker socks5 config for ${ worker.ip }` )
 
         }
