@@ -13,6 +13,9 @@ export async function test_socks5_connection( { sock } ) {
 
     try {
 
+        // Check that the sock parameter is provided
+        if( !sock || !sock.length ) throw new Error( `No sock parameter provided for SOCKS5 test` )
+
         // Build the curl commands
         const ip_host = `https://ipv4.icanhazip.com/`
         const curl_icanhaz = `curl -m 2 -s ${ ip_host }`

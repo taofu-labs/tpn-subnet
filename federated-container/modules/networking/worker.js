@@ -32,14 +32,14 @@ export const MINING_POOL_URL = get_worker_mining_pool_url()
  * @param {Object} params.worker - The worker object.
  * @param {string} params.worker.ip - Worker's IP address.
  * @param {number} [params.worker.public_port=3000] - Worker's public port.
- * @param {number} [params.max_retries=1] - Maximum retry attempts.
+ * @param {number} [params.max_retries=2] - Maximum retry attempts.
  * @param {number} [params.lease_seconds=120] - Lease duration in seconds.
  * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
  * @param {string} [params.format='text'] - Response format (text or json).
  * @param {number} [params.timeout_ms=5000] - Request timeout in milliseconds.
  * @returns {Promise<string|Object>} - WireGuard configuration.
  */
-export async function get_config_directly_from_worker( { worker, max_retries=1, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000 } ) {
+export async function get_config_directly_from_worker( { worker, max_retries=2, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000 } ) {
 
     const { ip, public_port=3000 } = worker
     const { CI_MOCK_WORKER_RESPONSES } = process.env
@@ -55,10 +55,16 @@ export async function get_config_directly_from_worker( { worker, max_retries=1, 
         attempts++
         const { fetch_options } = abort_controller( { timeout_ms } )
         log.info( `Attempt ${ attempts }/${ max_retries } to get ${ query }` )
-        config = await fetch( query, fetch_options ).then( res => format === 'json' ? res.json() : res.text() )
+        config = await fetch( query, fetch_options ).then( res => format === 'json' ? res.json() : res.text() ).catch( e => {
+            log.warn( `Error fetching config from worker ${ ip } on attempt ${ attempts }:`, e.message )
+            return null
+        } )
         log.info( `Received ${ type } config from worker ${ ip }` )
     
     }
+
+    // Warn on no config
+    if( !config ) log.warn( `Failed to get ${ type } config from worker ${ ip } after ${ max_retries } attempts` )
 
     // On mock success
     if( CI_MOCK_WORKER_RESPONSES ) config = config || format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : "Mock WireGuard config"
