@@ -39,6 +39,7 @@ export async function test_socks5_connection( { sock } ) {
 
         if( !is_working ) {
             log.info( `SOCKS5 proxy test failed: direct IP (${ direct_ip }) vs SOCKS5 IP (${ socks5_ip })` )
+            log.debug( `SOCKS5 proxy test details:`, { curl_icanhaz, curl_socks5, direct_err, socks5_err } )
         }
         return is_working
 
