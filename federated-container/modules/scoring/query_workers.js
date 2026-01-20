@@ -3,6 +3,7 @@ import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_worker_config_through_mining_pool } from "../networking/miners.js"
 import { parse_wireguard_config } from "../networking/wireguard.js"
 import { run_mode } from "../validations.js"
+import { get_worker_config_as_worker } from "../api/worker.js"
 
 /**
  * Annotates workers with wireguard and socks5 configs based on run mode.
@@ -17,7 +18,7 @@ import { run_mode } from "../validations.js"
  */
 export async function add_configs_to_workers( { workers, mining_pool_uid, mining_pool_ip, lease_seconds = 120, elapsed_s, cache_key } ) {
 
-    const { miner_mode, validator_mode } = run_mode()
+    const { worker_mode, miner_mode, validator_mode } = run_mode()
 
     // Default elapsed_s function if none provided
     const start = Date.now()
@@ -36,7 +37,14 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
         let wireguard_config = null
         let socks5_config = null
 
-        if( miner_mode ) {
+        if( worker_mode ) {
+
+            // Worker generates configs from itself
+            wireguard_config = await get_worker_config_as_worker( { type: `wireguard`, lease_seconds, format: `text` } )
+
+            socks5_config = await get_worker_config_as_worker( { type: `socks5`, lease_seconds, format: `text` } )
+
+        } else if( miner_mode ) {
 
             wireguard_config = await get_config_directly_from_worker( { worker, lease_seconds } )
             socks5_config = await get_config_directly_from_worker( { worker, type: `socks5`, format: `text`, lease_seconds } )
