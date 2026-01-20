@@ -199,13 +199,24 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     }
     log.info( `Selected ${ selected_workers.length } workers for scoring from mining pool ${ pool_label }` )
 
-    // Annotate the selected workers with a wireguard config for testing in paralell
+    // Annotate the selected workers with a wireguard and socks5 config for testing in paralell
     await Promise.allSettled( selected_workers.map( async ( worker, index ) => {
+
+        // Get worker config through the mining pool
         cache.merge( cache_key, [ `${ elapsed_s() }s - Fetching worker config for ${ worker.ip } in mining pool ${ pool_label }` ] )
         const text_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: 'text', lease_seconds: 120 } )
         cache.merge( cache_key, [ `${ elapsed_s() }s - Fetched worker config for ${ worker.ip } in mining pool ${ pool_label }` ] )
+        
+        // Also get socks5 config
+        const sock5_config = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, format: 'socks5', lease_seconds: 120 } )
+        cache.merge( cache_key, [ `${ elapsed_s() }s - Fetched worker socks5 config for ${ worker.ip } in mining pool ${ pool_label }` ] )
+        
+        // Attach configs to worker
+        if( sock5_config ) worker.socks5_config = sock5_config
         if( text_config ) selected_workers[ index ].wireguard_config = text_config
         if( !text_config ) log.info( `Error fetching worker config for ${ worker.ip }` )
+        if( !sock5_config ) log.info( `Error fetching worker socks5 config for ${ worker.ip }` )
+        
     } ) )
 
     // Score the selected workers

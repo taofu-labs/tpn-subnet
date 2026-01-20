@@ -1,6 +1,6 @@
 import { abort_controller, cache, log, sanetise_string } from "mentie"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
-import { default_mining_pool, is_valid_worker } from "../validations.js"
+import { default_mining_pool, is_valid_worker, run_mode } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
 import { get_workers, write_workers, write_worker_performance } from "../database/workers.js"
 import { get_config_directly_from_worker } from "../networking/worker.js"
@@ -49,6 +49,10 @@ async function verify_worker_membership( { worker } ) {
 export async function score_all_known_workers( max_duration_minutes=15 ) {
 
     try { 
+
+        // Warn if function was is called by non miner
+        const { miner_mode } = run_mode()
+        if( !miner_mode ) log.warn( `score_all_known_workers called while not in miner mode, this may be unintended` )
 
         // Set a lock on this activity to prevent races
         log.info( `Starting score_all_known_workers, max duration ${ max_duration_minutes } minutes` )
