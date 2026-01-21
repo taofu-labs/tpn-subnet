@@ -231,7 +231,8 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     const stability_score = stability_fraction * 100
 
     // Calculate size score, defined as the ranking of the size against the last_known_worker_pool_size 
-    const size_score = last_known_worker_pool_size * stability_fraction
+    const { length: active_worker_count=0 } = workers_with_configs || {}
+    const size_score = active_worker_count * stability_fraction
 
     // Calculate performance score
     const no_response_penalty_s = 60

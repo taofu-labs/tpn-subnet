@@ -1,7 +1,7 @@
 import { cache, log, wait } from "mentie"
 import { get_pg_pool } from "./postgres.js"
-import { delete_wireguard_configs, restart_wg_container, wireguard_server_ready } from "../networking/wg-container.js"
-const { WIREGUARD_PEER_COUNT=254 } = process.env 
+import { delete_wireguard_configs, replace_wireguard_configs, restart_wg_container, wireguard_server_ready } from "../networking/wg-container.js"
+const { WIREGUARD_PEER_COUNT=254, BETA_REFRESH_LEASE_INSTEAD_OF_DELETE } = process.env 
 
 async function cleanup_expired_wireguard_configs() {
 
@@ -15,7 +15,7 @@ async function cleanup_expired_wireguard_configs() {
     // Delete all expired rows and their associated configs
     const expired_ids = expired_rows.rows.map( row => row.id )
     log.debug( `Expired ids: ${ expired_ids.length } of ${ WIREGUARD_PEER_COUNT }` )
-    if( expired_ids.length > 0 ) {
+    if( BETA_REFRESH_LEASE_INSTEAD_OF_DELETE !== 'true' && expired_ids.length > 0 ) {
 
         log.info( `${ expired_ids.length } WireGuard configs have expired, deleting them and restarting server` )
 
@@ -28,6 +28,20 @@ async function cleanup_expired_wireguard_configs() {
         if( !open_leases.length ) await restart_wg_container()
         else log.info( `Not restarting wg container as there are still ${ open_leases.length } open leases` )
 
+        // Delete the expired rows from the database
+        await pool.query( `DELETE FROM worker_wireguard_configs WHERE id = ANY( $1::int[] )`, [ expired_ids ] )
+
+    }
+
+    // Beta approach, just replace config keys in memory to prevent restarts
+    if( BETA_REFRESH_LEASE_INSTEAD_OF_DELETE === 'true' && expired_ids.length > 0 ) {
+
+        log.info( `${ expired_ids.length } WireGuard configs have expired, refreshing their keys in memory` )
+
+        // Replace the configs in memory
+        await replace_wireguard_configs( { peer_ids: expired_ids } )
+        log.info( `Refreshed WireGuard configs for expired leases: ${ expired_ids.join( ', ' ) }` )
+        
         // Delete the expired rows from the database
         await pool.query( `DELETE FROM worker_wireguard_configs WHERE id = ANY( $1::int[] )`, [ expired_ids ] )
 
