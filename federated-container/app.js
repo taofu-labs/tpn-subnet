@@ -253,7 +253,7 @@ if( CI_MODE === 'true' ) {
     intervals.push( setInterval( pull, interval ) )
 }
 
-// CI more refresh one  WG config for testing
+// Optionally force refresh a wireguard config every 5 minutes for testing
 if( FORCE_REFRESH === 'true' && worker_mode ) {
     const { replace_wireguard_config } = await import( './modules/networking/wg-container.js' )
     let replacements = 0

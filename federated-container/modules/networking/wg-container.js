@@ -76,7 +76,7 @@ export async function wireguard_server_ready( grace_window_ms=5_000, peer_id=1 )
     let time_passed = 0
     const config_path = join( wireguard_folder, `peer${ peer_id }`, `peer${ peer_id }.conf` )
     log.info( `Checking if wireguard server is ready for peer${ peer_id } at ${ config_path }` )
-    if( CI_MODE && CI_MOCK_WG_CONTAINER ) {
+    if( CI_MODE === 'true' && CI_MOCK_WG_CONTAINER === 'true' ) {
         log.info( `🤡 Mocking wireguard server container` )
         return true
     }
@@ -180,7 +180,7 @@ export async function wait_for_wireguard_config_count( { count=WIREGUARD_PEER_CO
  */
 export async function delete_wireguard_configs( ids=[] ) {
 
-    if( CI_MODE && CI_MOCK_WG_CONTAINER ) {
+    if( CI_MODE === 'true' && CI_MOCK_WG_CONTAINER === 'true' ) {
         log.info( `🤡 Mocked WG container, not deleting anything` )
         return true
     }
@@ -247,10 +247,10 @@ async function generate_wireguard_keys() {
  */
 export async function replace_wireguard_config( { peer_id } ) {
 
-    if( CI_MODE && CI_MOCK_WG_CONTAINER ) {
+    if( CI_MODE === 'true' && CI_MOCK_WG_CONTAINER === 'true' ) {
         log.info( `🤡 Mocking wireguard config replacement for peer${ peer_id }` )
         await mark_config_as_free( { peer_id } )
-        return { success: true, new_keys: { private_key: 'mock', public_key: 'mock', preshared_key: 'mock' } }
+        return { success: true, new_keys: { private_key: `mock`, public_key: `mock`, preshared_key: `mock` } }
     }
 
     // Store original state for rollback
@@ -487,7 +487,7 @@ export async function restart_wg_container() {
     // Restart the wireguard container, note that this relies on the container being named "wireguard"
     try {
         log.info( `Restarting wireguard container` )
-        if( CI_MODE && CI_MOCK_WG_CONTAINER ) {
+        if( CI_MODE === 'true' && CI_MOCK_WG_CONTAINER === 'true' ) {
             log.info( `🤡 Mocking wireguard server container restart` )
             return true
         }
@@ -554,7 +554,7 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
         return file
     }
     const retryable_read = await make_retryable( read_config, {
-        retry_times: CI_MODE ? 0 : 2,
+        retry_times: CI_MODE === 'true' ? 0 : 2,
         cooldown_in_s: 5,
         logger: log.info
     } )
