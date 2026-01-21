@@ -78,6 +78,7 @@ jobs:
           tags: |
             taofuprotocol/tpn-federated:${{ steps.version_check.outputs.version }}${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
             taofuprotocol/tpn-federated:latest${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
-          build-args: ${{ steps.version_check.outputs.cachebust == 'true' && format('CACHEBUST={0}', github.run_id) || '' }}
+          build-args: |
+            CACHEBUST=${{ steps.version_check.outputs.cachebust == 'true' && github.run_id || '0' }}
           cache-from: type=gha,ref=taofuprotocol/tpn-federated:buildcache
           cache-to: type=gha,ref=taofuprotocol/tpn-federated:buildcache,mode=max
