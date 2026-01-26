@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  tpn-neuron-poc:
+    build:
+      context: .
+      dockerfile: tpn_neuron.Dockerfile
+    container_name: tpn-neuron-poc
+    env_file:
+      - .env
+    volumes:
+      - ~/.bittensor:/root/.bittensor # Key access from host
+    ports:
+      - "${TPN_AXON_PORT:-8091}:${TPN_AXON_PORT:-8091}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -176,6 +176,14 @@ def add_miner_args(cls, parser):
         default="http://127.0.0.1:57287",
     )
 
+    parser.add_argument(
+        "--neuron.axon_off",
+        "--axon_off",
+        action="store_true",
+        help="Set this flag to not attempt to serve an Axon.",
+        default=False,
+    )
+
 
 def add_validator_args(cls, parser):
     """Add validator specific arguments to the parser."""
