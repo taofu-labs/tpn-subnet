@@ -154,8 +154,16 @@ export async function register_socks5_lease( { expires_at } ) {
             // Check that the password file exists
             const { PASSWORD_DIR='/passwords' } = process.env
             // Use fs.stat to check if file exists
-            const exists = stat( `${ PASSWORD_DIR }/${ sock.username }.password` )
-            if( !exists ) {
+            const passwordFilePath = `${ PASSWORD_DIR }/${ sock.username }.password`
+            let passwordFileExists = false
+            try {
+                await stat( passwordFilePath )
+                passwordFileExists = true
+            } catch ( err ) {
+                // ENOENT means file does not exist; rethrow other errors
+                if( err && err.code !== 'ENOENT' ) throw err
+            }
+            if( !passwordFileExists ) {
                 log.warn( `Password file for SOCKS5 user ${ sock.username } does not exist, cannot register lease. THIS SHOULD NEVER HAPPEN.` )
             } else {
                 log.info( `Password file for SOCKS5 user ${ sock.username } exists.` )
