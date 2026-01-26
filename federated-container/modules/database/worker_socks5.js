@@ -2,6 +2,7 @@ import { cache, log, wait } from "mentie"
 import { format, get_pg_pool } from "./postgres.js"
 import { run } from "../system/shell.js"
 import { test_socks5_connection } from "../networking/socks5.js"
+import { stat } from "fs/promises"
 
 /**
  * Writes SOCKS5 proxy configurations to the database
@@ -152,9 +153,12 @@ export async function register_socks5_lease( { expires_at } ) {
 
             // Check that the password file exists
             const { PASSWORD_DIR='/passwords' } = process.env
-            const { stderr, stdout, error } = await run( `ls ${ PASSWORD_DIR }/${ sock.username }.password` )
-            if( error || stderr || !stdout?.trim()?.length ) {
+            // Use fs.stat to check if file exists
+            const exists = stat( `${ PASSWORD_DIR }/${ sock.username }.password` )
+            if( !exists ) {
                 log.warn( `Password file for SOCKS5 user ${ sock.username } does not exist, cannot register lease. THIS SHOULD NEVER HAPPEN.` )
+            } else {
+                log.info( `Password file for SOCKS5 user ${ sock.username } exists.` )
             }
 
         }
