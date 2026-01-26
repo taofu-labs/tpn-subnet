@@ -1,9 +1,2 @@
-bittensor==9.10.1
-starlette>=0.30.0
-pydantic>=2
-rich>=13
-pytest>=8
-numpy>=1
-setuptools>=68
-wandb==0.19.6
-bittensor-cli>=9.0.0
+# TPN Subnet Neuron Requirements (Host)
+-r bittensor/requirements.txt

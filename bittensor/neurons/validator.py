@@ -25,7 +25,10 @@ import requests
 
 # Bittensor
 import bittensor as bt
-import wandb
+try:
+    import wandb
+except ImportError:
+    wandb = None
 
 # import base validator class which takes care of most of the boilerplate
 from sybil.base.validator import BaseValidatorNeuron
@@ -49,7 +52,7 @@ class Validator(BaseValidatorNeuron):
         bt.logging.info(f"===> Validator initialized: {self.step}, {len(self.scores)}, {len(self.hotkeys)}")
 
         self.wandb_run_start = None
-        if not self.config.wandb.off:
+        if not self.config.wandb.off and wandb is not None:
             if os.getenv("WANDB_API_KEY"):
                 self.new_wandb_run()
             else:
@@ -58,9 +61,13 @@ class Validator(BaseValidatorNeuron):
                 )
                 self.config.wandb.off = True
         else:
-            bt.logging.warning(
-                "Running with --wandb.off. It is strongly recommended to run with W&B enabled."
-            )
+            if wandb is None and not self.config.wandb.off:
+                bt.logging.warning("WANDB library not installed. Disabling WANDB logging.")
+                self.config.wandb.off = True
+            else:
+                bt.logging.warning(
+                    "Running with --wandb.off. It is strongly recommended to run with W&B enabled."
+                )
 
     def new_wandb_run(self):
         """Creates a new wandb run to save information to."""

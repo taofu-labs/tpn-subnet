@@ -49,20 +49,32 @@ const baseArgs = [
     `--subtensor.network ${subtensor}`,
     `--wallet.name ${wallet}`,
     `--wallet.hotkey ${hotkey}`,
-    `--axon.port ${axon_port}`,
     `--logging.debug`
 ];
 
+let port;
+let script;
+let extraArgs = [];
+
 // Standard TPN logic: Miners use blacklist permit, Validators use force permit
 if (mode === 'miner') {
-    baseArgs.push('--blacklist.force_validator_permit');
+    port = env.TPN_AXON_PORT || '8091';
+    script = 'bittensor/neurons/miner.py';
+    extraArgs = [
+        '--blacklist.force_validator_permit'
+    ];
 } else if (mode === 'validator') {
-    baseArgs.push('--neuron.vpermit 10000', '--force_validator_permit');
+    port = env.TPN_AXON_PORT || '9000';
+    script = 'bittensor/neurons/validator.py';
+    extraArgs = [
+        '--neuron.vpermit', '10000',
+        '--force_validator_permit'
+    ];
 }
 
 const apps = [{
     name: `tpn_${mode}`,
-    script: `neurons/${mode}.py`,
+    script: script,
     interpreter: "venv/bin/python3",
     args: baseArgs.join(' '),
     env: {
