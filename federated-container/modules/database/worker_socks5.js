@@ -132,7 +132,6 @@ export async function register_socks5_lease( { expires_at } ) {
                 FROM worker_socks5_configs
                 WHERE available = TRUE
                 LIMIT 1
-                FOR UPDATE SKIP LOCKED
             `
             const result = await pool.query( select_query )
             const [ available_sock ] = result.rows || []
@@ -145,7 +144,8 @@ export async function register_socks5_lease( { expires_at } ) {
         if( !sock ) throw new Error( `No available SOCKS5 configs found after ${ max_attempts } attempts` )
 
         // Test that the sock works
-        const sock_works = await test_socks5_connection( { sock } )
+        const sock_string = `socks5://${ sock.username }:${ sock.password }@${ sock.ip_address }:${ sock.port }`
+        const sock_works = await test_socks5_connection( { sock: sock_string } )
         if( sock_works ) log.info( `Selected SOCKS5 config ${ sock.username }@${ sock.ip_address }:${ sock.port } works locally` )
         if( !sock_works ) {
             log.warn( `Selected SOCKS5 config ${ sock.username }@${ sock.ip_address }:${ sock.port } does not work` )

@@ -26,10 +26,13 @@ REGEN_DIR="/dante_regen_requests"
 
 regen_watcher() {
 
+    # Disable set -e so a single failed regen doesn't kill the watcher
+    set +e
+
     echo "Regen watcher: listening for trigger files in ${REGEN_DIR}..."
 
     inotifywait -m -e create "${REGEN_DIR}" |
-    while read dir event filename; do
+    while read -r dir event filename; do
 
         # Only process user trigger files (u_ prefix)
         [[ "$filename" != u_* ]] && continue
