@@ -31,6 +31,18 @@ regen_watcher() {
 
     echo "Regen watcher: listening for trigger files in ${REGEN_DIR}..."
 
+    # Verify inotifywait is available before starting the watch loop
+    if ! command -v inotifywait &>/dev/null; then
+        echo "Regen watcher: ERROR - inotifywait not found, regen watcher disabled"
+        return 1
+    fi
+
+    # Verify the regen directory exists and is watchable
+    if [[ ! -d "${REGEN_DIR}" ]]; then
+        echo "Regen watcher: ERROR - ${REGEN_DIR} does not exist, regen watcher disabled"
+        return 1
+    fi
+
     inotifywait -m -e create "${REGEN_DIR}" |
     while read -r dir event filename; do
 
@@ -46,14 +58,40 @@ regen_watcher() {
 
         echo "Regen watcher: regenerating credentials for ${filename}..."
 
-        # Delete and recreate user with a fresh password
-        userdel "$filename"
+        # Delete existing user entry before recreating
+        if ! userdel "$filename" 2>/dev/null; then
+            echo "Regen watcher: WARNING - failed to delete user ${filename}, attempting to continue anyway"
+        fi
+
+        # Generate a fresh password
         new_password="p_$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c ${PASSWORD_LENGTH})"
-        useradd -M -s /usr/sbin/nologin "$filename"
-        echo "${filename}:${new_password}" | chpasswd
+        if [[ -z "$new_password" || "$new_password" == "p_" ]]; then
+            echo "Regen watcher: ERROR - failed to generate password for ${filename}, skipping"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        # Recreate the system user
+        if ! useradd -M -s /usr/sbin/nologin "$filename"; then
+            echo "Regen watcher: ERROR - failed to create user ${filename}, skipping"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        # Set the new password
+        if ! echo "${filename}:${new_password}" | chpasswd; then
+            echo "Regen watcher: ERROR - failed to set password for ${filename}, cleaning up"
+            userdel "$filename" 2>/dev/null
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
 
         # Write new password file and clear the used marker
-        echo "${new_password}" > "${PASSWORD_DIR}/${filename}.password"
+        if ! echo "${new_password}" > "${PASSWORD_DIR}/${filename}.password"; then
+            echo "Regen watcher: ERROR - failed to write password file for ${filename}"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
         rm -f "${PASSWORD_DIR}/${filename}.password.used"
 
         # Remove the trigger file so the caller knows it was processed
