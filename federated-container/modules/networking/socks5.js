@@ -18,8 +18,12 @@ export async function test_socks5_connection( { sock } ) {
 
         // Build the curl commands
         const ip_host = `https://ipv4.icanhazip.com/`
-        const curl_icanhaz = `curl -m 2 -s ${ ip_host }`
-        const curl_socks5 = `curl -m 2 -s -x ${ sock } ${ ip_host }`
+        const timeout_per_req = 2
+        const retry_time_budget = 6
+        const max_retries = Math.floor( retry_time_budget / timeout_per_req )
+        const curl_base_command = `curl --max-time ${ timeout_per_req } --silent --retry ${ max_retries } --retry-max-time ${ retry_time_budget } --retry-delay 1 --retry-connrefused --retry-all-errors`
+        const curl_icanhaz = `${ curl_base_command } ${ ip_host }`
+        const curl_socks5 = `${ curl_base_command } -x ${ sock } ${ ip_host }`
         log.debug( `Testing SOCKS5 connection using curl commands:`, { curl_icanhaz, curl_socks5 } )
 
         // Test ips

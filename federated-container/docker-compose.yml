@@ -232,6 +232,7 @@ services:
       - USER_COUNT=${DANTE_USER_COUNT:-256}
     volumes:
       - ./dante_passwords:/passwords
+      - ./dante_regen_requests:/dante_regen_requests
       - dante_etc:/etc
       - ./dante_logs:/var/log
     ports:

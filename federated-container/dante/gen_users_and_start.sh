@@ -20,6 +20,48 @@ echo "User count: ${USER_COUNT}"
 set -e
 trap 'echo "Error occurred at line $LINENO. Exiting."; exit 1;' ERR
 
+# Watch for user regeneration trigger files in /dante_regen_requests/
+# External processes can touch a file named after a user (e.g. u_iCvUawJU) to regenerate that user's credentials
+REGEN_DIR="/dante_regen_requests"
+
+regen_watcher() {
+
+    echo "Regen watcher: listening for trigger files in ${REGEN_DIR}..."
+
+    inotifywait -m -e create "${REGEN_DIR}" |
+    while read dir event filename; do
+
+        # Only process user trigger files (u_ prefix)
+        [[ "$filename" != u_* ]] && continue
+
+        # Only regen existing users, skip unknown ones
+        if ! id "$filename" &>/dev/null; then
+            echo "Regen watcher: ignoring unknown user ${filename}"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        echo "Regen watcher: regenerating credentials for ${filename}..."
+
+        # Delete and recreate user with a fresh password
+        userdel "$filename"
+        new_password="p_$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c ${PASSWORD_LENGTH})"
+        useradd -M -s /usr/sbin/nologin "$filename"
+        echo "${filename}:${new_password}" | chpasswd
+
+        # Write new password file and clear the used marker
+        echo "${new_password}" > "${PASSWORD_DIR}/${filename}.password"
+        rm -f "${PASSWORD_DIR}/${filename}.password.used"
+
+        # Remove the trigger file so the caller knows it was processed
+        rm -f "${REGEN_DIR}/${filename}"
+
+        echo "Regen watcher: ${filename} regenerated successfully"
+
+    done
+
+}
+
 # Start the Dante server
 function start_dante() {
 
@@ -64,6 +106,12 @@ done
 existing_auth_files_count=$(ls -1 $PASSWORD_DIR/*.password 2>/dev/null | wc -l)
 if (( existing_auth_files_count > 0 )); then
     echo "Found ${existing_auth_files_count} unused auth files in ${PASSWORD_DIR}, skipping user generation."
+
+    # Prepare the regen request directory and start the watcher in the background
+    mkdir -p "${REGEN_DIR}"
+    rm -f "${REGEN_DIR}"/*
+    regen_watcher &
+
     start_dante
     exit 0
 fi
@@ -160,5 +208,10 @@ echo "PAM service ${DANTE_SERVICE_NAME} configured."
 echo "=======${PAM_FILE}========"
 cat "${PAM_FILE}"
 echo "==============================="
+
+# Prepare the regen request directory and start the watcher in the background
+mkdir -p "${REGEN_DIR}"
+rm -f "${REGEN_DIR}"/*
+regen_watcher &
 
 start_dante
