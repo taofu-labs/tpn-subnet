@@ -281,11 +281,13 @@ class BaseValidatorNeuron(BaseNeuron):
                 wait_for_inclusion=False,
                 version_key=self.spec_version,
             )
-            # Check if response is a tuple (as expected in bittensor 9.10.1)
-            if isinstance(response, tuple):
+            # Support for v10 ExtrinsicResponse, v9 tuple, or fallback
+            if hasattr(response, "is_success"):
+                success = response.is_success
+                message = getattr(response, "message", "")
+            elif isinstance(response, tuple):
                 success, message = response
             else:
-                # Fallback for forward compatibility or if return type changes
                 success = getattr(response, "success", True)
                 message = getattr(response, "message", "")
 
@@ -336,7 +338,7 @@ class BaseValidatorNeuron(BaseNeuron):
                 "block": self.block,
                 "miner_uid": neuron.uid,
                 "hotkey": neuron.hotkey,
-                "balance": neuron.total_stake,
+                "balance": float(neuron.total_stake.tao) if hasattr(neuron.total_stake, "tao") else float(neuron.total_stake),
             } for neuron in neurons
         ]
 

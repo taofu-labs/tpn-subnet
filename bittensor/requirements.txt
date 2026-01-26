@@ -1,6 +1,6 @@
-bittensor==9.10.1
+bittensor==10.0.1
 numpy>=1
 aiohttp
 requests
 setuptools>=68
-bittensor-cli>=9.0.0
+bittensor-cli>=9.17.0
