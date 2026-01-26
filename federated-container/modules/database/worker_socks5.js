@@ -1,6 +1,8 @@
 import { cache, log, wait } from "mentie"
 import { format, get_pg_pool } from "./postgres.js"
 import { run } from "../system/shell.js"
+import { test_socks5_connection } from "../networking/socks5.js"
+import { stat } from "fs/promises"
 
 /**
  * Writes SOCKS5 proxy configurations to the database
@@ -121,15 +123,53 @@ export async function register_socks5_lease( { expires_at } ) {
         cache( working_key, true )
 
         // Find an available socks5 config
-        const select_query = `
-            SELECT *
-            FROM worker_socks5_configs
-            WHERE available = TRUE
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-        `
-        const result = await pool.query( select_query )
-        const [ sock ] = result.rows || []
+        let sock = null
+        let attempts = 0
+        const max_attempts = 5
+        while( attempts < max_attempts && !sock ) {
+            log.info( `[WHILE] Attempt ${ attempts + 1 } to find available SOCKS5 config` )
+            const select_query = `
+                SELECT *
+                FROM worker_socks5_configs
+                WHERE available = TRUE
+                LIMIT 1
+            `
+            const result = await pool.query( select_query )
+            const [ available_sock ] = result.rows || []
+            if( available_sock ) sock = available_sock
+            else await wait( 1000 )
+            attempts++
+
+        }
+
+        if( !sock ) throw new Error( `No available SOCKS5 configs found after ${ max_attempts } attempts` )
+
+        // Test that the sock works
+        const sock_string = `socks5://${ sock.username }:${ sock.password }@${ sock.ip_address }:${ sock.port }`
+        const sock_works = await test_socks5_connection( { sock: sock_string } )
+        if( sock_works ) log.info( `Selected SOCKS5 config ${ sock.username }@${ sock.ip_address }:${ sock.port } works locally` )
+        if( !sock_works ) {
+            log.warn( `Selected SOCKS5 config ${ sock.username }@${ sock.ip_address }:${ sock.port } does not work` )
+
+            // Check that the password file exists
+            const { PASSWORD_DIR='/passwords' } = process.env
+            // Use fs.stat to check if file exists
+            const passwordFilePath = `${ PASSWORD_DIR }/${ sock.username }.password`
+            let passwordFileExists = false
+            try {
+                await stat( passwordFilePath )
+                passwordFileExists = true
+            } catch ( err ) {
+                // ENOENT means file does not exist; rethrow other errors
+                if( err && err.code !== 'ENOENT' ) throw err
+            }
+            if( !passwordFileExists ) {
+                log.warn( `Password file for SOCKS5 user ${ sock.username } does not exist, cannot register lease. THIS SHOULD NEVER HAPPEN.` )
+            } else {
+                log.info( `Password file for SOCKS5 user ${ sock.username } exists.` )
+            }
+
+        }
 
         // Mark the config as unavailable
         if( sock ) {

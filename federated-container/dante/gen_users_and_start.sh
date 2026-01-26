@@ -20,6 +20,89 @@ echo "User count: ${USER_COUNT}"
 set -e
 trap 'echo "Error occurred at line $LINENO. Exiting."; exit 1;' ERR
 
+# Watch for user regeneration trigger files in /dante_regen_requests/
+# External processes can touch a file named after a user (e.g. u_iCvUawJU) to regenerate that user's credentials
+REGEN_DIR="/dante_regen_requests"
+
+regen_watcher() {
+
+    # Disable set -e so a single failed regen doesn't kill the watcher
+    set +e
+
+    echo "Regen watcher: listening for trigger files in ${REGEN_DIR}..."
+
+    # Verify inotifywait is available before starting the watch loop
+    if ! command -v inotifywait &>/dev/null; then
+        echo "Regen watcher: ERROR - inotifywait not found, regen watcher disabled"
+        return 1
+    fi
+
+    # Verify the regen directory exists and is watchable
+    if [[ ! -d "${REGEN_DIR}" ]]; then
+        echo "Regen watcher: ERROR - ${REGEN_DIR} does not exist, regen watcher disabled"
+        return 1
+    fi
+
+    inotifywait -m -e create "${REGEN_DIR}" |
+    while read -r dir event filename; do
+
+        # Only process user trigger files (u_ prefix)
+        [[ "$filename" != u_* ]] && continue
+
+        # Only regen existing users, skip unknown ones
+        if ! id "$filename" &>/dev/null; then
+            echo "Regen watcher: ignoring unknown user ${filename}"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        echo "Regen watcher: regenerating credentials for ${filename}..."
+
+        # Delete existing user entry before recreating
+        if ! userdel "$filename" 2>/dev/null; then
+            echo "Regen watcher: WARNING - failed to delete user ${filename}, attempting to continue anyway"
+        fi
+
+        # Generate a fresh password
+        new_password="p_$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c ${PASSWORD_LENGTH})"
+        if [[ -z "$new_password" || "$new_password" == "p_" ]]; then
+            echo "Regen watcher: ERROR - failed to generate password for ${filename}, skipping"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        # Recreate the system user
+        if ! useradd -M -s /usr/sbin/nologin "$filename"; then
+            echo "Regen watcher: ERROR - failed to create user ${filename}, skipping"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        # Set the new password
+        if ! echo "${filename}:${new_password}" | chpasswd; then
+            echo "Regen watcher: ERROR - failed to set password for ${filename}, cleaning up"
+            userdel "$filename" 2>/dev/null
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+
+        # Write new password file and clear the used marker
+        if ! echo "${new_password}" > "${PASSWORD_DIR}/${filename}.password"; then
+            echo "Regen watcher: ERROR - failed to write password file for ${filename}"
+            rm -f "${REGEN_DIR}/${filename}"
+            continue
+        fi
+        rm -f "${PASSWORD_DIR}/${filename}.password.used"
+
+        # Remove the trigger file so the caller knows it was processed
+        rm -f "${REGEN_DIR}/${filename}"
+
+        echo "Regen watcher: ${filename} regenerated successfully"
+
+    done
+
+}
+
 # Start the Dante server
 function start_dante() {
 
@@ -64,6 +147,12 @@ done
 existing_auth_files_count=$(ls -1 $PASSWORD_DIR/*.password 2>/dev/null | wc -l)
 if (( existing_auth_files_count > 0 )); then
     echo "Found ${existing_auth_files_count} unused auth files in ${PASSWORD_DIR}, skipping user generation."
+
+    # Prepare the regen request directory and start the watcher in the background
+    mkdir -p "${REGEN_DIR}"
+    rm -f "${REGEN_DIR}"/*
+    regen_watcher &
+
     start_dante
     exit 0
 fi
@@ -160,5 +249,10 @@ echo "PAM service ${DANTE_SERVICE_NAME} configured."
 echo "=======${PAM_FILE}========"
 cat "${PAM_FILE}"
 echo "==============================="
+
+# Prepare the regen request directory and start the watcher in the background
+mkdir -p "${REGEN_DIR}"
+rm -f "${REGEN_DIR}"/*
+regen_watcher &
 
 start_dante

@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { cache, log } from 'mentie'
 import { run_mode } from '../validations.js'
 import { readFile } from 'fs/promises'
@@ -41,6 +41,60 @@ export async function run( command, { silent=true, verbose=false, log_tag=`[ ${ 
             if( !verbose && stderr ) log.debug( log_tag, `stderr:`, stderr.trim?.() || stderr )
             if( !verbose && error && !stderr ) log.debug( log_tag, `Error running ${ command }:`, error )
 
+
+            // Resolve with data
+            resolve( { error, stdout, stderr } )
+
+        } )
+
+    } )
+
+}
+
+/**
+ * Executes a command safely using execFile, bypassing the shell to prevent command injection.
+ * Downsides: no shell features like piping, redirection, or environment variable expansion.
+ * Takes a command and an array of arguments instead of a single string.
+ * @param {string} command - The command to execute (e.g. 'curl', 'ls')
+ * @param {string[]} [args=[]] - Array of arguments to pass to the command
+ * @param {Object} [options={}] - Options to control the execution and logging behavior.
+ * @param {boolean} [options.silent=true] - If true, suppresses all logging.
+ * @param {boolean} [options.verbose=false] - If true, logs detailed output including errors, stdout, and stderr.
+ * @param {string} [options.log_tag=`[ ${Date.now()} ] `] - A custom log tag to prefix log messages.
+ * @returns {Promise<Object>} A promise that resolves with { error, stdout, stderr }
+ */
+export async function run_safe( command, args=[], { silent=true, verbose=false, log_tag=`[ ${ Date.now() } ] ` }={} ) {
+
+    // Check for shell features indicating bad usage
+    const shell_features = [ '|', '>', '<', '$', '&&', '||', ';' ]
+    const has_shell_features = shell_features.some( feature => args.includes( feature ) ) || shell_features.some( feature => command.includes( feature ) )
+    if( has_shell_features ) log.warn( `run_safe called with shell features in args, this may not work as expected:`, { command, args } )
+
+    // Setting verbose overrides silent
+    if( verbose ) silent = false
+
+    // Build a display string for logging
+    const display_command = `${ command } ${ args.join( ` ` ) }`
+
+    return new Promise( ( resolve ) => {
+
+        if( !silent && !verbose ) log.info( log_tag, `execFile:`, display_command )
+        execFile( command, args, ( error, stdout, stderr ) => {
+
+            if( !stderr?.length ) stderr = null
+            if( !stdout?.length ) stdout = null
+
+            // If silent, just resolve with data
+            if( silent ) return resolve( { error, stdout, stderr } )
+
+            // If verbose, log all
+            if( verbose ) log.info( log_tag, { command: display_command, error, stdout, stderr } )
+            else log.debug( log_tag, { command: display_command, error, stdout, stderr } )
+
+            // Log the output
+            if( !verbose && stdout ) log.debug( log_tag, `stdout:`, stdout.trim?.() || stdout )
+            if( !verbose && stderr ) log.debug( log_tag, `stderr:`, stderr.trim?.() || stderr )
+            if( !verbose && error && !stderr ) log.debug( log_tag, `Error running ${ display_command }:`, error )
 
             // Resolve with data
             resolve( { error, stdout, stderr } )
