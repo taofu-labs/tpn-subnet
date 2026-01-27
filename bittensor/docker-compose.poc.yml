@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   tpn-neuron-poc:
+    image: taofuprotocol/tpn-neuron:${TPN_NEURON_IMAGE_TAG:-latest}"
     build:
       context: .
       dockerfile: tpn_neuron.Dockerfile
