@@ -91,8 +91,19 @@ export async function cleanup_expired_dante_socks5_configs() {
         log.info( `Found ${ expired_socks.length } expired SOCKS5 configs to clean up` )
 
         // Regenerate passwords for these users
-        let regenerated_configs = await Promise.all( expired_socks.map( ( { username } ) => regenerate_dante_socks5_config( { username } ) ) )
-        regenerated_configs = regenerated_configs.filter( config => config )
+        const regen_results = await Promise.all( expired_socks.map( ( { username } ) => regenerate_dante_socks5_config( { username } ) ) )
+        const regenerated_configs = regen_results.filter( ( { error } ) => !error )
+        const errored_usernames = regen_results.filter( ( { error } ) => error ).map( ( { username } ) => username )
+
+        // Delete the errored usernames from the config list all together
+        if( errored_usernames.length ) {
+            log.warn( `Failed to regenerate SOCKS5 configs for usernames: ${ errored_usernames.join( ', ' ) }` )
+            const delete_query = format( `
+                DELETE FROM worker_socks5_configs
+                WHERE username IN ( %L )
+            `, errored_usernames )
+            await pool.query( delete_query )
+        }
 
         // If none regenerated, return
         if( !regenerated_configs.length ) {
@@ -209,14 +220,14 @@ export async function register_socks5_lease( { expires_at } ) {
                 continue
             }
 
-            // Mark sock as unavailable
+            // Mark sock as unavailable and expired
             log.warn( `Selected SOCKS5 config ${ sock_string } failed the connection test` )
             const update_query = `
                         UPDATE worker_socks5_configs
                         SET available = FALSE, expires_at = $1, updated = $2
                         WHERE username = $3 AND password = $4
                     `
-            await pool.query( update_query, [ Date.now() + 3600_000, Date.now(), available_sock.username, available_sock.password ] )
+            await pool.query( update_query, [ Date.now(), Date.now(), available_sock.username, available_sock.password ] )
             log.info( `Marked SOCKS5 config ${ sock_string } as unavailable due to failed test` )
 
             // Check that the password file exists

@@ -197,6 +197,7 @@ export async function regenerate_dante_socks5_config( { username } ) {
         
     } catch ( e ) {
         log.error( `Error regenerating Dante SOCKS5 config for username ${ username }:`, e )
+        return { username: username, error: e.message }
     }
 
 }
