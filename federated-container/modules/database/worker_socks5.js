@@ -3,6 +3,7 @@ import { format, get_pg_pool } from "./postgres.js"
 import { run } from "../system/shell.js"
 import { test_socks5_connection } from "../networking/socks5.js"
 import { stat } from "fs/promises"
+import { regenerate_dante_socks5_config } from "../networking/dante-container.js"
 
 /**
  * Writes SOCKS5 proxy configurations to the database
@@ -68,6 +69,55 @@ export async function write_socks( { socks } ) {
 }
 
 /**
+ * Cleans up expired SOCKS5 proxy configurations by regenerating their passwords and marking them as available
+ * @returns {Promise<void>}
+ */
+export async function cleanup_expired_dante_socks5_configs() {
+
+    try {
+
+        // Get pool
+        const pool = await get_pg_pool()
+
+        // Get all the expired socks
+        const now = Date.now()
+        const select_query = `
+            SELECT *
+            FROM worker_socks5_configs
+            WHERE expires_at > 0 AND expires_at <= $1
+        `
+        const result = await pool.query( select_query, [ now ] )
+        const expired_socks = result.rows || []
+        log.info( `Found ${ expired_socks.length } expired SOCKS5 configs to clean up` )
+
+        // Regenerate passwords for these users
+        let regenerated_configs = await Promise.all( expired_socks.map( ( { username } ) => regenerate_dante_socks5_config( { username } ) ) )
+        regenerated_configs = regenerated_configs.filter( config => config )
+
+        // If none regenerated, return
+        if( !regenerated_configs.length ) {
+            log.info( `No SOCKS5 configs were regenerated` )
+            return
+        }
+
+        // Mark these socks as available, expires 0, with the updated password
+        const update_query = format( `
+            UPDATE worker_socks5_configs
+            SET available = TRUE, expires_at = 0, password = data.password, updated = data.updated
+            FROM ( VALUES %L ) AS data( username, password, updated )
+            WHERE worker_socks5_configs.username = data.username
+        `, regenerated_configs.map( ( { username, password } ) => [ username, password, now ] ) )
+        await pool.query( update_query )
+
+        log.info( `Cleaned up ${ expired_socks.length } expired SOCKS5 configs` )
+
+    } catch ( e ) {
+        log.error( `Error cleaning up expired SOCKS5 configs:`, e )
+    }
+
+}
+
+/**
  * Counts the number of available SOCKS5 proxy configurations
  * @returns {Promise<{ success: boolean, available_socks_count?: number, error?: string }>}
  */
@@ -108,8 +158,9 @@ export async function register_socks5_lease( { expires_at } ) {
 
     try {
 
-        // Get pool
+        // Get pool and password directory
         const pool = await get_pg_pool()
+        const { PASSWORD_DIR='/passwords' } = process.env
 
         // Mitigate race conditions
         let working = cache( working_key )
@@ -127,6 +178,8 @@ export async function register_socks5_lease( { expires_at } ) {
         let attempts = 0
         const max_attempts = 5
         while( attempts < max_attempts && !sock ) {
+
+            // Attempt to find an available sock
             log.info( `[WHILE] Attempt ${ attempts + 1 } to find available SOCKS5 config` )
             const select_query = `
                 SELECT *
@@ -136,40 +189,50 @@ export async function register_socks5_lease( { expires_at } ) {
             `
             const result = await pool.query( select_query )
             const [ available_sock ] = result.rows || []
-            if( available_sock ) sock = available_sock
-            else await wait( 1000 )
+
+            // If no available socks were found, regenerate expired configs
+            if( !available_sock ) {
+                log.warn( `No available SOCKS5 configs found, attempting to clean up expired configs` )
+                await cleanup_expired_dante_socks5_configs()
+                attempts++
+                continue
+            }
+
+            // Test that the sock works
+            const sock_string = `socks5://${ available_sock.username }:${ available_sock.password }@${ available_sock.ip_address }:${ available_sock.port }`
+            const sock_works = await test_socks5_connection( { sock: sock_string } )
+
+            // If it works, select it
+            if( sock_works ) {
+                log.info( `Selected SOCKS5 config ${ sock_string } works locally` )
+                sock = available_sock
+                continue
+            }
+
+            // Mark sock as unavailable
+            log.warn( `Selected SOCKS5 config ${ sock_string } failed the connection test` )
+            const update_query = `
+                        UPDATE worker_socks5_configs
+                        SET available = FALSE, expires_at = $1, updated = $2
+                        WHERE username = $3 AND password = $4
+                    `
+            await pool.query( update_query, [ Date.now() + 3600_000, Date.now(), available_sock.username, available_sock.password ] )
+            log.info( `Marked SOCKS5 config ${ sock_string } as unavailable due to failed test` )
+
+            // Check that the password file exists
+            const pass_file = `${ PASSWORD_DIR }/${ available_sock.username }.password`
+            const pass_file_exists = await stat( pass_file ).then( () => true ).catch( () => false )
+            const pass_used_file_exists = await stat( `${ pass_file }.used` ).then( () => true ).catch( () => false )
+            log.warn( `Password file exists: ${ pass_file_exists }, used file exists: ${ pass_used_file_exists }` )
+
+
+            // Increment attempts
             attempts++
 
         }
 
         if( !sock ) throw new Error( `No available SOCKS5 configs found after ${ max_attempts } attempts` )
 
-        // Test that the sock works
-        const sock_string = `socks5://${ sock.username }:${ sock.password }@${ sock.ip_address }:${ sock.port }`
-        const sock_works = await test_socks5_connection( { sock: sock_string } )
-        if( sock_works ) log.info( `Selected SOCKS5 config ${ sock.username }@${ sock.ip_address }:${ sock.port } works locally` )
-        if( !sock_works ) {
-            log.warn( `Selected SOCKS5 config ${ sock.username }@${ sock.ip_address }:${ sock.port } does not work` )
-
-            // Check that the password file exists
-            const { PASSWORD_DIR='/passwords' } = process.env
-            // Use fs.stat to check if file exists
-            const passwordFilePath = `${ PASSWORD_DIR }/${ sock.username }.password`
-            let passwordFileExists = false
-            try {
-                await stat( passwordFilePath )
-                passwordFileExists = true
-            } catch ( err ) {
-                // ENOENT means file does not exist; rethrow other errors
-                if( err && err.code !== 'ENOENT' ) throw err
-            }
-            if( !passwordFileExists ) {
-                log.warn( `Password file for SOCKS5 user ${ sock.username } does not exist, cannot register lease. THIS SHOULD NEVER HAPPEN.` )
-            } else {
-                log.info( `Password file for SOCKS5 user ${ sock.username } exists.` )
-            }
-
-        }
 
         // Mark the config as unavailable
         if( sock ) {
@@ -183,7 +246,7 @@ export async function register_socks5_lease( { expires_at } ) {
         }
 
         // Mark the password as unavailable through touching /passwords/<username>.password.used
-        const { PASSWORD_DIR='/passwords' } = process.env
+        // this lets the dante container handle user state across restarts
         if( sock ) await run( `touch ${ PASSWORD_DIR }/${ sock.username }.password.used` )
 
         return { success: true, sock }

@@ -57,6 +57,7 @@ services:
       - ../.git:/app/.git:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./dante_passwords:/passwords
+      - ./dante_regen_requests:/dante_regen_requests
     depends_on:
       postgres:
         condition: service_healthy

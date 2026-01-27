@@ -143,10 +143,30 @@ for used_auth_file in "$PASSWORD_DIR"/*.password.used; do
     fi
 done
 
+###############################################
+# Scenario 1: Existing unused auth files found
+###############################################
+
+# For every existing unused auto file, check if the user is in the system
+current_users=$(getent passwd | cut -d: -f1)
+for auth_file in "$PASSWORD_DIR"/*.password; do
+    if [[ -f "$auth_file" ]]; then
+        username=$(basename "$auth_file" .password)
+        if ! echo "$current_users" | grep -q "^${username}$"; then
+            echo "Found existing unused auth file for user ${username}, this should never happen"
+            useradd -M -s /usr/sbin/nologin "${username}"
+            password=$(cat "$auth_file")
+            echo "${username}:${password}" | chpasswd
+            echo "Recreated user ${username} from existing auth file."
+        fi
+    fi
+done
+
 # Check if there are any unused auth files based on /$PASSWORD_DIR/*.password if so, skip user generation
 existing_auth_files_count=$(ls -1 $PASSWORD_DIR/*.password 2>/dev/null | wc -l)
 if (( existing_auth_files_count > 0 )); then
     echo "Found ${existing_auth_files_count} unused auth files in ${PASSWORD_DIR}, skipping user generation."
+    echo "Total user count on system: $( getent passwd | wc -l )"
 
     # Prepare the regen request directory and start the watcher in the background
     mkdir -p "${REGEN_DIR}"
@@ -156,6 +176,10 @@ if (( existing_auth_files_count > 0 )); then
     start_dante
     exit 0
 fi
+
+###############################################
+# Scenario 2: No existing auth files found
+###############################################
 
 # Pre-generate random characters for all usernames and passwords to minimise /dev/urandom calls
 RANDOM_BYTES_COUNT=$(( USER_COUNT * ( USER_LENGTH + PASSWORD_LENGTH ) ))
@@ -181,17 +205,17 @@ generate_username() {
     echo "u_${slice}"
 }
 
-# Create or clear the password directory
+# Create password directory if it doesn't exist
 mkdir -p "$PASSWORD_DIR"
 
-# Generate users and passwords
+# Initialize progress tracking
 PROGRESS_PCT_INTERVAL=10
 PROGRESS_STEP_SIZE=$(( (USER_COUNT * PROGRESS_PCT_INTERVAL + 100 - 1) / 100 ))
 if (( PROGRESS_STEP_SIZE == 0 )); then
     PROGRESS_STEP_SIZE=1
 fi
 
-# Before anything else, delete all users except the current and root
+# Before anything else, delete all non special existing users
 current_user=$(whoami)
 allowed_users=("root" "$current_user" "ubuntu" "nobody" "bin" "list" "man" "daemon" "sys" "sync" "games" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "syslog" "_apt" "tss" "messagebus" "uuidd" "dnsmasq" "sshd" "landscape" "pollinate" )
 echo "Cleaning up existing users except special users..."

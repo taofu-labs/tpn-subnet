@@ -2,6 +2,7 @@ import { cache, log, wait } from "mentie"
 import { exec } from "child_process"
 import { run } from "../system/shell.js"
 import { count_available_socks, register_socks5_lease, write_socks } from "../database/worker_socks5.js"
+import { access, open } from "fs/promises"
 
 /**
  * Checks if the Dante SOCKS5 server is reachable on its public IP and port.
@@ -149,6 +150,58 @@ export async function restart_dante_container() {
 }
 
 /**
+ * Regenerates the password for a given Dante SOCKS5 username by signaling the Dante server.
+ * @param {Object} params - The parameters for the function.
+ * @param {string} params.username - The username for which to regenerate the password.
+ * @returns {Promise<Object>} A promise that resolves to an object containing the username and new password.
+ * @returns {string} return.username - The SOCKS5 username.
+ * @returns {string} return.password - The newly regenerated SOCKS5 password.
+ */
+export async function regenerate_dante_socks5_config( { username } ) {
+
+    try {
+
+        // Build paths for the regen request and password files
+        const { DANTE_REGEN_REQUEST_DIR='/dante_regen_requests' } = process.env
+        const regen_file = `${ DANTE_REGEN_REQUEST_DIR }/${ username }`
+        const { PASSWORD_DIR='/passwords' } = process.env
+        const password_file = `${ PASSWORD_DIR }/${ username }.password`
+
+        // Touch the regen_request file for the username to signal dante to regen the password
+        await open( regen_file, 'w' ).then( f => f.close() )
+        log.info( `Touched regen request file for username: ${ username }` )
+
+        // Wait for file to be deleted by dante indicating regen is complete
+        let regen_complete = false
+        const max_wait_ms = 20_000
+        const start_time = Date.now()
+        while( !regen_complete ) {
+
+            // Check for timeout
+            const time_passed = Date.now() - start_time
+            if( time_passed > max_wait_ms ) throw new Error( `Timeout waiting for Dante regen to complete for username ${ username }` )
+
+            // Check if regen is complete by seeing if the regen request file has been deleted
+            regen_complete = await access( regen_file ).then( () => false ).catch( () => true )
+            await wait( 2_000 )
+
+        }
+
+        // Once regen is complete, get the password from the file content
+        let { stdout: password } = await run( `cat ${ password_file }` )
+        password = `${ password }`.trim()
+        if( !password?.length ) throw new Error( `Regenerated password file for username ${ username } is empty` )
+        
+        log.info( `Dante regen complete for username: ${ username }` )
+        return { username, password }
+        
+    } catch ( e ) {
+        log.error( `Error regenerating Dante SOCKS5 config for username ${ username }:`, e )
+    }
+
+}
+
+/**
  * Retrieves a valid SOCKS5 configuration by leasing an available credential.
  * @param {Object} params - The parameters for the function.
  * @param {number} params.lease_seconds - The lease duration in seconds.
@@ -174,11 +227,12 @@ export async function get_valid_socks5_config( { lease_seconds } ) {
     let { available_socks_count } = await count_available_socks()
     log.info( `There are ${ available_socks_count } available socks for lease_seconds: ${ lease_seconds }` )
 
-    // If no socks available, restart the container
+    // If no socks available, restart the container and reload configs
     if( !available_socks_count ) {
         log.info( `No available socks, restarting Dante container to refresh configs` )
         await restart_dante_container()
         await check_if_dante_reachable()
+        await load_socks5_from_disk()
         const { available_socks_count: new_available_socks_count } = await count_available_socks()
         log.info( `After restarting Dante, there are ${ new_available_socks_count } available socks` )
         available_socks_count = new_available_socks_count
