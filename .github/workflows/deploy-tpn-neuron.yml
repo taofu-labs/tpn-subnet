@@ -1,0 +1,63 @@
+# .github/workflows/docker-deploy.yml
+
+name: Deploy TPN Neuron Docker Image
+
+on:
+  push:
+    paths:
+      - "bittensor/tpn_neuron.Dockerfile"
+      - "bittensor/neuron/**"
+    branches:
+      - main
+      - development
+
+jobs:
+  deploy:
+    concurrency:
+      group: deploy-neuron-${{ github.ref }}
+      cancel-in-progress: true
+
+    runs-on: ubuntu-latest
+
+    steps:
+      
+      # 1. Checkout with enough history to compare previous commit
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need previous commit for diff
+
+      # 2. Check if the version property in package.json changed
+      - name: Check version change
+        id: version_check
+        run: |
+          # Extract current version from the current package.json
+          CUR_VERSION=$(jq -r .version federated-container/package.json)
+          echo "Current version: $CUR_VERSION"
+          echo "version=$CUR_VERSION" >> $GITHUB_OUTPUT
+        shell: bash
+
+      # 3. Log in to Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 3b. Ensure Buildx is available for caching support
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 4. Build and push the Docker image with the new version tag (only if version changed), add -dev for development branch
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./bittensor
+          file: ./bittensor/tpn_neuron.Dockerfile
+          push: true
+          tags: |
+            taofuprotocol/tpn-neuron:${{ steps.version_check.outputs.version }}${{ github.ref == 'refs/heads/development' && '-dev' || '' }}
+            taofuprotocol/tpn-neuron:latest${{ github.ref == 'refs/heads/development' && '-dev'  || '' }}
+          cache-from: type=gha,ref=taofuprotocol/tpn-neuron:buildcache
+          cache-to: type=gha,ref=taofuprotocol/tpn-neuron:buildcache,mode=max
+          
