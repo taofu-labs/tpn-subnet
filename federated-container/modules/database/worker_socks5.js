@@ -3,10 +3,11 @@ import { format, get_pg_pool } from "./postgres.js"
 import { run } from "../system/shell.js"
 import { test_socks5_connection } from "../networking/socks5.js"
 import { stat } from "fs/promises"
-import { regenerate_dante_socks5_config } from "../networking/dante-container.js"
+import { dante_server_ready, load_socks5_from_disk, regenerate_dante_socks5_config } from "../networking/dante-container.js"
 
 /**
  * Writes SOCKS5 proxy configurations to the database
+ * Existing usernames are updated (username + password only), new ones are inserted, missing ones are deleted
  * @param {Object} params
  * @param {Array<{ ip_address: string, port: number, username: string, password: string, available: boolean }>} params.socks - Array of SOCKS5 configurations
  * @returns {Promise<{ success: boolean, error?: string }>}
@@ -18,51 +19,73 @@ export async function write_socks( { socks } ) {
         // Get pool
         const pool = await get_pg_pool()
 
-        // Validate socks
-        const expected_properties = [ 'ip_address', 'port', 'username', 'password', 'available' ]
-        let valid_socks = socks.filter( sock => {
+        // Validate socks - ensure all expected properties are present
+        const expected_properties = [ `ip_address`, `port`, `username`, `password`, `available` ]
+        const valid_socks = socks.filter( sock => {
             const sock_props = Object.keys( sock )
             return expected_properties.every( prop => sock_props.includes( prop ) )
         } )
 
-        log.info( `Received  ${ socks.length  } socks, ${ valid_socks.length } valid socks, excerpt: `, socks.slice( 0, 1 ) )
+        log.info( `Received ${ socks.length } socks, ${ valid_socks.length } valid socks, excerpt: `, socks.slice( 0, 1 ) )
 
-        // Annotate with timestamp
-        const now = Date.now()
-        valid_socks = valid_socks.map( sock => ( { ...sock, updated: now } ) )
-
-        // If no valid socks, return
+        // If no valid socks, delete all existing entries and return
         if( !valid_socks?.length ) {
-            log.warn( `No valid socks to write` )
-            return { success: false, error: `No valid socks to write` }
+            log.warn( `No valid socks to write, deleting all existing entries` )
+            await pool.query( `DELETE FROM worker_socks5_configs` )
+            return { success: true }
         }
 
-        // Prepare a query that deletes existing entries for the given IPs
-        const ips = valid_socks.map( sock => sock.ip_address )
-        const delete_query = format( `
-            DELETE FROM worker_socks5_configs
-            WHERE ip_address IN ( %L )
-        `, ips )
+        // Get existing usernames from database
+        const existing_result = await pool.query( `SELECT username FROM worker_socks5_configs` )
+        const existing_usernames = existing_result.rows.map( ( { username } ) => username )
 
-        // Prepare the addition query
-        const insert_query = format( `
-            INSERT INTO worker_socks5_configs ( ip_address, port, username, password, available, updated, expires_at )
-            VALUES %L
-        `, valid_socks.map( sock => [ sock.ip_address, sock.port, sock.username, sock.password, sock.available, sock.updated, 0 ] ) )
+        // Separate incoming socks into updates and inserts based on username presence
+        const incoming_usernames = valid_socks.map( ( { username } ) => username )
+        const socks_to_update = valid_socks.filter( ( { username } ) => existing_usernames.includes( username ) )
+        const socks_to_insert = valid_socks.filter( ( { username } ) => !existing_usernames.includes( username ) )
 
-        // Execute the delete
-        log.info( `Deleting existing SOCKS5 configs for ${ ips.length } ips` )
-        await pool.query( delete_query )
+        // Find usernames to delete (in db but not in incoming list)
+        const usernames_to_delete = existing_usernames.filter( username => !incoming_usernames.includes( username ) )
 
-        // Execute the insert
-        log.info( `Inserting ${ valid_socks.length } new SOCKS5 configs` )
-        await pool.query( insert_query )
+        const now = Date.now()
 
-        log.info( `Successfully wrote SOCKS5 configs` )
+        // Update existing entries - only update username and password
+        if( socks_to_update.length ) {
+            const update_query = format( `
+                UPDATE worker_socks5_configs
+                SET password = data.password, updated = data.updated
+                FROM ( VALUES %L ) AS data( username, password, updated )
+                WHERE worker_socks5_configs.username = data.username
+            `, socks_to_update.map( sock => [ sock.username, sock.password, now ] ) )
+            await pool.query( update_query )
+            log.info( `Updated ${ socks_to_update.length } existing SOCKS5 configs` )
+        }
+
+        // Insert new entries
+        if( socks_to_insert.length ) {
+            const insert_query = format( `
+                INSERT INTO worker_socks5_configs ( ip_address, port, username, password, available, updated, expires_at )
+                VALUES %L
+            `, socks_to_insert.map( sock => [ sock.ip_address, sock.port, sock.username, sock.password, sock.available, now, 0 ] ) )
+            await pool.query( insert_query )
+            log.info( `Inserted ${ socks_to_insert.length } new SOCKS5 configs` )
+        }
+
+        // Delete entries not in incoming list
+        if( usernames_to_delete.length ) {
+            const delete_query = format( `
+                DELETE FROM worker_socks5_configs
+                WHERE username IN ( %L )
+            `, usernames_to_delete )
+            await pool.query( delete_query )
+            log.info( `Deleted ${ usernames_to_delete.length } SOCKS5 configs not in incoming list` )
+        }
+
+        log.info( `Successfully synced SOCKS5 configs: ${ socks_to_update.length } updated, ${ socks_to_insert.length } inserted, ${ usernames_to_delete.length } deleted` )
         return { success: true }
 
     } catch ( e ) {
-        log.error( `Error in write_available_socks:`, e )
+        log.error( `Error in write_socks:`, e )
         return { success: false, error: e.message }
     }
 
@@ -187,7 +210,7 @@ export async function register_socks5_lease( { expires_at } ) {
         // Find an available socks5 config
         let sock = null
         let attempts = 0
-        const max_attempts = 5
+        const { available_socks_count: max_attempts } = await count_available_socks()
         while( attempts < max_attempts && !sock ) {
 
             // Attempt to find an available sock
@@ -211,6 +234,7 @@ export async function register_socks5_lease( { expires_at } ) {
 
             // Test that the sock works
             const sock_string = `socks5://${ available_sock.username }:${ available_sock.password }@${ available_sock.ip_address }:${ available_sock.port }`
+            await dante_server_ready( { max_wait_ms: 10_000 } )
             const sock_works = await test_socks5_connection( { sock: sock_string } )
 
             // If it works, select it
@@ -236,6 +260,8 @@ export async function register_socks5_lease( { expires_at } ) {
             const pass_used_file_exists = await stat( `${ pass_file }.used` ).then( () => true ).catch( () => false )
             log.warn( `Password file exists: ${ pass_file_exists }, used file exists: ${ pass_used_file_exists }` )
 
+            // A non-working socks indicates that there is a mismatch between out database and the dante container, reload the configs from disk to sync
+            await load_socks5_from_disk()
 
             // Increment attempts
             attempts++

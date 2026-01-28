@@ -158,6 +158,8 @@ for auth_file in "$PASSWORD_DIR"/*.password; do
             password=$(cat "$auth_file")
             echo "${username}:${password}" | chpasswd
             echo "Recreated user ${username} from existing auth file."
+        else
+            echo "User ${username} already exists in system, skipping recreation."
         fi
     fi
 done
