@@ -1,4 +1,4 @@
-import { cache, log, wait } from "mentie"
+import { cache, log, round_number_to_decimals, wait } from "mentie"
 import { format, get_pg_pool } from "./postgres.js"
 import { run } from "../system/shell.js"
 import { test_socks5_connection } from "../networking/socks5.js"
@@ -268,7 +268,30 @@ export async function register_socks5_lease( { expires_at } ) {
 
         }
 
-        if( !sock ) throw new Error( `No available SOCKS5 configs found after ${ max_attempts } attempts` )
+        // If no sock found, throw error
+        if( !sock ) {
+
+            // Grab the soonest expiring sock
+            const select_query = `
+                SELECT *
+                FROM worker_socks5_configs
+                ORDER BY expires_at ASC
+                LIMIT 1
+            `
+            const result = await pool.query( select_query )
+            const [ soonest_expiring_sock ] = result.rows || []
+            
+            // warn out the time to next available sock
+            if( soonest_expiring_sock ) {
+                const minutes_until_available = round_number_to_decimals( ( soonest_expiring_sock.expires_at - Date.now() ) / 60000, 2 )
+                const available_at = new Date( soonest_expiring_sock.expires_at ).toISOString()
+                log.warn( `No available SOCKS5 configs found, soonest expiring sock (${ soonest_expiring_sock.username }) expires at ${ available_at } in ${ minutes_until_available } minutes` )
+            } else {
+                log.warn( `No available SOCKS5 configs found, and no socks exist in the database` )
+            }
+
+            throw new Error( `No available SOCKS5 configs found after ${ max_attempts } attempts` )
+        }
 
 
         // Mark the config as unavailable
