@@ -53,7 +53,7 @@ export async function write_socks( { socks } ) {
         if( socks_to_update.length ) {
             const update_query = format( `
                 UPDATE worker_socks5_configs
-                SET password = data.password, updated = data.updated
+                SET password = data.password, updated = data.updated::BIGINT
                 FROM ( VALUES %L ) AS data( username, password, updated )
                 WHERE worker_socks5_configs.username = data.username
             `, socks_to_update.map( sock => [ sock.username, sock.password, now ] ) )
