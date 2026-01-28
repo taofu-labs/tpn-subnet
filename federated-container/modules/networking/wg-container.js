@@ -530,7 +530,7 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
 
     // Formulate config parameters
     const expires_at = Date.now() + lease_seconds * 1000
-    const priority_slots = 1
+    const priority_slots = 5
     let safe_start = priority_slots + 1
     if( safe_start > peer_slots ) safe_start = 1
     const config_parameters = {

@@ -16,9 +16,10 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {string[]} [params.whitelist] - List of whitelisted IPs.
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
+ * @param {boolean} [params.priority] - Whether to request a priority slot from the worker.
  * @returns {Promise<string|Object|null>} - WireGuard configuration or null if no workers available.
  */
-export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds } ) {
+export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority } ) {
 
     // Get relevant workers
     let { workers: relevant_workers } = await get_workers( { country_code: geo, mining_pool_uid: 'internal', status: 'up', limit: 50 } )
@@ -45,7 +46,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         const worker = relevant_workers[ attempts ]
         attempts++
         if( !is_ipv4( worker.ip ) ) continue
-        config = await get_config_directly_from_worker( { worker, type, format, lease_seconds } ).catch( e => {
+        config = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority } ).catch( e => {
             log.info( `Error fetching ${ type } config from worker ${ worker.ip }: ${ e.message }` )
             return null
         } )
