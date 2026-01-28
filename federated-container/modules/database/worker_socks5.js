@@ -23,7 +23,7 @@ export async function get_socks5_config( { expires_at, priority = false, priorit
     // Offset determines which pool we select from:
     // - Priority: offset 0, select from first N configs (shared pool)
     // - Non-priority: offset N, select from configs after priority slots (exclusive)
-    const offset = priority ? 0 : priority_slots
+    const offset = Number( priority ? 0 : priority_slots )
 
     try {
 
@@ -332,7 +332,7 @@ export async function count_available_socks( { skip_slots = 0 } = {} ) {
                 OFFSET $1
             ) AS non_priority_socks
         `
-        const result = await pool.query( query, [ skip_slots ] )
+        const result = await pool.query( query, [ Number( skip_slots ) ] )
         const available_socks_count = Number( result.rows[0]?.available_count || 0 )
 
         return { success: true, available_socks_count }

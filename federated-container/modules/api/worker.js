@@ -29,7 +29,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
             return {}
         }
         if( !wireguard_config ) throw new Error( `Failed to get valid wireguard config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
-        log.info( `Obtained WireGuard config for peer_id ${ peer_id } with ${ peer_slots } slots, expires at ${ new Date( expires_at ).toISOString() }` )
+        log.info( `Obtained WireGuard config  ${ priority ? 'with' : 'without' } for peer_id ${ peer_id } with ${ peer_slots } slots, expires at ${ new Date( expires_at ).toISOString() }` )
 
         // Return right format
         const { json_config, text_config } = parse_wireguard_config( { wireguard_config } )
@@ -41,7 +41,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
     if( type === 'socks5' ) {
         const { socks5_config, expires_at } = await get_valid_socks5_config( { lease_seconds, priority } )
         if( !socks5_config ) throw new Error( `Failed to get valid socks5 config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
-        log.info( `Obtained Socks5 config for ${ socks5_config?.username }, expires at ${ new Date( expires_at ).toISOString() }` )
+        log.info( `Obtained Socks5 config ${ priority ? 'with' : 'without' } priority for ${ socks5_config?.username }, expires at ${ new Date( expires_at ).toISOString() }` )
 
         // Return right format
         const json_config = socks5_config

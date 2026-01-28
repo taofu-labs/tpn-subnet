@@ -227,8 +227,7 @@ export async function get_valid_socks5_config( { lease_seconds, priority = false
     if( !dante_config_initialised ) await load_socks5_from_disk()
 
     // Get priority slot configuration
-    const { SOCKS5_PRIORITY_SLOTS = 5 } = process.env
-    const priority_slots = Number( SOCKS5_PRIORITY_SLOTS )
+    const { PRIORITY_SLOTS: priority_slots = 5 } = process.env
     const expires_at = Date.now() + lease_seconds * 1000
 
     // For non-priority requests, check availability and restart container if needed
