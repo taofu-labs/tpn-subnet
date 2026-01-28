@@ -10,6 +10,9 @@ PASSWORD_DIR=${PASSWORD_DIR:-/passwords}
 PASSWORD_LENGTH=${PASSWORD_LENGTH:-32}
 
 # Echo out the configuration
+echo -e "\n======================================"
+echo "Dante SOCKS5 Server Initialization"
+echo -e "======================================\n"
 echo "Starting user generation and Dante server..."
 echo "Password dir: ${PASSWORD_DIR}"
 echo "Password length: ${PASSWORD_LENGTH}"
@@ -103,6 +106,47 @@ regen_watcher() {
 
 }
 
+# Generate a specified number of users with random credentials
+generate_users() {
+    local count=$1
+    if (( count <= 0 )); then return; fi
+
+    # Pre-generate random characters for usernames and passwords
+    local random_bytes_count=$(( count * ( USER_LENGTH + PASSWORD_LENGTH ) ))
+    local random_bytes=$(LC_CTYPE=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c ${random_bytes_count})
+    if (( ${#random_bytes} < random_bytes_count )); then
+        echo "Error: Unable to generate sufficient random data" >&2
+        exit 1
+    fi
+
+    # Create password directory if needed
+    mkdir -p "$PASSWORD_DIR"
+
+    echo "Generating ${count} users..."
+    local offset=0
+    local progress_step=$(( count / 10 + 1 ))
+
+    for i in $(seq 1 ${count}); do
+
+        # Generate username and password from pre-generated random bytes
+        local username="u_${random_bytes:offset:USER_LENGTH}"
+        offset=$(( offset + USER_LENGTH ))
+        local password="p_${random_bytes:offset:PASSWORD_LENGTH}"
+        offset=$(( offset + PASSWORD_LENGTH ))
+
+        # Write password file and create system user
+        echo "${password}" > "$PASSWORD_DIR/$username.password"
+        useradd -M -s /usr/sbin/nologin "${username}"
+        echo "${username}:${password}" | chpasswd
+
+        # Progress update every 10%
+        if (( i % progress_step == 0 || i == count )); then
+            echo "Generated ${i}/${count} users..."
+        fi
+
+    done
+}
+
 # Start the Dante server
 function start_dante() {
 
@@ -176,10 +220,31 @@ for auth_file in "$PASSWORD_DIR"/*.password; do
     fi
 done
 
-# Check if there are any unused auth files based on /$PASSWORD_DIR/*.password if so, skip user generation
+# Check how many unused auth files exist
 existing_auth_files_count=$(ls -1 $PASSWORD_DIR/*.password 2>/dev/null | wc -l)
+
+# If we have enough unused auth files, skip user generation entirely
+if (( existing_auth_files_count >= USER_COUNT )); then
+    echo "Found ${existing_auth_files_count} unused auth files in ${PASSWORD_DIR} (>= ${USER_COUNT}), skipping user generation."
+    echo "Total user count on system: $( getent passwd | wc -l )"
+
+    # Prepare the regen request directory and start the watcher in the background
+    mkdir -p "${REGEN_DIR}"
+    rm -f "${REGEN_DIR}"/*
+    regen_watcher &
+
+    start_dante
+    exit 0
+fi
+
+# If we have some unused auth files but fewer than USER_COUNT, generate the missing ones
 if (( existing_auth_files_count > 0 )); then
-    echo "Found ${existing_auth_files_count} unused auth files in ${PASSWORD_DIR}, skipping user generation."
+    users_to_generate=$(( USER_COUNT - existing_auth_files_count ))
+    echo "Found ${existing_auth_files_count} unused auth files in ${PASSWORD_DIR}, need to generate ${users_to_generate} more to reach ${USER_COUNT}."
+
+    generate_users ${users_to_generate}
+
+    echo "Total unused auth files: ${USER_COUNT}"
     echo "Total user count on system: $( getent passwd | wc -l )"
 
     # Prepare the regen request directory and start the watcher in the background
@@ -195,40 +260,6 @@ fi
 # Scenario 2: No existing auth files found
 ###############################################
 
-# Pre-generate random characters for all usernames and passwords to minimise /dev/urandom calls
-RANDOM_BYTES_COUNT=$(( USER_COUNT * ( USER_LENGTH + PASSWORD_LENGTH ) ))
-RANDOM_BYTES=$(LC_CTYPE=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c ${RANDOM_BYTES_COUNT})
-if (( ${#RANDOM_BYTES} < RANDOM_BYTES_COUNT )); then
-    echo "Error: Unable to generate sufficient random data" >&2
-    exit 1
-fi
-
-random_slice() {
-    local start=$1
-    local length=$2
-    printf '%s' "${RANDOM_BYTES:start:length}"
-}
-
-generate_password() {
-    local slice=$(random_slice "$1" ${PASSWORD_LENGTH})
-    echo "p_${slice}"
-}
-
-generate_username() {
-    local slice=$(random_slice "$1" ${USER_LENGTH})
-    echo "u_${slice}"
-}
-
-# Create password directory if it doesn't exist
-mkdir -p "$PASSWORD_DIR"
-
-# Initialize progress tracking
-PROGRESS_PCT_INTERVAL=10
-PROGRESS_STEP_SIZE=$(( (USER_COUNT * PROGRESS_PCT_INTERVAL + 100 - 1) / 100 ))
-if (( PROGRESS_STEP_SIZE == 0 )); then
-    PROGRESS_STEP_SIZE=1
-fi
-
 # Before anything else, delete all non special existing users
 current_user=$(whoami)
 allowed_users=("root" "$current_user" "ubuntu" "nobody" "bin" "list" "man" "daemon" "sys" "sync" "games" "lp" "mail" "news" "uucp" "proxy" "www-data" "backup" "list" "irc" "gnats" "nobody" "systemd-network" "systemd-resolve" "syslog" "_apt" "tss" "messagebus" "uuidd" "dnsmasq" "sshd" "landscape" "pollinate" )
@@ -238,42 +269,14 @@ for user in $(cut -f1 -d: /etc/passwd); do
     if [[ ! " ${allowed_users[@]} " =~ " ${user} " ]]; then
         echo "Deleting existing user: $user"
         userdel "$user" 2>/dev/null || true
-    fi
-    rm -f "$PASSWORD_DIR/$user.password"
-    rm -f "$PASSWORD_DIR/$user.password.used"
-
-done
-
-echo "Generated 0/${USER_COUNT} users (0%)..."
-offset=0
-start_time=$(date +%s)
-for i in $(seq 1 ${USER_COUNT}); do
-
-    # Generate username and password
-    USERNAME=$(generate_username ${offset})
-    offset=$(( offset + USER_LENGTH ))
-    PASSWORD=$(generate_password ${offset})
-    offset=$(( offset + PASSWORD_LENGTH ))
-
-    # Append to password file
-    echo "${PASSWORD}" >> "$PASSWORD_DIR/$USERNAME.password"
-
-    # Create user in system, no home directory, no shell access
-    useradd -M -s /usr/sbin/nologin "${USERNAME}"
-    echo "${USERNAME}:${PASSWORD}" | chpasswd
-
-    # Update progress
-    if (( i == USER_COUNT || i % PROGRESS_STEP_SIZE == 0 )); then
-        PROGRESS_PERCENT=$(( i * 100 / USER_COUNT ))
-        echo "Generated ${i}/${USER_COUNT} users (${PROGRESS_PERCENT}%)..."
+        rm -f "$PASSWORD_DIR/$user.password"
+        rm -f "$PASSWORD_DIR/$user.password.used"
     fi
 
 done
-end_time=$(date +%s)
-elapsed=$(( end_time - start_time ))
-echo "User generation completed in ${elapsed} seconds."
 
-# Echo the password file line count
+# Generate all users from scratch
+generate_users ${USER_COUNT}
 echo "Generated $(ls -1 $PASSWORD_DIR/*.password | wc -l) users."
 
 # Set up PAM service for Dante

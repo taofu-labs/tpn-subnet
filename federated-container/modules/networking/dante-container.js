@@ -89,7 +89,7 @@ export async function load_socks5_from_disk() {
             const username = filename.replace( '.password', '' )
 
             // Check if already used
-            const available = !used_auth_files.includes( auth_path )
+            const available = !used_auth_files.includes( `${ auth_path }.used` )
             
             // Read password from file
             let { stdout: password } = await run( `cat ${ auth_path }` )
