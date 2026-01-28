@@ -133,13 +133,25 @@ function start_dante() {
 
 }
 
-# Loop over /$PASSWORD_DIR/*.password.used files and delete users
+# Loop over /$PASSWORD_DIR/*.password.used files and delete users with expired leases
+# Get current time in milliseconds (JS timestamps are in ms)
+current_time_ms=$(( $(date +%s) * 1000 ))
+
 for used_auth_file in "$PASSWORD_DIR"/*.password.used; do
     if [[ -f "$used_auth_file" ]]; then
         username=$(basename "$used_auth_file" .password.used)
-        userdel "$username" || echo "No need to delete user $username, it does not exist."
-        rm -f "$PASSWORD_DIR/$username.password"
-        rm -f "$PASSWORD_DIR/$username.password.used"
+        expires_at=$(cat "$used_auth_file" 2>/dev/null || echo "0")
+
+        # Only delete user if the lease has expired
+        # Treat empty or invalid content as expired (backwards compatibility)
+        if [[ -z "$expires_at" || ! "$expires_at" =~ ^[0-9]+$ || "$expires_at" -le "$current_time_ms" ]]; then
+            userdel "$username" || echo "No need to delete user $username, it does not exist."
+            rm -f "$PASSWORD_DIR/$username.password"
+            rm -f "$PASSWORD_DIR/$username.password.used"
+            echo "Deleted expired user $username"
+        else
+            echo "User $username lease still active (expires at $expires_at), preserving credentials"
+        fi
     fi
 done
 

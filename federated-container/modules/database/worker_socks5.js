@@ -282,9 +282,9 @@ export async function register_socks5_lease( { expires_at } ) {
             log.info( `Registered SOCKS5 lease for ${ sock.ip_address }:${ sock.port }, expires at ${ new Date( expires_at ).toISOString() }` )
         }
 
-        // Mark the password as unavailable through touching /passwords/<username>.password.used
-        // this lets the dante container handle user state across restarts
-        if( sock ) await run( `touch ${ PASSWORD_DIR }/${ sock.username }.password.used` )
+        // Mark the password as unavailable by writing expires_at to /passwords/<username>.password.used
+        // This lets the dante container handle user state across restarts and preserve active leases
+        if( sock ) await run( `echo ${ expires_at } > ${ PASSWORD_DIR }/${ sock.username }.password.used` )
 
         return { success: true, sock }
 
