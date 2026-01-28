@@ -1,6 +1,7 @@
 import { is_ipv4, log, wait } from "mentie"
 import { ip_from_req } from "./network.js"
 import { get_tpn_cache } from "../caching.js"
+import { run_mode } from "../validations.js"
 const { CI_MODE, CI_VALIDATOR_IP_OVERRIDES } = process.env
 
 // This hardcoded validator list is a failover for when the neuron did not submit the latest validator ips
@@ -74,6 +75,10 @@ export const get_validators = async ( { ip_only=false, overrides_only=false, ski
  * @returns {Promise<{uid: number, ip: string}|false>} - Validator identity or false if not a validator.
  */
 export async function is_validator_request( request ) {
+
+    // in worker mode, always return false
+    const { worker_mode } = run_mode()
+    if( worker_mode ) return false
 
     // Get the ip of the originating request
     const { unspoofable_ip, spoofable_ip } = ip_from_req( request )
