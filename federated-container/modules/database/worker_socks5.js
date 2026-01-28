@@ -6,6 +6,66 @@ import { stat } from "fs/promises"
 import { dante_server_ready, load_socks5_from_disk, regenerate_dante_socks5_config } from "../networking/dante-container.js"
 
 /**
+ * Gets a priority SOCKS5 config from the reserved priority pool (first N configs by ID order).
+ * Priority configs are shared and never marked unavailable - multiple validators can use them simultaneously.
+ * @param {Object} params
+ * @param {number} params.priority_slots - Number of configs in the priority pool
+ * @param {number} params.expires_at - Timestamp when the lease expires (used for password rotation tracking)
+ * @returns {Promise<{ success: boolean, sock?: Object, error?: string }>}
+ */
+export async function get_priority_socks5_config( { priority_slots = 1, expires_at } ) {
+
+    try {
+
+        const pool = await get_pg_pool()
+
+        // Get first N configs by ID order (these are always available for sharing)
+        const select_query = `
+            SELECT * FROM worker_socks5_configs
+            ORDER BY id ASC
+            LIMIT $1
+        `
+        const result = await pool.query( select_query, [ priority_slots ] )
+        const priority_configs = result.rows || []
+
+        if( !priority_configs.length ) return { success: false, error: `No priority configs available` }
+
+        // Return a random one from the priority pool (for load distribution)
+        const sock = priority_configs[ Math.floor( Math.random() * priority_configs.length ) ]
+
+        // Test the connection works
+        const sock_string = `socks5://${ sock.username }:${ sock.password }@${ sock.ip_address }:${ sock.port }`
+        await dante_server_ready( { max_wait_ms: 10_000 } )
+        const sock_works = await test_socks5_connection( { sock: sock_string } )
+
+        // If test fails, regenerate password and retry
+        if( !sock_works ) {
+            log.warn( `Priority SOCKS5 config ${ sock.username } failed test, regenerating password` )
+            const { password: new_password, error } = await regenerate_dante_socks5_config( { username: sock.username } )
+            if( error ) return { success: false, error: `Failed to regenerate priority config: ${ error }` }
+            sock.password = new_password
+        }
+
+        // Extend expires_at for password rotation (but do NOT mark unavailable)
+        // This ensures cleanup job will eventually regenerate the password
+        const update_query = `
+            UPDATE worker_socks5_configs
+            SET expires_at = $1, updated = $2
+            WHERE username = $3
+        `
+        await pool.query( update_query, [ expires_at, Date.now(), sock.username ] )
+
+        log.info( `Returning priority SOCKS5 config ${ sock.username } (shared, never marked unavailable)` )
+        return { success: true, sock }
+
+    } catch ( e ) {
+        log.error( `Error in get_priority_socks5_config:`, e )
+        return { success: false, error: e.message }
+    }
+
+}
+
+/**
  * Writes SOCKS5 proxy configurations to the database
  * Existing usernames are updated (username + password only), new ones are inserted, missing ones are deleted
  * @param {Object} params
@@ -153,22 +213,29 @@ export async function cleanup_expired_dante_socks5_configs() {
 
 /**
  * Counts the number of available SOCKS5 proxy configurations
+ * @param {Object} params
+ * @param {number} [params.skip_slots=0] - Number of configs to skip (by ID order) for priority reservation
  * @returns {Promise<{ success: boolean, available_socks_count?: number, error?: string }>}
  */
-export async function count_available_socks() {
+export async function count_available_socks( { skip_slots = 0 } = {} ) {
 
     try {
 
         // Get pool
         const pool = await get_pg_pool()
 
-        // Query count of available socks
+        // Query count of available socks, skipping priority slots using a subquery
+        // The subquery orders by ID and skips the first N (priority) configs
         const query = `
             SELECT COUNT(*) AS available_count
-            FROM worker_socks5_configs
-            WHERE available = TRUE
+            FROM (
+                SELECT id FROM worker_socks5_configs
+                WHERE available = TRUE
+                ORDER BY id ASC
+                OFFSET $1
+            ) AS non_priority_socks
         `
-        const result = await pool.query( query )
+        const result = await pool.query( query, [ skip_slots ] )
         const available_socks_count = Number( result.rows[0]?.available_count || 0 )
 
         return { success: true, available_socks_count }
@@ -184,9 +251,10 @@ export async function count_available_socks() {
  * Registers a SOCKS5 proxy lease by marking an available proxy as unavailable
  * @param {Object} params
  * @param {number} params.expires_at - Timestamp when the lease expires
+ * @param {number} [params.skip_slots=0] - Number of configs to skip (by ID order) for priority reservation
  * @returns {Promise<{ success: boolean, sock?: Object, error?: string }>}
  */
-export async function register_socks5_lease( { expires_at } ) {
+export async function register_socks5_lease( { expires_at, skip_slots = 0 } ) {
 
     const working_key = `register_socks5_lease_working`
 
@@ -210,18 +278,20 @@ export async function register_socks5_lease( { expires_at } ) {
         // Find an available socks5 config
         let sock = null
         let attempts = 0
-        const { available_socks_count: max_attempts } = await count_available_socks()
+        const { available_socks_count: max_attempts } = await count_available_socks( { skip_slots } )
         while( attempts < max_attempts && !sock ) {
 
-            // Attempt to find an available sock
-            log.info( `[WHILE] Attempt ${ attempts + 1 } to find available SOCKS5 config` )
+            // Attempt to find an available sock, skipping priority slots using OFFSET
+            log.info( `[WHILE] Attempt ${ attempts + 1 } to find available SOCKS5 config (skipping ${ skip_slots } priority slots)` )
             const select_query = `
                 SELECT *
                 FROM worker_socks5_configs
                 WHERE available = TRUE
+                ORDER BY id ASC
+                OFFSET $1
                 LIMIT 1
             `
-            const result = await pool.query( select_query )
+            const result = await pool.query( select_query, [ skip_slots ] )
             const [ available_sock ] = result.rows || []
 
             // If no available socks were found, regenerate expired configs

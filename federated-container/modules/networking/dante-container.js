@@ -1,7 +1,7 @@
 import { cache, log, wait } from "mentie"
 import { exec } from "child_process"
 import { run } from "../system/shell.js"
-import { count_available_socks, register_socks5_lease, write_socks } from "../database/worker_socks5.js"
+import { count_available_socks, get_priority_socks5_config, register_socks5_lease, write_socks } from "../database/worker_socks5.js"
 import { access, open } from "fs/promises"
 
 /**
@@ -204,8 +204,11 @@ export async function regenerate_dante_socks5_config( { username } ) {
 
 /**
  * Retrieves a valid SOCKS5 configuration by leasing an available credential.
+ * Priority requests get shared configs that are never marked unavailable.
+ * Non-priority requests skip priority slots and get exclusive leases.
  * @param {Object} params - The parameters for the function.
  * @param {number} params.lease_seconds - The lease duration in seconds.
+ * @param {boolean} [params.priority=false] - Whether this is a priority request (uses shared configs).
  * @returns {Promise<Object>} A promise that resolves to a SOCKS5 configuration object.
  * @returns {string} return.username - The SOCKS5 username.
  * @returns {string} return.password - The SOCKS5 password.
@@ -213,7 +216,7 @@ export async function regenerate_dante_socks5_config( { username } ) {
  * @returns {number} return.port - The server port.
  * @returns {number} return.expires_at - The expiration timestamp of the lease.
  */
-export async function get_valid_socks5_config( { lease_seconds } ) {
+export async function get_valid_socks5_config( { lease_seconds, priority = false } ) {
 
     // Check if dante server is ready
     const dante_ready = await dante_server_ready()
@@ -223,10 +226,32 @@ export async function get_valid_socks5_config( { lease_seconds } ) {
     const dante_config_initialised = cache( 'dante_config_initialised' )
     if( !dante_config_initialised ) await load_socks5_from_disk()
 
-    // Formulate config parameters
-    const expires_at = Date.now() +  lease_seconds * 1000 
-    let { available_socks_count } = await count_available_socks()
-    log.info( `There are ${ available_socks_count } available socks for lease_seconds: ${ lease_seconds }` )
+    // Get priority slot configuration
+    const { SOCKS5_PRIORITY_SLOTS = 1 } = process.env
+    const priority_slots = Number( SOCKS5_PRIORITY_SLOTS )
+    const expires_at = Date.now() + lease_seconds * 1000
+
+    // Priority requests: return shared config (available stays TRUE, but expires_at is set for password rotation)
+    if( priority ) {
+        log.info( `Priority SOCKS5 request, using shared priority pool (${ priority_slots } slots)` )
+        const { success, error, sock } = await get_priority_socks5_config( { priority_slots, expires_at } )
+        if( !success ) throw new Error( error )
+
+        const socks5_config = {
+            username: sock.username,
+            password: sock.password,
+            ip_address: sock.ip_address,
+            port: sock.port
+        }
+
+        log.info( `Leased priority SOCKS5 config: ${ sock.username }@${ sock.ip_address }:${ sock.port }, expires at ${ new Date( expires_at ).toISOString() }` )
+        return { socks5_config, expires_at }
+    }
+
+    // Non-priority requests: use existing lease logic but skip priority slots
+    const skip_slots = priority_slots
+    let { available_socks_count } = await count_available_socks( { skip_slots } )
+    log.info( `There are ${ available_socks_count } available socks (after skipping ${ skip_slots } priority slots) for lease_seconds: ${ lease_seconds }` )
 
     // If no socks available, restart the container and reload configs
     if( !available_socks_count ) {
@@ -234,14 +259,14 @@ export async function get_valid_socks5_config( { lease_seconds } ) {
         await restart_dante_container()
         await check_if_dante_reachable()
         await load_socks5_from_disk()
-        const { available_socks_count: new_available_socks_count } = await count_available_socks()
+        const { available_socks_count: new_available_socks_count } = await count_available_socks( { skip_slots } )
         log.info( `After restarting Dante, there are ${ new_available_socks_count } available socks` )
         available_socks_count = new_available_socks_count
         if( !available_socks_count ) throw new Error( `No available socks after restarting Dante container` )
     }
-    
-    // Get lease
-    const { success, error, sock } = await register_socks5_lease( { expires_at } )
+
+    // Get lease (skipping priority slots)
+    const { success, error, sock } = await register_socks5_lease( { expires_at, skip_slots } )
     log.info( `Leased SOCKS5 config: ${ sock.username }@${ sock.ip_address }:${ sock.port }, expires at ${ new Date( expires_at ).toISOString() }` )
     if( !success ) throw new Error( `Error leasing SOCKS5 config: ${ error }` )
 

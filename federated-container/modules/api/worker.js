@@ -39,7 +39,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
     // Get relevant socks5 config
     if( type === 'socks5' ) {
-        const { socks5_config, expires_at } = await get_valid_socks5_config( { lease_seconds } )
+        const { socks5_config, expires_at } = await get_valid_socks5_config( { lease_seconds, priority } )
         if( !socks5_config ) throw new Error( `Failed to get valid socks5 config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
         log.info( `Obtained Socks5 config for ${ socks5_config?.username }, expires at ${ new Date( expires_at ).toISOString() }` )
 
