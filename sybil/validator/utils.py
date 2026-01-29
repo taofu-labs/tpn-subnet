@@ -4,12 +4,12 @@ from sybil.protocol import Challenge
 from typing import List
 import bittensor as bt
 
+from sybil.utils.http import get_json_no_retry
 
-# Fetch a challenge from a given URL
-async def fetch(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            return await response.json()
+
+# Fetch a challenge from a given URL (with timeout, no retry for use in asyncio.gather)
+async def fetch( url ):
+    return await get_json_no_retry( url )
 
 # Wait until the / endpoint returns a 200 OK response
 async def wait_for_validator_container(validator_server_url: str):
@@ -39,7 +39,7 @@ async def generate_challenges(miner_uids: List[int], validator_server_url: str) 
     try:
         tasks = []
         for uid in miner_uids:
-            bt.logging.info(f"Generating challenge for miner uid: {uid}")
+            bt.logging.info( f"Generating challenge for miner uid: { uid }" )
             url = f"{validator_server_url}/challenge/new?miner_uid={uid}"
             tasks.append(fetch(url))
         
@@ -47,17 +47,27 @@ async def generate_challenges(miner_uids: List[int], validator_server_url: str) 
         await wait_for_validator_container(validator_server_url)
 
         # Gather all the tasks to fetch challenges concurrently
-        responses = await asyncio.gather(*tasks)
-        
-        challenges = [
-            Challenge(
-                challenge=response["challenge"],
-                challenge_url=response["challenge_url"]
-            ) for response in responses
-        ]
-        
+        responses = await asyncio.gather( *tasks )
+
+        # Filter out None responses (from timeouts) and build challenges
+        challenges = []
+        for response in responses:
+            if response is None:
+                bt.logging.warning( "Skipping challenge due to failed fetch" )
+                continue
+
+            # Validate response has required fields
+            if "challenge" not in response or "challenge_url" not in response:
+                bt.logging.warning( f"Skipping malformed challenge response: { response }" )
+                continue
+
+            challenges.append( Challenge(
+                challenge=response[ "challenge" ],
+                challenge_url=response[ "challenge_url" ]
+            ) )
+
         return challenges
     except Exception as e:
-        print(f"Error generating challenges: {e}. Returning empty list.")
+        bt.logging.error( f"Error generating challenges: { e }. Returning empty list." )
         return []
 
