@@ -19,6 +19,7 @@
 
 
 import copy
+import time
 import numpy as np
 import asyncio
 import argparse
@@ -137,13 +138,24 @@ class BaseValidatorNeuron(BaseNeuron):
         """
 
         # Check that validator is registered on the network.
-        self.sync()
+        # Retry loop for initial sync to handle transient connection issues
+        while not self.should_exit:
+            try:
+                self.sync()
+                break
+            except KeyboardInterrupt:
+                self.axon.stop()
+                bt.logging.success("Validator killed by keyboard interrupt.")
+                exit()
+            except Exception as e:
+                bt.logging.error(f"Initial sync failed: {e}. Retrying in 10 seconds...")
+                time.sleep(10)
 
-        bt.logging.info(f"Validator starting at block: {self.block}")
+        bt.logging.info(f"Validator started.")
 
         # This loop maintains the validator's operations until intentionally stopped.
-        try:
-            while True:
+        while True:
+            try:
                 bt.logging.info(f"step({self.step}) block({self.block})")
 
                 # Run multiple forwards concurrently.
@@ -158,18 +170,19 @@ class BaseValidatorNeuron(BaseNeuron):
 
                 self.step += 1
 
-        # If someone intentionally stops the validator, it'll safely terminate operations.
-        except KeyboardInterrupt:
-            self.axon.stop()
-            bt.logging.success("Validator killed by keyboard interrupt.")
-            exit()
+            # If someone intentionally stops the validator, it'll safely terminate operations.
+            except KeyboardInterrupt:
+                self.axon.stop()
+                bt.logging.success("Validator killed by keyboard interrupt.")
+                exit()
 
-        # In case of unforeseen errors, the validator will log the error and continue operations.
-        except Exception as err:
-            bt.logging.error(f"Error during validation: {str(err)}")
-            bt.logging.debug(
-                str(print_exception(type(err), err, err.__traceback__))
-            )
+            # In case of unforeseen errors, the validator will log the error and continue operations.
+            except Exception as err:
+                bt.logging.error(f"Error during validation: {str(err)}")
+                bt.logging.debug(
+                    str(print_exception(type(err), err, err.__traceback__))
+                )
+                time.sleep(10)
 
     def run_in_background_thread(self):
         """
