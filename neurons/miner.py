@@ -20,7 +20,6 @@
 import time
 import typing
 import asyncio
-import aiohttp
 import bittensor as bt
 
 import sybil
@@ -28,6 +27,7 @@ import sybil
 # import base miner class which takes care of most of the boilerplate
 from sybil.base.miner import BaseMinerNeuron
 from sybil.base.consts import BURN_UID, BURN_WEIGHT
+from sybil.utils.http import post_json, HTTPClientError, CHALLENGE_TIMEOUT
 
 
 class Miner(BaseMinerNeuron):
@@ -55,24 +55,33 @@ class Miner(BaseMinerNeuron):
             synapse (sybil.protocol.Challenge): The synapse object containing the 'challenge_url' data.
         """
         
-        bt.logging.info(f"Received challenge: {synapse.challenge_url}")
-        
+        bt.logging.info( f"Received challenge: { synapse.challenge_url }" )
+
         challenge_url = synapse.challenge_url
 
         try:
-            async with aiohttp.ClientSession() as session:
-                bt.logging.info(f"Sending challenge to {self.miner_server}/challenge")
-                async with session.post(
-                    f"{self.miner_server}/challenge",
-                    json={"url": challenge_url},
-                    headers={"Content-Type": "application/json"},
-                ) as response:
-                    response = (await response.json())["response"]
-                    synapse.challenge_response = response
-                    bt.logging.info(f"Solved challenge: {synapse.challenge_response}")
-                    return synapse
+            bt.logging.info( f"Sending challenge to { self.miner_server }/challenge" )
+            # Use longer timeout for compute-intensive challenge solving
+            result = await post_json(
+                f"{ self.miner_server }/challenge",
+                json={ "url": challenge_url },
+                timeout=CHALLENGE_TIMEOUT,
+                headers={ "Content-Type": "application/json" }
+            )
+
+            if "response" not in result:
+                bt.logging.error( f"Malformed challenge response (missing 'response' key): { result }" )
+                return synapse
+
+            synapse.challenge_response = result[ "response" ]
+            bt.logging.info( f"Solved challenge: { synapse.challenge_response }" )
+            return synapse
+
+        except HTTPClientError as e:
+            bt.logging.error( f"Challenge request failed after retries: { e }" )
+            return synapse
         except Exception as e:
-            bt.logging.error(f"Error solving challenge: {e}")
+            bt.logging.error( f"Error solving challenge: { e }" )
             return synapse
 
     async def blacklist(
@@ -181,7 +190,7 @@ class Miner(BaseMinerNeuron):
         """
         Broadcast the neurons to the miner server.
         """
-        bt.logging.info(f"Broadcasting neurons to {self.miner_server}/protocol/broadcast/neurons")
+        bt.logging.info( f"Broadcasting neurons to { self.miner_server }/protocol/broadcast/neurons" )
 
         neurons_info = []
         block = int(self.metagraph.block)
@@ -198,20 +207,20 @@ class Miner(BaseMinerNeuron):
                 'coldkey': neuron.coldkey,
                 'excluded': uid == BURN_UID,
             })
-        bt.logging.info(f"Submitting neurons info: {len(neurons_info)} neurons")
-        try:     
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.miner_server}/protocol/broadcast/neurons",
-                    json={"neurons": neurons_info}
-                ) as resp:
-                    result = await resp.json()
-                    if result["success"]:
-                        bt.logging.info(f"Broadcasted neurons info: {len(neurons_info)} neurons")
-                    else:
-                        bt.logging.error(f"Failed to broadcast neurons info")
+        bt.logging.info( f"Submitting neurons info: { len( neurons_info ) } neurons" )
+        try:
+            result = await post_json(
+                f"{ self.miner_server }/protocol/broadcast/neurons",
+                json={ "neurons": neurons_info }
+            )
+            if result.get( "success" ):
+                bt.logging.info( f"Broadcasted neurons info: { len( neurons_info ) } neurons" )
+            else:
+                bt.logging.error( f"Failed to broadcast neurons info: { result }" )
+        except HTTPClientError as e:
+            bt.logging.error( f"Failed to broadcast neurons info after retries: { e }" )
         except Exception as e:
-            bt.logging.error(f"Failed to broadcast neurons info: {e}")
+            bt.logging.error( f"Failed to broadcast neurons info: { e }" )
 
 
 def check_if_miner_registered(neuron):

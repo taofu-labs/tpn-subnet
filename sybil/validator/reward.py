@@ -19,8 +19,9 @@
 import numpy as np
 from typing import List
 import bittensor as bt
-import aiohttp
 import asyncio
+
+from sybil.utils.http import get_json_no_retry
 
 def reward(query: int, response: int) -> float:
     """
@@ -36,35 +37,41 @@ def reward(query: int, response: int) -> float:
     return 1.0 if response == query * 2 else 0
 
 
-async def get_rewards(challenges: List[str], responses: List[str], validator_server_url: str) -> List[float]:
+async def get_rewards( challenges: List[str], responses: List[str], validator_server_url: str ) -> List[float]:
+    """
+    Get the scores for the responses.
+    """
     try:
-        """
-        Get the scores for the responses.
-        """
-        async def fetch_score(challenge, response) -> float:
-            bt.logging.info(f"Getting score at: {validator_server_url}/challenge/{challenge}/{response}")
+
+        async def fetch_score( challenge, response ) -> float:
+            bt.logging.info( f"Getting score at: { validator_server_url }/challenge/{ challenge }/{ response }" )
             if response is None:
                 return 0
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{validator_server_url}/challenge/{challenge}/{response}"
-                ) as resp:
-                    result = await resp.json()
-                    if result["score"]:
-                        bt.logging.info(f"Score: {result['score']}")
-                    else:
-                        bt.logging.info(f"No score found in response: {result}")
-                    return result["score"] if "score" in result else 0
-                
+
+            # Use get_json_no_retry so one slow request doesn't block all others
+            result = await get_json_no_retry( f"{ validator_server_url }/challenge/{ challenge }/{ response }" )
+
+            if result is None:
+                bt.logging.warning( f"Failed to get score for challenge { challenge }" )
+                return 0
+
+            if "score" in result:
+                bt.logging.info( f"Score: { result[ 'score' ] }" )
+                return result[ "score" ]
+            else:
+                bt.logging.info( f"No score found in response: { result }" )
+                return 0
+
         # Concurrently fetch all scores
         scores = await asyncio.gather(
-            *[fetch_score(challenge, response) for challenge, response in zip(challenges, responses)]
+            *[ fetch_score( challenge, response ) for challenge, response in zip( challenges, responses ) ]
         )
-        
+
         # Convert None to 0
-        scores = [0 if score is None else score for score in scores]
-        
+        scores = [ 0 if score is None else score for score in scores ]
+
         return scores
+
     except Exception as e:
-        print(f"Error getting rewards: {e}")
+        bt.logging.error( f"Error getting rewards: { e }" )
         return None
