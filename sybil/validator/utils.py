@@ -35,18 +35,19 @@ async def wait_for_validator_container(validator_server_url: str):
 
 
 # Generate one challenge per miner_uid, appending ?miner_uid=<uid> to each request
-async def generate_challenges(miner_uids: List[int], validator_server_url: str) -> List[Challenge]:
+async def generate_challenges( miner_uids: List[int], validator_server_url: str ) -> List[Challenge]:
     try:
+        # Ensure the validator server is ready before making requests
+        await wait_for_validator_container( validator_server_url )
+
+        # Create fetch tasks for each miner
         tasks = []
         for uid in miner_uids:
             bt.logging.info( f"Generating challenge for miner uid: { uid }" )
-            url = f"{validator_server_url}/challenge/new?miner_uid={uid}"
-            tasks.append(fetch(url))
-        
-        # Before fetching challenges, ensure the validator server is ready
-        await wait_for_validator_container(validator_server_url)
+            url = f"{ validator_server_url }/challenge/new?miner_uid={ uid }"
+            tasks.append( fetch( url ) )
 
-        # Gather all the tasks to fetch challenges concurrently
+        # Fetch all challenges concurrently
         responses = await asyncio.gather( *tasks )
 
         # Filter out None responses (from timeouts) and build challenges
