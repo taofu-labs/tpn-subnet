@@ -2,6 +2,27 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC1091,SC2183
 
+# ============================================
+# Traffic obfuscation rules
+# Reduces fingerprinting vectors used to detect VPN traffic
+# ============================================
+
+echo "**** Applying traffic obfuscation rules ****"
+
+# MSS clamping: defeats MTU fingerprinting
+# WireGuard adds 60-byte overhead creating ~1420 MTU vs residential 1500
+iptables -t mangle -A POSTROUTING -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+
+# TTL normalization: defeats hop count analysis
+# VPN reprocessing creates inconsistent TTL values revealing intermediate hops
+iptables -t mangle -A POSTROUTING -j TTL --ttl-set 64 2>/dev/null || true
+iptables -t mangle -A FORWARD -j TTL --ttl-set 64 2>/dev/null || true
+
+echo "**** Traffic obfuscation rules applied ****"
+
+# ============================================
+
 mkdir -p /config/wg_confs
 
 # migration to subfolder for wg confs
