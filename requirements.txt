@@ -1,4 +1,4 @@
-bittensor==10.0.1
+bittensor==10.1.0
 starlette>=0.30.0
 pydantic>=2
 rich>=13
