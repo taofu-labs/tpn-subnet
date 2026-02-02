@@ -23,6 +23,27 @@ import asyncio
 import bittensor as bt
 
 import sybil
+import logging
+
+class UnknownSynapseFilter(logging.Filter):
+    """
+    Filter to mask 'UnknownSynapseError' logs from bittensor, which occur when
+    bots/scanners request unsupported synapses. We downgrade these to INFO/WARNING
+    to keep logs clean.
+    """
+    def filter(self, record):
+        if "UnknownSynapseError" in record.getMessage():
+            record.levelno = logging.WARNING # Downgrade from ERROR
+            record.levelname = "WARNING"
+            # Extract the synapse name if possible for context
+            msg = record.getMessage()
+            try:
+                synapse_name = msg.split("Synapse name '")[1].split("'")[0]
+                record.msg = f"🛡️ Ignored unsupported synapse request: '{synapse_name}'"
+            except:
+                record.msg = f"🛡️ Ignored unsupported synapse request"
+            return True
+        return True
 
 # import base miner class which takes care of most of the boilerplate
 from sybil.base.miner import BaseMinerNeuron
@@ -41,6 +62,12 @@ class Miner(BaseMinerNeuron):
 
     def __init__(self, config=None):
         super(Miner, self).__init__(config=config)
+        
+        # [Log Noise Filter] Attach filter to mask 'UnknownSynapseError'
+        try:
+            bt.logging.logger.addFilter(UnknownSynapseFilter())
+        except Exception:
+            pass # Fail silently if logger structure differs
 
         # TODO(developer): Anything specific to your use case you can do here
 
@@ -256,7 +283,7 @@ if __name__ == "__main__":
     with Miner() as miner:
         # Create event loop if not already running
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
