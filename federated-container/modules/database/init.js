@@ -153,11 +153,6 @@ export async function init_database() {
             )
         ` )
         log.info( `✅ Worker Socks5 configs table initialized` )
-
-        // Add unique constraint on username if it doesn't exist (for existing tables)
-        await pool.query( `
-            CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
-        ` ).catch( () => {} )
     }
 
     // Create the TIMESTAMPS table if it doesn't exist
@@ -269,6 +264,34 @@ export async function init_database() {
             END
             $$;
         ` )
+    }
+
+    // Add unique constraint on worker_socks5_configs.username if it doesn't exist
+    if( worker_mode ) {
+        await pool.query( `
+            CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
+        ` ).catch( async e => {
+
+            // If creation failed (likely due to duplicates), clean up and retry
+            log.warn( `Could not create unique index on worker_socks5_configs.username: ${ e.message }` )
+            log.info( `Attempting to remove duplicate usernames and retry...` )
+
+            // Delete duplicates keeping the row with the highest id (latest insert)
+            await pool.query( `
+                DELETE FROM worker_socks5_configs a
+                USING worker_socks5_configs b
+                WHERE a.username = b.username
+                AND a.id < b.id
+            ` )
+
+            // Retry creating the unique index
+            await pool.query( `
+                CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
+            ` )
+
+            log.info( `✅ Successfully created unique index after removing duplicates` )
+
+        } )
     }
 
     log.info( `✅ Backwards compatibility section complete` )
