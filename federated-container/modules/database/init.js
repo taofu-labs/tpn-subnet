@@ -145,7 +145,7 @@ export async function init_database() {
                 id SERIAL PRIMARY KEY,
                 ip_address TEXT NOT NULL,
                 port INTEGER NOT NULL,
-                username TEXT NOT NULL,
+                username TEXT NOT NULL UNIQUE,
                 password TEXT NOT NULL,
                 available BOOLEAN NOT NULL DEFAULT TRUE,
                 expires_at BIGINT NOT NULL,
@@ -154,6 +154,10 @@ export async function init_database() {
         ` )
         log.info( `✅ Worker Socks5 configs table initialized` )
 
+        // Add unique constraint on username if it doesn't exist (for existing tables)
+        await pool.query( `
+            CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
+        ` ).catch( () => {} )
     }
 
     // Create the TIMESTAMPS table if it doesn't exist

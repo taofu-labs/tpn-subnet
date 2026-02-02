@@ -192,7 +192,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Select random workers of sample size
     const selected_workers = sample_size >= workers.length ? workers : []
-    if( selected_workers.length == 0 ) while( selected_workers.length < sample_size ) {
+    if( selected_workers.length == 0 && workers.length ) while( selected_workers.length < sample_size ) {
         const random_worker = workers[ Math.floor( Math.random() * workers.length ) ]
         if( !selected_workers.includes( random_worker ) ) {
             selected_workers.push( random_worker )

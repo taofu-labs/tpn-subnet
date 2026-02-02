@@ -47,8 +47,8 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
 
             // Miner fetches configs directly from worker
             log.info( `Fetching worker configs directly from worker for ${ worker.ip }` )
-            wireguard_config = await get_config_directly_from_worker( { worker, lease_seconds } )
-            socks5_config = await get_config_directly_from_worker( { worker, type: `socks5`, lease_seconds } )
+            wireguard_config = await get_config_directly_from_worker( { worker, lease_seconds, priority: true } )
+            socks5_config = await get_config_directly_from_worker( { worker, type: `socks5`, lease_seconds, priority: true } )
 
         } else if( validator_mode ) {
 

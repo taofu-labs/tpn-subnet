@@ -203,6 +203,56 @@ export async function regenerate_dante_socks5_config( { username } ) {
 }
 
 /**
+ * Refresh dante with a race protection lock if no available socks are found.
+ * @returns {Promise<number>} The number of available socks after refresh.
+ */
+async function refresh_dante_configs_if_needed() {
+
+    const refresh_lock_key = 'dante_refresh_lock'
+
+    try {
+
+        // Set a lock
+        while( cache( refresh_lock_key ) ) {
+            log.info( `Dante refresh already in progress, waiting...` )
+            await wait( 5_000 )
+        }
+        cache( refresh_lock_key , true )
+        
+        // Count available socks
+        const { PRIORITY_SLOTS: priority_slots = 5 } = process.env
+        let { available_socks_count: count_pre_refresh } = await count_available_socks( { skip_slots: priority_slots } )
+        log.info( `There are ${ count_pre_refresh } available socks before refresh` )
+        
+        // If we have available socks, no need to refresh
+        if( count_pre_refresh ) {
+            log.info( `Socks are available, no need to refresh Dante configs` )
+            return count_pre_refresh
+        }
+
+        // Restart the dante container to refresh configs
+        log.info( `Refreshing Dante configs by restarting container` )
+        await restart_dante_container()
+        await check_if_dante_reachable()
+        await load_socks5_from_disk()
+
+        // Count configs again
+        const { available_socks_count: new_available_socks_count } = await count_available_socks( { skip_slots: priority_slots } )
+        log.info( `There are ${ new_available_socks_count } available socks after refresh` )
+
+        return new_available_socks_count
+
+    } catch ( e ) {
+        log.error( `Error refreshing Dante configs:`, e )
+        return 0
+    } finally {
+        // Release the lock
+        cache( refresh_lock_key, false )
+    }
+
+}
+
+/**
  * Retrieves a valid SOCKS5 configuration by leasing an available credential.
  * Priority requests get shared configs that are never marked unavailable.
  * Non-priority requests skip priority slots and get exclusive leases.
@@ -239,11 +289,7 @@ export async function get_valid_socks5_config( { lease_seconds, priority = false
         // If no socks available, restart the container and reload configs
         if( !available_socks_count ) {
             log.info( `No available socks, restarting Dante container to refresh configs` )
-            await restart_dante_container()
-            await check_if_dante_reachable()
-            await load_socks5_from_disk()
-            const { available_socks_count: new_available_socks_count } = await count_available_socks( { skip_slots: priority_slots } )
-            log.info( `After restarting Dante, there are ${ new_available_socks_count } available socks` )
+            const new_available_socks_count = await refresh_dante_configs_if_needed()
             available_socks_count = new_available_socks_count
             if( !available_socks_count ) throw new Error( `No available socks after restarting Dante container` )
         }
