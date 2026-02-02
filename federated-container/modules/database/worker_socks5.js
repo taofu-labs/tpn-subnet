@@ -256,7 +256,8 @@ export async function cleanup_expired_dante_socks5_configs() {
         log.info( `Found ${ expired_socks.length } expired SOCKS5 configs to clean up` )
 
         // Regenerate passwords for these users
-        const regen_results = await Promise.all( expired_socks.map( ( { username } ) => regenerate_dante_socks5_config( { username } ) ) )
+        const max_wait_ms = expired_socks.length * 10_000
+        const regen_results = await Promise.all( expired_socks.map( ( { username } ) => regenerate_dante_socks5_config( { username, max_wait_ms } ) ) )
         const regenerated_configs = regen_results.filter( ( { error } ) => !error )
         const errored_usernames = regen_results.filter( ( { error } ) => error ).map( ( { username } ) => username )
 
@@ -279,7 +280,7 @@ export async function cleanup_expired_dante_socks5_configs() {
         // Mark these socks as available, expires 0, with the updated password
         const update_query = format( `
             UPDATE worker_socks5_configs
-            SET available = TRUE, expires_at = 0, password = data.password, updated = data.updated
+            SET available = TRUE, expires_at = 0, password = data.password, updated = data.updated::bigint
             FROM ( VALUES %L ) AS data( username, password, updated )
             WHERE worker_socks5_configs.username = data.username
         `, regenerated_configs.map( ( { username, password } ) => [ username, password, now ] ) )

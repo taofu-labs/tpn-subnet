@@ -157,7 +157,7 @@ export async function restart_dante_container() {
  * @returns {string} return.username - The SOCKS5 username.
  * @returns {string} return.password - The newly regenerated SOCKS5 password.
  */
-export async function regenerate_dante_socks5_config( { username } ) {
+export async function regenerate_dante_socks5_config( { username, max_wait_ms=20_000 } ) {
 
     try {
 
@@ -173,7 +173,6 @@ export async function regenerate_dante_socks5_config( { username } ) {
 
         // Wait for file to be deleted by dante indicating regen is complete
         let regen_complete = false
-        const max_wait_ms = 20_000
         const start_time = Date.now()
         while( !regen_complete ) {
 
@@ -183,7 +182,7 @@ export async function regenerate_dante_socks5_config( { username } ) {
 
             // Check if regen is complete by seeing if the regen request file has been deleted
             regen_complete = await access( regen_file ).then( () => false ).catch( () => true )
-            await wait( 2_000 )
+            await wait( 1_000 )
 
         }
 
