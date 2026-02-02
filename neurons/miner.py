@@ -23,6 +23,27 @@ import asyncio
 import bittensor as bt
 
 import sybil
+import logging
+
+class UnknownSynapseFilter(logging.Filter):
+    """
+    Filter to mask 'UnknownSynapseError' logs from bittensor, which occur when
+    bots/scanners request unsupported synapses. We downgrade these to INFO/WARNING
+    to keep logs clean.
+    """
+    def filter(self, record):
+        if "UnknownSynapseError" in record.getMessage():
+            record.levelno = logging.WARNING # Downgrade from ERROR
+            record.levelname = "WARNING"
+            # Extract the synapse name if possible for context
+            msg = record.getMessage()
+            try:
+                synapse_name = msg.split("Synapse name '")[1].split("'")[0]
+                record.msg = f"🛡️ Ignored unsupported synapse request: '{synapse_name}'"
+            except:
+                record.msg = f"🛡️ Ignored unsupported synapse request"
+            return True
+        return True
 
 # import base miner class which takes care of most of the boilerplate
 from sybil.base.miner import BaseMinerNeuron
@@ -41,8 +62,27 @@ class Miner(BaseMinerNeuron):
 
     def __init__(self, config=None):
         super(Miner, self).__init__(config=config)
+        
+        # [Log Noise Filter] Attach filter to mask 'UnknownSynapseError'
+        try:
+            bt.logging.logger.addFilter(UnknownSynapseFilter())
+        except Exception:
+            pass # Fail silently if logger structure differs
 
         # TODO(developer): Anything specific to your use case you can do here
+
+    def run(self):
+        # [ARCH FIX] Disable Background Thread completely.
+        # We handle everything in the main asyncio loop now.
+        bt.logging.info("Background thread disabled (Single Threaded Mode).")
+        try:
+            while not self.should_exit:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.axon.stop()
+            exit()
+        except Exception as e:
+            bt.logging.error(f"Background thread error: {e}")
 
     async def forward(
         self, synapse: sybil.protocol.Challenge
@@ -243,20 +283,49 @@ if __name__ == "__main__":
     with Miner() as miner:
         # Create event loop if not already running
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
         async def periodic_broadcast():
+            # [ARCH FIX] Single-Threaded Startup Sequence
+            try:
+                bt.logging.info(f"Miner initializing in foreground...")
+                miner.sync() # 1. Sync Metagraph
+                miner.axon.serve(netuid=miner.config.netuid, subtensor=miner.subtensor) # 2. Serve
+                miner.axon.start() # 3. Start
+                bt.logging.info(f"Miner started/serving at block: {miner.block}")
+            except Exception as e:
+                bt.logging.error(f"Startup Critical Failure: {e}")
+                exit(1) # Exit to let PM2 restart us
+
+            # Main Loop
             last_broadcast = None
             broadcast_interval_minutes = 1
             while True: 
-                check_if_miner_registered(miner)
-                if last_broadcast is None or time.time() - last_broadcast > broadcast_interval_minutes * 60:
-                    await miner.broadcast_neurons()
-                    last_broadcast = time.time()
-                await asyncio.sleep(60)  # 60 seconds between broadcasts
+                try:
+                    # Sync metagraph using existing connection, protected by lock
+                    async with miner.lock:
+                        miner.resync_metagraph()
+                        
+                        if miner.wallet.hotkey.ss58_address not in miner.metagraph.hotkeys:
+                            bt.logging.error(f"Miner not registered!")
+                            exit(1)
+
+                    if last_broadcast is None or time.time() - last_broadcast > broadcast_interval_minutes * 60:
+                        await miner.broadcast_neurons()
+                        last_broadcast = time.time()
+                
+                except Exception as e:
+                    bt.logging.error(f"Transient Error in Miner Loop: {e}")
+                    # Don't crash, just wait a bit and retry
+                    await asyncio.sleep(5)
+                
+                # Heartbeat Sleep (60s total, log every 10s)
+                for _ in range(6):
+                    bt.logging.info(f"Miner running... {time.time()}")
+                    await asyncio.sleep(10)
 
         # Run the periodic broadcast in the background
         loop.run_until_complete(periodic_broadcast())
