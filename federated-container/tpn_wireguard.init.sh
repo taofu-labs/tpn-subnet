@@ -25,9 +25,15 @@ fi
 
 generate_confs () {
 
-    # Create server keys and conf if not present
+    # Create server keys if not present or corrupted
+    # WireGuard keys are base64: exactly 44 chars (43 + '=')
     mkdir -p /config/server
-    if [[ ! -f /config/server/privatekey-server ]]; then
+    SERVER_PRIVKEY=$(cat /config/server/privatekey-server 2>/dev/null)
+    SERVER_PUBKEY=$(cat /config/server/publickey-server 2>/dev/null)
+    if [[ ! "${SERVER_PRIVKEY}" =~ ^[A-Za-z0-9+/]{43}=$ ]] || [[ ! "${SERVER_PUBKEY}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+        if [[ -f /config/server/privatekey-server ]] || [[ -f /config/server/publickey-server ]]; then
+            echo "**** WARNING: Corrupted or invalid server keys. Regenerating. ****"
+        fi
         umask 077
         wg genkey | tee /config/server/privatekey-server | wg pubkey > /config/server/publickey-server
     fi
@@ -57,31 +63,66 @@ DUDE"
             # Create peer folder
             mkdir -p "/config/${PEER_ID}"
 
-            # Create peer keys if they do not exist
-            if [[ ! -f "/config/${PEER_ID}/privatekey-${PEER_ID}" ]]; then
+            # Reset CLIENT_IP for each peer to prevent stale values from previous iteration
+            CLIENT_IP=""
+
+            # Create peer keys if they do not exist or are corrupted
+            # WireGuard keys are base64: exactly 44 chars (43 + '=')
+            PRIVKEY=$(cat "/config/${PEER_ID}/privatekey-${PEER_ID}" 2>/dev/null)
+            PUBKEY=$(cat "/config/${PEER_ID}/publickey-${PEER_ID}" 2>/dev/null)
+            if [[ ! "${PRIVKEY}" =~ ^[A-Za-z0-9+/]{43}=$ ]] || [[ ! "${PUBKEY}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+                if [[ -f "/config/${PEER_ID}/privatekey-${PEER_ID}" ]] || [[ -f "/config/${PEER_ID}/publickey-${PEER_ID}" ]]; then
+                    echo "**** WARNING: Corrupted or invalid keys for ${PEER_ID}. Regenerating. ****"
+                fi
                 umask 077
                 wg genkey | tee "/config/${PEER_ID}/privatekey-${PEER_ID}" | wg pubkey > "/config/${PEER_ID}/publickey-${PEER_ID}"
                 wg genpsk > "/config/${PEER_ID}/presharedkey-${PEER_ID}"
             fi
 
-            # If conf already exists, extract the IP from it, otherwise find a new IP
+            # If conf already exists, extract the IP from it
             if [[ -f "/config/${PEER_ID}/${PEER_ID}.conf" ]]; then
                 CLIENT_IP=$(grep "Address" "/config/${PEER_ID}/${PEER_ID}.conf" | awk '{print $NF}')
                 if [[ -n "${ORIG_INTERFACE}" ]] && [[ "${INTERFACE}" != "${ORIG_INTERFACE}" ]]; then
                     CLIENT_IP="${CLIENT_IP//${ORIG_INTERFACE}/${INTERFACE}}"
                 fi
-            else
-                for idx in {2..254}; do
-                PROPOSED_IP="${INTERFACE}.${idx}"
-                if ! grep -q -R "${PROPOSED_IP}" /config/peer*/*.conf 2>/dev/null && ([[ -z "${ORIG_INTERFACE}" ]] || ! grep -q -R "${ORIG_INTERFACE}.${idx}" /config/peer*/*.conf 2>/dev/null); then
-                    CLIENT_IP="${PROPOSED_IP}"
-                    break
+
+                # Validate extracted IP - if broken, treat as if no config exists
+                if [[ ! "${CLIENT_IP}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$ ]]; then
+                    echo "**** WARNING: Broken Address in ${PEER_ID} config (got: '${CLIENT_IP}'). Repairing with new IP. ****"
+                    CLIENT_IP=""
                 fi
+            fi
+
+            # If CLIENT_IP is still empty (no config OR broken config), find a new IP
+            if [[ -z "${CLIENT_IP}" ]]; then
+                for idx in {2..254}; do
+                    PROPOSED_IP="${INTERFACE}.${idx}"
+                    if ! grep -q -R "${PROPOSED_IP}" /config/peer*/*.conf 2>/dev/null && \
+                       ([[ -z "${ORIG_INTERFACE}" ]] || ! grep -q -R "${ORIG_INTERFACE}.${idx}" /config/peer*/*.conf 2>/dev/null); then
+                        CLIENT_IP="${PROPOSED_IP}"
+                        break
+                    fi
                 done
             fi
 
+            # Final validation - skip peer if we still couldn't assign an IP
+            if [[ -z "${CLIENT_IP}" ]]; then
+                echo "**** ERROR: Could not assign IP for peer ${i} (all IPs exhausted?). Skipping. ****"
+                continue
+            fi
+
+            # Validate preshared key if it exists, regenerate if corrupted
+            PSKFILE="/config/${PEER_ID}/presharedkey-${PEER_ID}"
+            if [[ -f "${PSKFILE}" ]]; then
+                PSK=$(cat "${PSKFILE}" 2>/dev/null)
+                if [[ ! "${PSK}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+                    echo "**** WARNING: Corrupted preshared key for ${PEER_ID}. Regenerating. ****"
+                    wg genpsk > "${PSKFILE}"
+                fi
+            fi
+
             # Create peer conf file and add peer to server conf
-            if [[ -f "/config/${PEER_ID}/presharedkey-${PEER_ID}" ]]; then
+            if [[ -f "${PSKFILE}" ]]; then
                 # create peer conf with presharedkey
                 eval "$(printf %s)
                 cat <<DUDE > /config/${PEER_ID}/${PEER_ID}.conf
@@ -92,7 +133,7 @@ DUDE"
 [Peer]
 # ${PEER_ID}
 PublicKey = $(cat "/config/${PEER_ID}/publickey-${PEER_ID}")
-PresharedKey = $(cat "/config/${PEER_ID}/presharedkey-${PEER_ID}")
+PresharedKey = $(cat "${PSKFILE}")
 DUDE
             else
                 echo "**** Existing keys with no preshared key found for ${PEER_ID}, creating confs without preshared key for backwards compatibility ****"
@@ -171,8 +212,21 @@ if [[ -n "$PEERS" ]]; then
         mapfile -t PERSISTENTKEEPALIVE_PEERS_ARRAY < <(echo "${PERSISTENTKEEPALIVE_PEERS}" | tr ',' '\n')
     fi
     if [[ -z "$SERVERURL" ]] || [[ "$SERVERURL" = "auto" ]]; then
-        SERVERURL=$(curl -s icanhazip.com)
-        echo "**** SERVERURL var is either not set or is set to \"auto\", setting external IP to auto detected value of $SERVERURL ****"
+        # Try multiple IPv4 detection services with failover
+        for ip_service in "https://ipv4.icanhazip.com" "https://api.ipify.org" "https://ifconfig.me" "https://ipecho.net/plain"; do
+            SERVERURL=$(curl -sf --connect-timeout 5 "$ip_service" 2>/dev/null | tr -d '[:space:]')
+            # Validate we got a valid IPv4 address
+            if [[ "${SERVERURL}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "**** Auto-detected external IP: $SERVERURL (via $ip_service) ****"
+                break
+            fi
+            SERVERURL=""
+        done
+        # Final check - fail loudly if no IP could be detected
+        if [[ -z "$SERVERURL" ]]; then
+            echo "**** ERROR: Could not auto-detect external IP. Set SERVERURL manually. ****"
+            exit 1
+        fi
     else
         echo "**** External server address is set to $SERVERURL ****"
     fi

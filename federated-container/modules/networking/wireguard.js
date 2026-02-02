@@ -7,7 +7,7 @@ import { get_free_interfaces } from "./network.js"
 const tmp_folder = '/etc/wireguard'
 
 // Timeout used for curl commands
-const { CI_MODE } = process.env
+const { CI_MODE, DEBUG_MODE } = process.env
 const test_timeout_seconds = CI_MODE ? 10 : 30
 
 // Split multi-line commands into an array of commands
@@ -288,7 +288,11 @@ export function parse_wireguard_config( { wireguard_config, expected_endpoint_ip
  * @param {boolean} params.verbose - Whether to log verbosely.
  * @returns {Promise<{ valid: boolean, message: string }>} - The result of the wireguard connection test.
  */
-export async function test_wireguard_connection( { wireguard_config, verbose=CI_MODE === 'true' } ) {
+export async function test_wireguard_connection( { wireguard_config, verbose } ) {
+
+    // Verbosity triggers
+    if( CI_MODE === 'true' ) verbose = true 
+    if( DEBUG_MODE === 'true' ) verbose =  true
 
     // Check if we should mock
     const { CI_MOCK_WORKER_RESPONSES } = process.env
