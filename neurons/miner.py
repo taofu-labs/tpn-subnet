@@ -277,17 +277,23 @@ if __name__ == "__main__":
             last_broadcast = None
             broadcast_interval_minutes = 1
             while True: 
-                # Sync metagraph using existing connection, protected by lock
-                async with miner.lock:
-                    miner.resync_metagraph()
-                    
-                    if miner.wallet.hotkey.ss58_address not in miner.metagraph.hotkeys:
-                        bt.logging.error(f"Miner not registered!")
-                        exit(1)
+                try:
+                    # Sync metagraph using existing connection, protected by lock
+                    async with miner.lock:
+                        miner.resync_metagraph()
+                        
+                        if miner.wallet.hotkey.ss58_address not in miner.metagraph.hotkeys:
+                            bt.logging.error(f"Miner not registered!")
+                            exit(1)
 
-                if last_broadcast is None or time.time() - last_broadcast > broadcast_interval_minutes * 60:
-                    await miner.broadcast_neurons()
-                    last_broadcast = time.time()
+                    if last_broadcast is None or time.time() - last_broadcast > broadcast_interval_minutes * 60:
+                        await miner.broadcast_neurons()
+                        last_broadcast = time.time()
+                
+                except Exception as e:
+                    bt.logging.error(f"Transient Error in Miner Loop: {e}")
+                    # Don't crash, just wait a bit and retry
+                    await asyncio.sleep(5)
                 
                 # Heartbeat Sleep (60s total, log every 10s)
                 for _ in range(6):
