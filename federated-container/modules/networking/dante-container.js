@@ -227,7 +227,7 @@ async function refresh_dante_configs_if_needed() {
         // If we have available socks, no need to refresh
         if( count_pre_refresh ) {
             log.info( `Socks are available, no need to refresh Dante configs` )
-            return
+            return count_pre_refresh
         }
 
         // Restart the dante container to refresh configs
