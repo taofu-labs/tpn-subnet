@@ -44,6 +44,19 @@ class Miner(BaseMinerNeuron):
 
         # TODO(developer): Anything specific to your use case you can do here
 
+    def run(self):
+        # [ARCH FIX] Disable Background Thread completely.
+        # We handle everything in the main asyncio loop now.
+        bt.logging.info("Background thread disabled (Single Threaded Mode).")
+        try:
+            while not self.should_exit:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.axon.stop()
+            exit()
+        except Exception as e:
+            bt.logging.error(f"Background thread error: {e}")
+
     async def forward(
         self, synapse: sybil.protocol.Challenge
     ) -> sybil.protocol.Challenge:
@@ -249,14 +262,37 @@ if __name__ == "__main__":
             asyncio.set_event_loop(loop)
 
         async def periodic_broadcast():
+            # [ARCH FIX] Single-Threaded Startup Sequence
+            try:
+                bt.logging.info(f"Miner initializing in foreground...")
+                miner.sync() # 1. Sync Metagraph
+                miner.axon.serve(netuid=miner.config.netuid, subtensor=miner.subtensor) # 2. Serve
+                miner.axon.start() # 3. Start
+                bt.logging.info(f"Miner started/serving at block: {miner.block}")
+            except Exception as e:
+                bt.logging.error(f"Startup Critical Failure: {e}")
+                exit(1) # Exit to let PM2 restart us
+
+            # Main Loop
             last_broadcast = None
             broadcast_interval_minutes = 1
             while True: 
-                check_if_miner_registered(miner)
+                # Sync metagraph using existing connection, protected by lock
+                async with miner.lock:
+                    miner.resync_metagraph()
+                    
+                    if miner.wallet.hotkey.ss58_address not in miner.metagraph.hotkeys:
+                        bt.logging.error(f"Miner not registered!")
+                        exit(1)
+
                 if last_broadcast is None or time.time() - last_broadcast > broadcast_interval_minutes * 60:
                     await miner.broadcast_neurons()
                     last_broadcast = time.time()
-                await asyncio.sleep(60)  # 60 seconds between broadcasts
+                
+                # Heartbeat Sleep (60s total, log every 10s)
+                for _ in range(6):
+                    bt.logging.info(f"Miner running... {time.time()}")
+                    await asyncio.sleep(10)
 
         # Run the periodic broadcast in the background
         loop.run_until_complete(periodic_broadcast())

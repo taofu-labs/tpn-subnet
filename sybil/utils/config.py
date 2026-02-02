@@ -84,8 +84,8 @@ def add_args(cls, parser):
     parser.add_argument(
         "--neuron.epoch_length",
         type=int,
-        help="The default epoch length (how often we set weights, measured in 12 second blocks).",
-        default=360,
+        help="The default epoch length (blocks).",
+        default=300,
     )
 
     parser.add_argument(
