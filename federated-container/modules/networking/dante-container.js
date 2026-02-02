@@ -1,7 +1,7 @@
 import { cache, log, wait } from "mentie"
 import { exec } from "child_process"
 import { run } from "../system/shell.js"
-import { count_available_socks, get_socks5_config, write_socks } from "../database/worker_socks5.js"
+import { cleanup_expired_dante_socks5_configs, count_available_socks, get_socks5_config, write_socks } from "../database/worker_socks5.js"
 import { access, open } from "fs/promises"
 
 /**
@@ -218,6 +218,9 @@ async function refresh_dante_configs_if_needed() {
             await wait( 5_000 )
         }
         cache( refresh_lock_key , true )
+
+        // Handle expired socks before counting
+        await cleanup_expired_dante_socks5_configs()
         
         // Count available socks
         const { PRIORITY_SLOTS: priority_slots = 5 } = process.env

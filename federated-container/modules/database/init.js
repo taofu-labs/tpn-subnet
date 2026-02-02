@@ -276,18 +276,23 @@ export async function init_database() {
             log.warn( `Could not create unique index on worker_socks5_configs.username: ${ e.message }` )
             log.info( `Attempting to remove duplicate usernames and retry...` )
 
-            // Delete duplicates keeping the row with the highest id (latest insert)
-            await pool.query( `
-                DELETE FROM worker_socks5_configs a
-                USING worker_socks5_configs b
-                WHERE a.username = b.username
-                AND a.id < b.id
-            ` )
+            try {
 
-            // Retry creating the unique index
-            await pool.query( `
+                // Delete duplicates keeping the row with the highest id (latest insert)
+                await pool.query( `
+                    DELETE FROM worker_socks5_configs a
+                    USING worker_socks5_configs b
+                    WHERE a.username = b.username
+                    AND a.id < b.id
+                ` )
+
+                // Retry creating the unique index
+                await pool.query( `
                 CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
             ` )
+            } catch ( e ) {
+                log.error( `Failed to remove duplicates and create unique index on worker_socks5_configs.username: ${ e.message }` )
+            }
 
             log.info( `✅ Successfully created unique index after removing duplicates` )
 
