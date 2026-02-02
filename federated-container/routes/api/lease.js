@@ -23,10 +23,10 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
-        const request_from__validator = await is_validator_request( req )
+        const request_from_validator = await is_validator_request( req )
         log.insane( `Handling new lease request as ${ mode }` )
         if( miner_mode ) {
-            if( !request_from__validator ) {
+            if( !request_from_validator ) {
                 const { unspoofable_ip } = ip_from_req( req )
                 log.debug( `Denied lease request to miner from non-validator IP: ${ unspoofable_ip }` )
                 throw new Error( `Miners only accept lease requests from validators, which you (${ unspoofable_ip }) are not` )
@@ -88,7 +88,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // requests from validators to mining pools are always overridden to true (weights relevant)
         // requests from mining pools to workers respect the requested value
         if( validator_mode ) priority = 'false'
-        if( miner_mode && request_from__validator ) priority = 'true'
+        if( miner_mode && request_from_validator ) priority = 'true'
 
         // Sanetise and parse inputs for each prop set
         lease_seconds = lease_seconds && parseInt( lease_seconds, 10 )

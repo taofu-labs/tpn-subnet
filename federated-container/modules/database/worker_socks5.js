@@ -164,7 +164,7 @@ export async function get_socks5_config( { expires_at, priority = false, priorit
 
 /**
  * Writes SOCKS5 proxy configurations to the database
- * Existing usernames are updated (username + password only), new ones are inserted, missing ones are deleted
+ * Uses upsert (ON CONFLICT) to update existing usernames and insert new ones, then deletes missing ones
  * @param {Object} params
  * @param {Array<{ ip_address: string, port: number, username: string, password: string, available: boolean }>} params.socks - Array of SOCKS5 configurations
  * @returns {Promise<{ success: boolean, error?: string }>}
@@ -183,7 +183,7 @@ export async function write_socks( { socks } ) {
             return expected_properties.every( prop => sock_props.includes( prop ) )
         } )
 
-        log.info( `Received ${ socks.length } socks, ${ valid_socks.length } valid socks, excerpt: `, socks.slice( 0, 1 ) )
+        log.info( `Received ${ socks.length } socks to save to db, ${ valid_socks.length } valid socks, excerpt: `, socks.slice( 0, 1 ) )
 
         // If no valid socks, delete all existing entries and return
         if( !valid_socks?.length ) {
@@ -192,53 +192,38 @@ export async function write_socks( { socks } ) {
             return { success: true }
         }
 
-        // Get existing usernames from database
-        const existing_result = await pool.query( `SELECT username FROM worker_socks5_configs` )
-        const existing_usernames = existing_result.rows.map( ( { username } ) => username )
-
-        // Separate incoming socks into updates and inserts based on username presence
-        const incoming_usernames = valid_socks.map( ( { username } ) => username )
-        const socks_to_update = valid_socks.filter( ( { username } ) => existing_usernames.includes( username ) )
-        const socks_to_insert = valid_socks.filter( ( { username } ) => !existing_usernames.includes( username ) )
-
-        // Find usernames to delete (in db but not in incoming list)
-        const usernames_to_delete = existing_usernames.filter( username => !incoming_usernames.includes( username ) )
+        // Deduplicate by username (keep last occurrence) to avoid upsert conflicts within same batch
+        const unique_socks = [ ...new Map( valid_socks.map( sock => [ sock.username, sock ] ) ).values() ]
+        if( unique_socks.length !== valid_socks.length ) {
+            log.warn( `Deduplicated ${ valid_socks.length } socks to ${ unique_socks.length } unique usernames` )
+        }
 
         const now = Date.now()
+        const incoming_usernames = unique_socks.map( ( { username } ) => username )
 
-        // Update existing entries - only update username and password
-        if( socks_to_update.length ) {
-            const update_query = format( `
-                UPDATE worker_socks5_configs
-                SET password = data.password, updated = data.updated::BIGINT
-                FROM ( VALUES %L ) AS data( username, password, updated )
-                WHERE worker_socks5_configs.username = data.username
-            `, socks_to_update.map( sock => [ sock.username, sock.password, now ] ) )
-            await pool.query( update_query )
-            log.info( `Updated ${ socks_to_update.length } existing SOCKS5 configs` )
-        }
-
-        // Insert new entries
-        if( socks_to_insert.length ) {
-            const insert_query = format( `
-                INSERT INTO worker_socks5_configs ( ip_address, port, username, password, available, updated, expires_at )
-                VALUES %L
-            `, socks_to_insert.map( sock => [ sock.ip_address, sock.port, sock.username, sock.password, sock.available, now, 0 ] ) )
-            await pool.query( insert_query )
-            log.info( `Inserted ${ socks_to_insert.length } new SOCKS5 configs` )
-        }
+        // Upsert all socks - insert new ones, update password for existing ones (preserves available/expires_at)
+        const upsert_query = format( `
+            INSERT INTO worker_socks5_configs ( ip_address, port, username, password, available, updated, expires_at )
+            VALUES %L
+            ON CONFLICT ( username ) DO UPDATE SET
+                password = EXCLUDED.password,
+                updated = EXCLUDED.updated
+        `, unique_socks.map( sock => [ sock.ip_address, sock.port, sock.username, sock.password, sock.available, now, 0 ] ) )
+        await pool.query( upsert_query )
+        log.info( `Upserted ${ unique_socks.length } SOCKS5 configs` )
 
         // Delete entries not in incoming list
-        if( usernames_to_delete.length ) {
-            const delete_query = format( `
-                DELETE FROM worker_socks5_configs
-                WHERE username IN ( %L )
-            `, usernames_to_delete )
-            await pool.query( delete_query )
-            log.info( `Deleted ${ usernames_to_delete.length } SOCKS5 configs not in incoming list` )
+        const delete_query = format( `
+            DELETE FROM worker_socks5_configs
+            WHERE username NOT IN ( %L )
+        `, incoming_usernames )
+        const delete_result = await pool.query( delete_query )
+        const deleted_count = delete_result.rowCount || 0
+        if( deleted_count ) {
+            log.info( `Deleted ${ deleted_count } SOCKS5 configs not in incoming list` )
         }
 
-        log.info( `Successfully synced SOCKS5 configs: ${ socks_to_update.length } updated, ${ socks_to_insert.length } inserted, ${ usernames_to_delete.length } deleted` )
+        log.info( `Successfully synced ${ unique_socks.length } SOCKS5 configs` )
         return { success: true }
 
     } catch ( e ) {
