@@ -118,7 +118,8 @@ if( validator_mode ) {
 if( worker_mode ) {
 
     // Wait for the wg container to be ready
-    const { wait_for_wireguard_config_count, wait_for_wg_port_to_be_reachable } = await import( './modules/networking/wg-container.js' )
+    const { wireguard_server_ready, wait_for_wireguard_config_count, wait_for_wg_port_to_be_reachable } = await import( './modules/networking/wg-container.js' )
+    await wireguard_server_ready()
     await wait_for_wireguard_config_count()
     await wait_for_wg_port_to_be_reachable()
 

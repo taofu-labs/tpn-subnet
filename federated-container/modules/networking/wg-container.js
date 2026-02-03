@@ -74,6 +74,7 @@ export async function wireguard_server_ready( grace_window_ms=5_000, peer_id=1 )
 
     const start = Date.now()
     let time_passed = 0
+    const ready_file = join( wireguard_folder, '.wg_ready' )
     const config_path = join( wireguard_folder, `peer${ peer_id }`, `peer${ peer_id }.conf` )
     log.info( `Checking if wireguard server is ready for peer${ peer_id } at ${ config_path }` )
     if( CI_MODE === 'true' && CI_MOCK_WG_CONTAINER === 'true' ) {
@@ -90,7 +91,12 @@ export async function wireguard_server_ready( grace_window_ms=5_000, peer_id=1 )
             const folder_exists = await fs.stat( wireguard_folder ).catch( e => false )
             if( !folder_exists ) throw new Error( 'Wireguard folder does not exist' )
 
-            // Check if the folder list has at least one peer folder with valid config in wireguard/peer1/peer1.conf
+            // Check if the container has finished generating configs
+            log.info( `Checking for ready file at ${ ready_file }` )
+            const container_ready = await fs.stat( ready_file ).then( () => true ).catch( () => false )
+            if( !container_ready ) throw new Error( 'Wireguard container still generating configs' )
+
+            // Check if the specific peer config exists (when peer_id is provided)
             const has_config = await fs.stat( config_path ).catch( e => false )
             if( !has_config ) throw new Error( 'Wireguard config does not exist' )
 

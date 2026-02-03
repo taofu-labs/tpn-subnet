@@ -4,6 +4,9 @@
 
 mkdir -p /config/wg_confs
 
+# Remove ready marker - generation is starting
+rm -f /config/.wg_ready
+
 # migration to subfolder for wg confs
 if [[ -z "$(ls -A /config/wg_confs)" ]] && [[ -f /config/wg0.conf ]]; then
     echo "**** Performing migration to new folder structure for confs. Please see the image changelog 2023-10-03 entry for more details. ****"
@@ -186,6 +189,9 @@ DUDE
 
     # Atomically move the prefile into place
     mv -f "${PREFILE}" "${FINALFILE}"
+
+    # Signal that generation is complete
+    touch /config/.wg_ready
 }
 
 save_vars () {
@@ -245,7 +251,8 @@ if [[ -n "$PEERS" ]]; then
     fi
     if [[ ! -f /config/wg_confs/wg0.conf ]]; then
         echo "**** No wg0.conf found (maybe an initial install), generating 1 server and ${PEERS} peer/client confs ****"
-        generate_confs
+        # Commented out in lieu of force regen below
+        # generate_confs
         save_vars
     else
         echo "**** Server mode is selected ****"
@@ -254,10 +261,11 @@ if [[ -n "$PEERS" ]]; then
         fi
         if [[ "$SERVERURL" != "$ORIG_SERVERURL" ]] || [[ "$SERVERPORT" != "$ORIG_SERVERPORT" ]] || [[ "$PEERDNS" != "$ORIG_PEERDNS" ]] || [[ "$PEERS" != "$ORIG_PEERS" ]] || [[ "$INTERFACE" != "$ORIG_INTERFACE" ]] || [[ "$ALLOWEDIPS" != "$ORIG_ALLOWEDIPS" ]] || [[ "$PERSISTENTKEEPALIVE_PEERS" != "$ORIG_PERSISTENTKEEPALIVE_PEERS" ]]; then
             echo "**** Server related environment variables changed, regenerating 1 server and ${PEERS} peer/client confs ****"
-            generate_confs
+            # Commented out in lieu of force regen below
+            # generate_confs
             save_vars
         else
-            echo "**** No changes to parameters. Existing configs are used. ****"
+            echo "**** No changes to parameters.****"
         fi
     fi
 else
