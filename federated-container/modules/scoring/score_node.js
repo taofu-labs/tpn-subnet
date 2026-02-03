@@ -43,8 +43,10 @@ export async function score_node_version( { ip, public_url, port=3000, grace_win
         // Check if the remote semver is higher than local
         const [ local_major, local_minor, local_patch ] = local_version.split( '.' ).map( n => parseInt( n ) )
 
-        // Formulate min semver declaration
-        const min_semver = local_patch - patch_grace_steps >= 0 ? `${ local_major }.${ local_minor }.${ local_patch - patch_grace_steps }` : `${ local_major }.${ local_minor - 1 }.0`
+        // Formulate min semver declaration (X.0.0 releases require exact match)
+        let min_semver = local_version
+        if( local_patch - patch_grace_steps >= 0 ) min_semver = `${ local_major }.${ local_minor }.${ local_patch - patch_grace_steps }`
+        else if( local_minor > 0 ) min_semver = `${ local_major }.${ local_minor - 1 }.0`
         const min_semver_string = `>=${ min_semver }`
         
         // Check for branch and hash match
