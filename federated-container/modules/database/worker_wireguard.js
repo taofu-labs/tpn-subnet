@@ -1,4 +1,5 @@
-import { cache, log, wait } from "mentie"
+import { log } from "mentie"
+import { with_lock } from "../locks.js"
 import { get_pg_pool } from "./postgres.js"
 import { delete_wireguard_configs, replace_wireguard_configs, restart_wg_container, wireguard_server_ready } from "../networking/wg-container.js"
 const { WIREGUARD_PEER_COUNT=254, BETA_REFRESH_LEASE_INSTEAD_OF_DELETE } = process.env 
@@ -63,22 +64,12 @@ async function cleanup_expired_wireguard_configs() {
  */
 export async function register_wireguard_lease( { start_id=1, end_id=WIREGUARD_PEER_COUNT, expires_at } ) {
 
-    try {
-        log.info( `Registering WireGuard lease between ${ start_id } and ${ end_id }, expires at ${ expires_at }`, new Date( expires_at ) )
+    log.info( `Registering WireGuard lease between ${ start_id } and ${ end_id }, expires at ${ expires_at }`, new Date( expires_at ) )
+
+    return with_lock( `register_wireguard_lease`, async () => {
 
         // Get postgres pool
         const pool = await get_pg_pool()
-
-        // Mitigate race contitions
-        let working = cache( `register_wireguard_lease_working` )
-        while( working ) {
-            log.debug( `Waiting for register_wireguard_lease to finish`, working )
-            await wait( 1000 )
-            working = cache( `register_wireguard_lease_working` )
-            log.debug( `Working: ${ working }` )
-        }
-        log.debug( `Starting register_wireguard_lease` )
-        cache( `register_wireguard_lease_working`, true, 10_000 )
 
         // Check if there is an id that does not yet exist between the start and end id
         log.debug( `Checking for available id between ${ start_id } and ${ end_id }` )
@@ -111,7 +102,6 @@ export async function register_wireguard_lease( { start_id=1, end_id=WIREGUARD_P
             const soonest_expiry_s = ( soonest_expiry_at - Date.now() ) / 1000
 
             log.warn( `No available WireGuard config slots found between ${ start_id } and ${ end_id }, soonest expiry in ${ Math.floor( soonest_expiry_s / 60 ) } minutes (${ soonest_expiry_s }s)` )
-            cache( `register_wireguard_lease_working`, false )
             throw new Error( `No available WireGuard config slots found between ${ start_id } and ${ end_id }` )
         }
 
@@ -123,19 +113,15 @@ export async function register_wireguard_lease( { start_id=1, end_id=WIREGUARD_P
             SET expires_at = $2, updated_at = NOW()
         `, [ next_available_id, expires_at ] )
 
-        // Clear the working cache
         log.debug( `Finished register_wireguard_lease` )
-        cache( `register_wireguard_lease_working`, false )
 
         // Wait for wireguard server to be ready for this config
         log.info( `Waiting for wireguard server to be ready for id ${ next_available_id } (expires at ${ new Date( expires_at ).toISOString() })` )
         await wireguard_server_ready( 30_000, next_available_id )
 
         return next_available_id
-        
-    } finally {
-        cache( `register_wireguard_lease_working`, false )
-    }
+
+    }, { timeout_ms: 10_000 } )
 
 }
 

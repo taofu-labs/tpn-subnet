@@ -1,4 +1,5 @@
 import { cache, log, wait } from "mentie"
+import { with_lock } from "../locks.js"
 import { exec } from "child_process"
 import { run } from "../system/shell.js"
 import { cleanup_expired_dante_socks5_configs, count_available_socks, get_socks5_config, write_socks } from "../database/worker_socks5.js"
@@ -207,50 +208,42 @@ export async function regenerate_dante_socks5_config( { username, max_wait_ms=20
  */
 async function refresh_dante_configs_if_needed() {
 
-    const refresh_lock_key = 'dante_refresh_lock'
+    return with_lock( `dante_refresh`, async () => {
 
-    try {
+        try {
 
-        // Set a lock
-        while( cache( refresh_lock_key ) ) {
-            log.info( `Dante refresh already in progress, waiting...` )
-            await wait( 5_000 )
+            // Handle expired socks before counting
+            await cleanup_expired_dante_socks5_configs()
+
+            // Count available socks
+            const { PRIORITY_SLOTS: priority_slots = 5 } = process.env
+            let { available_socks_count: count_pre_refresh } = await count_available_socks( { skip_slots: priority_slots } )
+            log.info( `There are ${ count_pre_refresh } available socks before refresh` )
+
+            // If we have available socks, no need to refresh
+            if( count_pre_refresh ) {
+                log.info( `Socks are available, no need to refresh Dante configs` )
+                return count_pre_refresh
+            }
+
+            // Restart the dante container to refresh configs
+            log.info( `Refreshing Dante configs by restarting container` )
+            await restart_dante_container()
+            await check_if_dante_reachable()
+            await load_socks5_from_disk()
+
+            // Count configs again
+            const { available_socks_count: new_available_socks_count } = await count_available_socks( { skip_slots: priority_slots } )
+            log.info( `There are ${ new_available_socks_count } available socks after refresh` )
+
+            return new_available_socks_count
+
+        } catch ( e ) {
+            log.error( `Error refreshing Dante configs:`, e )
+            return 0
         }
-        cache( refresh_lock_key , true )
 
-        // Handle expired socks before counting
-        await cleanup_expired_dante_socks5_configs()
-        
-        // Count available socks
-        const { PRIORITY_SLOTS: priority_slots = 5 } = process.env
-        let { available_socks_count: count_pre_refresh } = await count_available_socks( { skip_slots: priority_slots } )
-        log.info( `There are ${ count_pre_refresh } available socks before refresh` )
-        
-        // If we have available socks, no need to refresh
-        if( count_pre_refresh ) {
-            log.info( `Socks are available, no need to refresh Dante configs` )
-            return count_pre_refresh
-        }
-
-        // Restart the dante container to refresh configs
-        log.info( `Refreshing Dante configs by restarting container` )
-        await restart_dante_container()
-        await check_if_dante_reachable()
-        await load_socks5_from_disk()
-
-        // Count configs again
-        const { available_socks_count: new_available_socks_count } = await count_available_socks( { skip_slots: priority_slots } )
-        log.info( `There are ${ new_available_socks_count } available socks after refresh` )
-
-        return new_available_socks_count
-
-    } catch ( e ) {
-        log.error( `Error refreshing Dante configs:`, e )
-        return 0
-    } finally {
-        // Release the lock
-        cache( refresh_lock_key, false )
-    }
+    } )
 
 }
 
