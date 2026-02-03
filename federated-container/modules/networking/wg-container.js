@@ -68,9 +68,10 @@ export async function wait_for_wg_port_to_be_reachable( { max_wait_ms=Infinity }
  * Asynchronously checks if the Wireguard server is ready by ensuring the necessary folders and configuration file exist.
  *
  * @param {number} [grace_window_ms=5000] - The maximum time in milliseconds to wait for the server readiness.
+ * @param {number} [polling_speed_ms=1000] - The interval in milliseconds between readiness checks.
  * @returns {Promise<boolean>} A promise that resolves to true if the server becomes ready within the grace period, or false otherwise.
  */
-export async function wireguard_server_ready( grace_window_ms=5_000, peer_id=1 ) {
+export async function wireguard_server_ready( grace_window_ms=5_000, polling_speed_ms=1000, peer_id=1 ) {
 
     const start = Date.now()
     let time_passed = 0
@@ -109,8 +110,8 @@ export async function wireguard_server_ready( grace_window_ms=5_000, peer_id=1 )
         }
 
         // Pause
-        log.info( `Waiting for ${ 1000 }ms` )
-        await wait( 1000 )
+        log.info( `Waiting for ${ polling_speed_ms }ms` )
+        await wait( polling_speed_ms )
         time_passed = Date.now() - start
 
     }
