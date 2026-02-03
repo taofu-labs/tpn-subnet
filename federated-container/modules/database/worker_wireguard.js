@@ -92,7 +92,7 @@ async function attempt_wireguard_lease_allocation( { start_id, end_id, expires_a
         log.info( `Allocated WireGuard lease ID ${ next_available_id }` )
         return next_available_id
 
-    }, { timeout_ms: 5_000 } )
+    }, { timeout_ms: 60_000 } )
 
 }
 
