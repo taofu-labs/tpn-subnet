@@ -71,7 +71,7 @@ export async function wait_for_wg_port_to_be_reachable( { max_wait_ms=Infinity }
  * @param {number} [polling_speed_ms=1000] - The interval in milliseconds between readiness checks.
  * @returns {Promise<boolean>} A promise that resolves to true if the server becomes ready within the grace period, or false otherwise.
  */
-export async function wireguard_server_ready( grace_window_ms=5_000, polling_speed_ms=1000, peer_id=1 ) {
+export async function wireguard_server_ready( { grace_window_ms=5_000, polling_speed_ms=1_000, peer_id=1 }={} ) {
 
     const start = Date.now()
     let time_passed = 0
@@ -450,11 +450,24 @@ export async function replace_wireguard_configs( { peer_ids=[] }={} ) {
 
         log.info( `Replacing wireguard configs for peers: ${ ids_to_replace.join( ', ' ) }` )
 
-        // Replace each config sequentially to avoid race conditions
+        // Replace configs in batches of 5 to limit concurrency
+        const concurrency_limit = 5
+        const batches = Array.from(
+            { length: Math.ceil( ids_to_replace.length / concurrency_limit ) },
+            ( _, i ) => ids_to_replace.slice( i * concurrency_limit, ( i + 1 ) * concurrency_limit )
+        )
+
         const results = []
-        for( const peer_id of ids_to_replace ) {
-            const result = await replace_wireguard_config( { peer_id } )
-            results.push( { peer_id, success: result.success } )
+        for( const batch of batches ) {
+
+            const batch_results = await Promise.all(
+                batch.map( async peer_id => {
+                    const { success } = await replace_wireguard_config( { peer_id } )
+                    return { peer_id, success }
+                } )
+            )
+            results.push( ...batch_results )
+
         }
 
         // Check if all replacements succeeded

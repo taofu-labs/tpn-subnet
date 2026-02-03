@@ -1,4 +1,5 @@
 import { abort_controller, cache, log, round_number_to_decimals, shuffle_array, wait } from "mentie"
+import { try_acquire_lock } from "../locks.js"
 import { get_tpn_cache } from "../caching.js"
 import { get_worker_countries_for_pool, get_workers, read_worker_broadcast_metadata, write_workers } from "../database/workers.js"
 import { cochrane_sample_size } from "../math/samples.js"
@@ -19,13 +20,11 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
     const traces = {}
     let miner_uid_to_ip = get_tpn_cache( 'miner_uid_to_ip', {} )
 
+    // Try to acquire lock - if already running, return early
+    const release_lock = await try_acquire_lock( `score_mining_pools` )
+    if( !release_lock ) return log.warn( `score_mining_pools is already running` )
+
     try {
-
-
-        // Set up a lock to prevent race conditions
-        const lock = cache( `score_mining_pools_running` )
-        if( lock ) return log.warn( `score_mining_pools is already running` )
-        cache( `score_mining_pools_running`, true, max_duration_minutes * 60_000 )
 
         // Get mining pool uids and ips
         let mining_pool_uids = get_tpn_cache( 'miner_uids', [] )
@@ -139,8 +138,8 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
         log.error( `Error scoring mining pools:`, e )
     } finally {
 
-        // Unlock
-        cache( `score_mining_pools_running`, false )
+        // Release the mutex lock
+        release_lock()
 
         // Log traces for debugging
         log.debug( `Mining pool scoring performance traces: `, traces )

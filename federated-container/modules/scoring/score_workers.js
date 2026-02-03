@@ -1,4 +1,5 @@
-import { cache, log } from "mentie"
+import { log } from "mentie"
+import { try_acquire_lock } from "../locks.js"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
 import { default_mining_pool, is_valid_worker, run_mode } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
@@ -16,17 +17,16 @@ const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
  */
 export async function score_all_known_workers( max_duration_minutes=15 ) {
 
-    try { 
+    // Warn if function was is called by non miner
+    const { miner_mode } = run_mode()
+    if( !miner_mode ) log.warn( `score_all_known_workers called while not in miner mode, this may be unintended` )
 
-        // Warn if function was is called by non miner
-        const { miner_mode } = run_mode()
-        if( !miner_mode ) log.warn( `score_all_known_workers called while not in miner mode, this may be unintended` )
+    // Try to acquire lock - if already running, return early
+    log.info( `Starting score_all_known_workers, max duration ${ max_duration_minutes } minutes` )
+    const release_lock = await try_acquire_lock( `score_all_known_workers` )
+    if( !release_lock ) return log.warn( `score_all_known_workers is already running` )
 
-        // Set a lock on this activity to prevent races
-        log.info( `Starting score_all_known_workers, max duration ${ max_duration_minutes } minutes` )
-        const locked = cache( `score_all_known_workers_running` )
-        if( locked ) return log.warn( `score_all_known_workers is already running` )
-        cache( `score_all_known_workers_running`, true, max_duration_minutes * 60_000 )
+    try {
 
         // Get all known workers
         const { workers } = await get_workers( { mining_pool_uid: 'internal' } )
@@ -52,7 +52,7 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
         // Save annotated workers to database
         await write_workers( { workers: annotated_workers, mining_pool_uid: 'internal' } )
 
-        // Write worker scores to database 
+        // Write worker scores to database
         await write_worker_performance( { workers: annotated_workers } )
 
         log.info( `Scored all known workers, ${ successes.length } successes, ${ failures.length } failures` )
@@ -61,8 +61,8 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
         log.error( `Error scoring all known workers:`, e )
     } finally {
 
-        // Unlock
-        cache( `score_all_known_workers_running`, false )
+        // Release the mutex lock
+        release_lock()
 
     }
 
