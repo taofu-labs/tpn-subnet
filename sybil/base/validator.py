@@ -341,18 +341,26 @@ class BaseValidatorNeuron(BaseNeuron):
             } for neuron in neurons
         ]
 
+        # Timeout for balance broadcast (seconds)
+        BROADCAST_TIMEOUT = 30
+
         try:
             with requests.post(
-                f"{self.validator_server_url}/protocol/broadcast/balances/miners",
-                json={"balances": balances}
+                f"{ self.validator_server_url }/protocol/broadcast/balances/miners",
+                json={ "balances": balances },
+                timeout=BROADCAST_TIMEOUT
             ) as resp:
                 result = resp.json()
-                if result["success"]:
-                    bt.logging.info(f"Broadcasted balances: {len(balances)} balances")
+                if result.get( "success" ):
+                    bt.logging.info( f"Broadcasted balances: { len( balances ) } balances" )
                 else:
-                    bt.logging.error(f"Failed to broadcast balances")
+                    bt.logging.error( f"Failed to broadcast balances: { result }" )
+        except requests.exceptions.Timeout:
+            bt.logging.error( f"Balance broadcast timed out after { BROADCAST_TIMEOUT }s" )
+        except requests.exceptions.JSONDecodeError as e:
+            bt.logging.error( f"Balance broadcast returned invalid JSON: { e }" )
         except Exception as e:
-            bt.logging.error(f"Failed to broadcast balances: {e}")
+            bt.logging.error( f"Failed to broadcast balances: { e }" )
 
     def update_scores(self, rewards: np.ndarray, uids: List[int]):
         """Performs exponential moving average on the scores based on the rewards received from the miners."""

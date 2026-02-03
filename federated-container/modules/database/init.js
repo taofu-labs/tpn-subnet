@@ -145,7 +145,7 @@ export async function init_database() {
                 id SERIAL PRIMARY KEY,
                 ip_address TEXT NOT NULL,
                 port INTEGER NOT NULL,
-                username TEXT NOT NULL,
+                username TEXT NOT NULL UNIQUE,
                 password TEXT NOT NULL,
                 available BOOLEAN NOT NULL DEFAULT TRUE,
                 expires_at BIGINT NOT NULL,
@@ -153,7 +153,6 @@ export async function init_database() {
             )
         ` )
         log.info( `✅ Worker Socks5 configs table initialized` )
-
     }
 
     // Create the TIMESTAMPS table if it doesn't exist
@@ -265,6 +264,39 @@ export async function init_database() {
             END
             $$;
         ` )
+    }
+
+    // Add unique constraint on worker_socks5_configs.username if it doesn't exist
+    if( worker_mode ) {
+        await pool.query( `
+            CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
+        ` ).catch( async e => {
+
+            // If creation failed (likely due to duplicates), clean up and retry
+            log.warn( `Could not create unique index on worker_socks5_configs.username: ${ e.message }` )
+            log.info( `Attempting to remove duplicate usernames and retry...` )
+
+            try {
+
+                // Delete duplicates keeping the row with the highest id (latest insert)
+                await pool.query( `
+                    DELETE FROM worker_socks5_configs a
+                    USING worker_socks5_configs b
+                    WHERE a.username = b.username
+                    AND a.id < b.id
+                ` )
+
+                // Retry creating the unique index
+                await pool.query( `
+                CREATE UNIQUE INDEX IF NOT EXISTS worker_socks5_configs_username_unique ON worker_socks5_configs (username)
+            ` )
+            } catch ( e ) {
+                log.error( `Failed to remove duplicates and create unique index on worker_socks5_configs.username: ${ e.message }` )
+            }
+
+            log.info( `✅ Successfully created unique index after removing duplicates` )
+
+        } )
     }
 
     log.info( `✅ Backwards compatibility section complete` )

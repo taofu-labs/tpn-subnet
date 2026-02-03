@@ -69,6 +69,56 @@ grey() {
   fi
 }
 
+# Docker pull with IPv6 fallback
+# Handles connection issues by trying multiple approaches before sudo escalation
+docker_pull_with_fallback() {
+
+    local docker_cmd=("$@")
+
+    grey "Attempting docker pull..."
+
+    # Attempt 1: Standard pull
+    if "${docker_cmd[@]}" pull -q; then
+        return 0
+    fi
+    grey "Standard pull failed, trying with sequential DNS resolution..."
+
+    # Attempt 2: RES_OPTIONS for sequential DNS (helps with IPv6 race conditions)
+    if RES_OPTIONS="single-request" "${docker_cmd[@]}" pull -q; then
+        return 0
+    fi
+    grey "Sequential DNS pull failed, trying without parallel downloads..."
+
+    # Attempt 3: No parallel pulls (reduces connection load)
+    if "${docker_cmd[@]}" pull --no-parallel; then
+        return 0
+    fi
+    grey "Non-parallel pull failed, combining approaches..."
+
+    # Attempt 4: Combined approach
+    if RES_OPTIONS="single-request" "${docker_cmd[@]}" pull --no-parallel; then
+        return 0
+    fi
+
+    # Attempt 5: Sudo escalation - temporarily disable IPv6
+    if sudo -n true 2>/dev/null; then
+        grey "Non-sudo approaches exhausted, disabling IPv6 temporarily..."
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
+
+        if "${docker_cmd[@]}" pull -q; then
+            # Re-enable IPv6 on success
+            sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1
+            return 0
+        fi
+
+        # Re-enable IPv6 even on failure
+        sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1
+    fi
+
+    red "All docker pull attempts failed, consider disabling IPv6 on your system temporarily and retrying."
+    return 1
+}
+
 
 # Parse command-line arguments
 for arg in "$@"; do
@@ -278,9 +328,8 @@ if [ "$FORCE_RESTART" = "true" ]; then
     REPO_UP_TO_DATE=0
 fi
 
-# Pull the latest docker images
-grey "Pulling latest docker images..."
-"${DOCKER_CMD[@]}" pull -q
+# Pull the latest docker images with IPv6 fallback
+docker_pull_with_fallback "${DOCKER_CMD[@]}"
 grey "Latest docker images pulled."
 
 # Restart the node docker container if needed

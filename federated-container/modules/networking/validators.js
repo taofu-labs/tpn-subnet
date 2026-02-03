@@ -1,18 +1,20 @@
 import { is_ipv4, log, wait } from "mentie"
 import { ip_from_req } from "./network.js"
 import { get_tpn_cache } from "../caching.js"
+import { run_mode } from "../validations.js"
 const { CI_MODE, CI_VALIDATOR_IP_OVERRIDES } = process.env
 
 // This hardcoded validator list is a failover for when the neuron did not submit the latest validator ips
 export const validators_ip_fallback = [
 
     // Live validators as on https://taostats.io/subnets/65/metagraph?order=stake%3Adesc
-    { uid: 117, ip: '34.130.144.244' },
-    { uid: 4, ip: '88.204.136.220' },
-    { uid: 0, ip: '46.16.144.134' },
+    { uid: 0, ip: '167.150.153.165' },
+    { uid: 4, ip: '167.150.153.65' },
     { uid: 47, ip: '161.35.91.172' },
+    { uid: 117, ip: '136.116.243.78' },
+    { uid: 121, ip: '46.62.166.187' },
     { uid: 181, ip: '192.150.253.122' },
-
+    
 ]
 
 // Manual override for ips that should be considered validators for the purpose of miner API requests
@@ -73,6 +75,10 @@ export const get_validators = async ( { ip_only=false, overrides_only=false, ski
  * @returns {Promise<{uid: number, ip: string}|false>} - Validator identity or false if not a validator.
  */
 export async function is_validator_request( request ) {
+
+    // in worker mode, always return false
+    const { worker_mode } = run_mode()
+    if( worker_mode ) return false
 
     // Get the ip of the originating request
     const { unspoofable_ip, spoofable_ip } = ip_from_req( request )

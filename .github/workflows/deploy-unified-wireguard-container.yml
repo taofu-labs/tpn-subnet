@@ -7,6 +7,7 @@ on:
     # Trigger only when package.json is modified
     paths:
       - "federated-container/tpn_wireguard.Dockerfile"
+      - "federated-container/tpn_wireguard.init.sh"
     branches:
       - main
       - development

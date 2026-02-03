@@ -18,15 +18,14 @@
 # DEALINGS IN THE SOFTWARE.
 
 import time
-import math
 import bittensor as bt
 import asyncio
-import aiohttp
 import numpy as np
 
 from sybil.validator.utils import generate_challenges
 from sybil.validator.reward import get_rewards
 from sybil.base.consts import BURN_UID, BURN_WEIGHT
+from sybil.utils.http import get_json, post_json, HTTPClientError
 
 async def forward(self):
     """
@@ -43,34 +42,45 @@ async def forward(self):
     await broadcast_neurons(self.metagraph, self.validator_server_url)
     
     try:
-        bt.logging.info(f"Getting mining pool scores from {self.validator_server_url}/validator/score/mining_pools")
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                f"{self.validator_server_url}/validator/score/mining_pools"
-            ) as resp:
-                result = await resp.json()
-                # Extract all UIDs from the response
-                # Assuming the response is a dict mapping mining_pool_uid to score info
-                if not isinstance(result, dict):
-                    bt.logging.error(f"Unexpected response format: {result}")
-                    all_uids = []
-                else:
-                    all_uids = [int(x) for x in result.keys()]
-                    bt.logging.info(f"Retrieved {len(all_uids)} UIDs from mining pool scores response")
-                    all_scores = [float(x['score']) for x in result.values()]
-                    # Update the scores in the metagraph
-                    self.update_scores(all_scores, all_uids)
-    except Exception as e:
-        bt.logging.error(f"Failed to broadcast neurons info: {e}")
+        bt.logging.info( f"Getting mining pool scores from { self.validator_server_url }/validator/score/mining_pools" )
+        result = await get_json( f"{ self.validator_server_url }/validator/score/mining_pools" )
 
-    time.sleep(10)
+        # Extract all UIDs from the response
+        # Assuming the response is a dict mapping mining_pool_uid to score info
+        if not isinstance( result, dict ):
+            bt.logging.error( f"Unexpected response format: { result }" )
+            all_uids = []
+        else:
+            # Parse valid scores from response, skipping malformed entries
+            all_uids = []
+            all_scores = []
+
+            for uid_str, score_info in result.items():
+                if "score" not in score_info:
+                    bt.logging.warning( f"Missing 'score' key for UID { uid_str }: { score_info }" )
+                    continue
+
+                all_uids.append( int( uid_str ) )
+                all_scores.append( float( score_info[ "score" ] ) )
+
+            bt.logging.info( f"Retrieved { len( all_uids ) } UIDs from mining pool scores response" )
+
+            # Update the scores in the metagraph
+            self.update_scores( all_scores, all_uids )
+
+    except HTTPClientError as e:
+        bt.logging.error( f"Failed to get mining pool scores after retries: { e }" )
+    except Exception as e:
+        bt.logging.error( f"Failed to get mining pool scores: { e }" )
+
+    time.sleep( 10 )
 
 
 async def broadcast_neurons(metagraph, server_url):
     """
     Broadcast the neurons to the server.
     """
-    bt.logging.info(f"Broadcasting neurons to {server_url}/protocol/broadcast/neurons")
+    bt.logging.info( f"Broadcasting neurons to { server_url }/protocol/broadcast/neurons" )
 
     neurons_info = []
     block = int(metagraph.block)
@@ -87,17 +97,17 @@ async def broadcast_neurons(metagraph, server_url):
             'coldkey': neuron.coldkey,
             'excluded': uid == BURN_UID,
         })
-    bt.logging.info(f"Submitting neurons info: {len(neurons_info)} neurons")
-    try:     
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{server_url}/protocol/broadcast/neurons",
-                json={"neurons": neurons_info}
-            ) as resp:
-                result = await resp.json()
-                if result["success"]:
-                    bt.logging.info(f"Broadcasted neurons info: {len(neurons_info)} neurons")
-                else:
-                    bt.logging.error(f"Failed to broadcast neurons info")
+    bt.logging.info( f"Submitting neurons info: { len( neurons_info ) } neurons" )
+    try:
+        result = await post_json(
+            f"{ server_url }/protocol/broadcast/neurons",
+            json={ "neurons": neurons_info }
+        )
+        if result.get( "success" ):
+            bt.logging.info( f"Broadcasted neurons info: { len( neurons_info ) } neurons" )
+        else:
+            bt.logging.error( f"Failed to broadcast neurons info: { result }" )
+    except HTTPClientError as e:
+        bt.logging.error( f"Failed to broadcast neurons info after retries: { e }" )
     except Exception as e:
-        bt.logging.error(f"Failed to broadcast neurons info: {e}")
+        bt.logging.error( f"Failed to broadcast neurons info: { e }" )

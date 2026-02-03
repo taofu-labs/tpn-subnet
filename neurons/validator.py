@@ -97,32 +97,56 @@ class Validator(BaseValidatorNeuron):
         # TODO(developer): Rewrite this function based on your protocol definition.
         return await forward(self)
 
-def check_validator_server(validator_server_url) -> bool:
+# Health check timeout in seconds
+HEALTH_CHECK_TIMEOUT = 10
+
+def check_validator_server( validator_server_url ) -> bool:
     try:
-        with requests.get(f"{validator_server_url}/") as resp:
+        with requests.get( f"{ validator_server_url }/", timeout=HEALTH_CHECK_TIMEOUT ) as resp:
             if resp.ok:
-                bt.logging.info("Validator server is running")
+                bt.logging.info( "Validator server is running" )
             else:
-                bt.logging.error(f"Validator server returned error: {resp.status_code}")
+                bt.logging.error( f"Validator server returned error: { resp.status_code }" )
                 return False
         return True
+    except requests.exceptions.Timeout:
+        bt.logging.error( f"Health check timed out after { HEALTH_CHECK_TIMEOUT }s" )
+        return False
     except Exception as e:
-        bt.logging.error(f"Failed to connect to validator server: {e}")
+        bt.logging.error( f"Failed to connect to validator server: { e }" )
         return False
     
+# Max consecutive health check failures before exiting (let PM2 restart)
+MAX_CONSECUTIVE_FAILURES = 3
+
 # The main function parses the configuration and runs the validator.
 if __name__ == "__main__":
     validator = Validator()
-    
-    while not check_validator_server(validator.validator_server_url):
-        bt.logging.info("Validator server is not running, waiting 10 seconds")
-        time.sleep(10)
-    
+    consecutive_failures = 0
+
+    # Wait for validator server to be ready on startup
+    while not check_validator_server( validator.validator_server_url ):
+        bt.logging.info( "Validator server is not running, waiting 10 seconds" )
+        time.sleep( 10 )
+
     with validator:
         while True:
-            if not check_validator_server(validator.validator_server_url):
-                bt.logging.error("Validator server is not running, exiting")
-                exit(1)
-                
-            bt.logging.info(f"Validator running... {time.time()}")
-            time.sleep(10)
+            if not check_validator_server( validator.validator_server_url ):
+                consecutive_failures += 1
+                bt.logging.error(
+                    f"Validator server health check failed "
+                    f"({ consecutive_failures }/{ MAX_CONSECUTIVE_FAILURES })"
+                )
+
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    bt.logging.error(
+                        f"Validator server unreachable after { MAX_CONSECUTIVE_FAILURES } "
+                        f"consecutive failures, exiting for PM2 restart"
+                    )
+                    exit( 1 )
+            else:
+                # Reset counter on successful health check
+                consecutive_failures = 0
+
+            bt.logging.info( f"Validator running... { time.time() }" )
+            time.sleep( 10 )

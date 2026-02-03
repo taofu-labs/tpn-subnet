@@ -57,6 +57,7 @@ services:
       - ../.git:/app/.git:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./dante_passwords:/passwords
+      - ./dante_regen_requests:/dante_regen_requests
     depends_on:
       postgres:
         condition: service_healthy
@@ -171,9 +172,9 @@ services:
     restart: unless-stopped
     environment:
       - AUTOHEAL_CONTAINER_LABEL=all
-      - AUTOHEAL_INTERVAL=${AUTOHEAL_INTERVAL:-5}
-      - AUTOHEAL_START_PERIOD=${AUTOHEAL_START_PERIOD:-0}
-      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=${AUTOHEAL_DEFAULT_STOP_TIMEOUT:-10}
+      - AUTOHEAL_INTERVAL=${AUTOHEAL_INTERVAL:-300}
+      - AUTOHEAL_START_PERIOD=${AUTOHEAL_START_PERIOD:-300}
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=${AUTOHEAL_DEFAULT_STOP_TIMEOUT:-60}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
@@ -232,6 +233,7 @@ services:
       - USER_COUNT=${DANTE_USER_COUNT:-256}
     volumes:
       - ./dante_passwords:/passwords
+      - ./dante_regen_requests:/dante_regen_requests
       - dante_etc:/etc
       - ./dante_logs:/var/log
     ports:

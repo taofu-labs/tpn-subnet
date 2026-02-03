@@ -7,6 +7,7 @@ RUN apt update \
     && apt install -y --no-install-recommends \
         dante-server \
         gettext-base \
+        inotify-tools \
         iproute2 \
         netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*

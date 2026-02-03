@@ -4,12 +4,11 @@ import { restore_tpn_cache_from_disk } from "./modules/caching.js"
 import { ip_from_req } from "./modules/networking/network.js"
 
 // Get relevant environment data
-import { get_git_branch_and_hash, check_system_warnings, run } from './modules/system/shell.js'
+import { get_git_branch_and_hash, check_system_warnings, run, get_node_version } from './modules/system/shell.js'
 import { run_mode } from "./modules/validations.js"
-import { readFile } from 'fs/promises'
-const { version } = JSON.parse( await readFile( new URL( './package.json', import.meta.url ) ) )
+const { version } = await get_node_version()
 const { branch, hash } = await get_git_branch_and_hash()
-const { CI_MODE, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START } = process.env
+const { CI_MODE, SERVER_PUBLIC_PORT=3000, CI_MOCK_MINING_POOL_RESPONSES, SCORE_ON_START, FORCE_REFRESH } = process.env
 const { DAEMON_INTERVAL_SECONDS=CI_MODE === 'true' ? 60 : 300 } = process.env
 const { mode, worker_mode, validator_mode, miner_mode } = run_mode()
 const last_start = cache( 'last_start', new Date().toISOString() )
@@ -119,7 +118,8 @@ if( validator_mode ) {
 if( worker_mode ) {
 
     // Wait for the wg container to be ready
-    const { wait_for_wireguard_config_count, wait_for_wg_port_to_be_reachable } = await import( './modules/networking/wg-container.js' )
+    const { wireguard_server_ready, wait_for_wireguard_config_count, wait_for_wg_port_to_be_reachable } = await import( './modules/networking/wg-container.js' )
+    await wireguard_server_ready( Infinity, 10_000 )
     await wait_for_wireguard_config_count()
     await wait_for_wg_port_to_be_reachable()
 
@@ -252,4 +252,20 @@ if( CI_MODE === 'true' ) {
     }
     await pull()
     intervals.push( setInterval( pull, interval ) )
+}
+
+// Optionally force refresh a wireguard config every 5 minutes for testing
+if( FORCE_REFRESH === 'true' && worker_mode ) {
+    const { replace_wireguard_config } = await import( './modules/networking/wg-container.js' )
+    let replacements = 0
+    const peer_id = 2
+    log.info( `🤡 CI mode: refreshing WG config ${ peer_id } every 5 minutes for testing` )
+    await replace_wireguard_config( { peer_id } )
+    log.info( `🤡 CI mode: initial WG config ${ peer_id } replacement done` )
+    intervals.push( setInterval( async () => {
+        replacements++
+        log.info( `🤡 CI mode: refreshing run ${ replacements } WG config ${ peer_id }` )
+        await replace_wireguard_config( { peer_id } )
+        log.info( `🤡 CI mode: refresh ${ replacements } WG config ${ peer_id }` )
+    }, 5 * 60_000 ) )
 }

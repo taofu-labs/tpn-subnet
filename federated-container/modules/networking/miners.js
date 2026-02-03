@@ -97,7 +97,7 @@ export function get_miner_by_ip( ip ) {
  * Validator function to get worker config through mining pool
  * @param {Object} params
  * @param {Object} params.worker - The worker object
- * @param {number} [params.max_retries=1] - The maximum number of retry attempts
+ * @param {number} [params.max_retries=2] - The maximum number of retry attempts
  * @param {number} [params.timeout_ms=5_000] - The request timeout in milliseconds
  * @param {string} [params.type='wireguard'] - The type of worker config to retrieve ('wireguard' or 'socks5')
  * @param {string} [params.format='text'] - The response format, either 'text' or 'json'
@@ -107,7 +107,7 @@ export function get_miner_by_ip( ip ) {
  * @param {string} [params.feedback_url] - URL for feedback on the request status
  * @returns {Promise<Object|String>} - Promise resolving to the worker config
  */
-export async function get_worker_config_through_mining_pool( { worker, max_retries=1, timeout_ms=5_000, mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120, feedback_url } ) {
+export async function get_worker_config_through_mining_pool( { worker, max_retries=2, timeout_ms=5_000, mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120, feedback_url } ) {
 
     // Get mining pool data
     const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
@@ -131,7 +131,10 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
         attempts++
         const { fetch_options } = abort_controller( { timeout_ms } )
         log.info( `Attempt ${ attempts }/${ max_retries } to get worker config through mining pool at ${ endpoint }${ query }` )
-        config = await fetch( `${ endpoint }${ query }`, fetch_options ).then( res => format === 'json' ? res.json() : res.text() )
+        config = await fetch( `${ endpoint }${ query }`, fetch_options ).then( res => format === 'json' ? res.json() : res.text() ).catch( e => {
+            log.warn( `Error fetching worker config from mining pool ${ mining_pool_uid } on attempt ${ attempts }:`, e.message )
+            return null
+        } )
         log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.uid }` )
 
     }

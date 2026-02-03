@@ -23,11 +23,12 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
+        const request_from_validator = await is_validator_request( req )
         log.insane( `Handling new lease request as ${ mode }` )
         if( miner_mode ) {
-            const is_validator = await is_validator_request( req )
-            if( !is_validator ) {
+            if( !request_from_validator ) {
                 const { unspoofable_ip } = ip_from_req( req )
+                log.debug( `Denied lease request to miner from non-validator IP: ${ unspoofable_ip }` )
                 throw new Error( `Miners only accept lease requests from validators, which you (${ unspoofable_ip }) are not` )
             }
         }
@@ -39,8 +40,9 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             let { unspoofable_ip } = ip_from_req( req )
             const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: hostname } )
             const ip_match = sanetise_ipv4( { ip: unspoofable_ip } ) === sanetise_ipv4( { ip: mining_pool_ip } )
+            log.debug( `Worker lease request from ${ unspoofable_ip }, mining pool resolved ip is ${ mining_pool_ip }, match: ${ ip_match }` )
             if( !ip_match ) {
-                log.warn( `Attempted access denied for ${ mining_pool_ip }` )
+                log.warn( `Attempted access denied for ${ mining_pool_ip } because it does not match caller IP ${ unspoofable_ip }` )
                 throw new Error( `Worker does not accept lease requests from ${ unspoofable_ip }` )
             }
         }
@@ -53,13 +55,13 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             const valid_keys = `${ process.env.VALIDATOR_LEASE_API_KEYS || '' }`.split( ',' ).map( key => key.trim() ).filter( key => key.length )
             if( !valid_keys.length ) {
                 log.info( `Validator has no api key set in VALIDATOR_LEASE_API_KEYS, denying lease requests by default` )
-                log.info( `🤡 Not blocking access yet until dev portal is live` )
-                // throw new Error( `This validator does not serve leases publicly due to it's configuration` )
+                // log.info( `🤡 Not blocking access yet until dev portal is live` )
+                throw new Error( `This validator does not serve leases publicly due to it's configuration` )
             }
             if( valid_keys.length && ( !api_key || !valid_keys.includes( api_key ) ) ) {
                 log.warn( `Attempted access with invalid API key: ${ api_key }` )
-                log.info( `🤡 Not blocking access yet until dev portal is live` )
-                // throw new Error( `Invalid or missing API key` )
+                // log.info( `🤡 Not blocking access yet until dev portal is live` )
+                throw new Error( `Invalid or missing API key` )
             }
             log.info( `Validator lease request accepted with valid API key` )
 
@@ -80,6 +82,13 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             lease_seconds = _lease_seconds
             log.info( `Deprecation warning: lease_minutes is deprecated, use lease_seconds instead, converting ${ lease_minutes } minutes to ${ _lease_seconds } seconds` )
         }
+
+        // Priority logic:
+        // requests to validators are always overridden to false (is world)
+        // requests from validators to mining pools are always overridden to true (weights relevant)
+        // requests from mining pools to workers respect the requested value
+        if( validator_mode ) priority = 'false'
+        if( miner_mode && request_from_validator ) priority = 'true'
 
         // Sanetise and parse inputs for each prop set
         lease_seconds = lease_seconds && parseInt( lease_seconds, 10 )
@@ -112,7 +121,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         log.debug( `Getting config as ${ mode } with params:`, config_meta )
         let config = null
         if( validator_mode ) config = await get_worker_config_as_validator( config_meta )
-        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )        
+        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )
         if( worker_mode ) config = await get_worker_config_as_worker( config_meta )
 
         // Validate config

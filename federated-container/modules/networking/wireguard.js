@@ -7,7 +7,7 @@ import { get_free_interfaces } from "./network.js"
 const tmp_folder = '/etc/wireguard'
 
 // Timeout used for curl commands
-const { CI_MODE } = process.env
+const { CI_MODE, DEBUG_MODE } = process.env
 const test_timeout_seconds = CI_MODE ? 10 : 30
 
 // Split multi-line commands into an array of commands
@@ -27,6 +27,9 @@ export async function wait_for_ip_free( { ip_address, timeout_s=test_timeout_sec
 
     // Check if the ip address is valid
     if( !ip_address ) throw new Error( `No ip address provided` )
+
+    // Sanetise the ip
+    ip_address = sanetise_ipv4( { ip: ip_address, validate: true, error_on_invalid: true } )
 
     // Check the cache for the ip address being in process
     let ip_being_processed = cache( `ip_being_processed_${ ip_address }` )
@@ -131,11 +134,15 @@ export async function clean_up_tpn_interfaces( { interfaces, ip_addresses, dryru
     // Get all interfaces associated with the ip addresses
     if( ip_addresses ) {
         log.info( `Getting all interfaces associated with ip addresses:`, ip_addresses )
-        const interfaces_of_ips = await Promise.all( ip_addresses.map( ip => {
-            const { stdout } = run( `ip addr show | grep ${ ip } | awk -F' ' '{print $2}'` )
-            if( stdout?.includes( 'tpn' ) ) return stdout?.trim()
+        let interfaces_of_ips = await Promise.all( ip_addresses.map( async ip => {
+            ip = sanetise_ipv4( { ip } )
+            const { stdout } = await run( `ip addr show | grep ${ ip } | awk -F' ' '{print $2}'` )
+            const trimmed = stdout?.trim()
+            if( trimmed?.includes( 'tpn' ) ) return trimmed
             return null
-        } ) ).split( '\n' ).filter( line => line?.includes( 'tpn' ) ).trim()
+        } ) )
+        // Filter out null values
+        interfaces_of_ips = interfaces_of_ips.filter( iface => iface !== null )
         log.debug( `Found interfaces associated with ip addresses:`, interfaces_of_ips )
         interfaces = interfaces ? [ ...interfaces, ...interfaces_of_ips ] : interfaces_of_ips
     }
@@ -281,7 +288,11 @@ export function parse_wireguard_config( { wireguard_config, expected_endpoint_ip
  * @param {boolean} params.verbose - Whether to log verbosely.
  * @returns {Promise<{ valid: boolean, message: string }>} - The result of the wireguard connection test.
  */
-export async function test_wireguard_connection( { wireguard_config, verbose=CI_MODE === 'true' } ) {
+export async function test_wireguard_connection( { wireguard_config, verbose } ) {
+
+    // Verbosity triggers
+    if( CI_MODE === 'true' ) verbose = true 
+    if( DEBUG_MODE === 'true' ) verbose =  true
 
     // Check if we should mock
     const { CI_MOCK_WORKER_RESPONSES } = process.env
