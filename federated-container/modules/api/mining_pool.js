@@ -1,4 +1,5 @@
-import { abort_controller, is_ipv4, log, shuffle_array } from "mentie"
+import { abort_controller, cache, is_ipv4, log, shuffle_array } from "mentie"
+import { v4 as uuidv4 } from 'uuid'
 import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_validators } from "../networking/validators.js"
 import { get_workers } from "../database/workers.js"
@@ -37,25 +38,53 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // Shuffle the worker ip array
     shuffle_array( relevant_workers )
 
-    // Get config from workers
-    let config = null
-    let attempts = 0
-    while( !config && attempts < relevant_workers?.length ) {
+    // Generate feedback_url so losing workers can free their configs
+    const request_id = uuidv4()
+    const feedback_url = `${ base_url }/api/status/request/${ request_id }`
 
-        // Fetch config
-        const worker = relevant_workers[ attempts ]
-        attempts++
-        if( !is_ipv4( worker.ip ) ) continue
-        config = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority } ).catch( e => {
-            log.info( `Error fetching ${ type } config from worker ${ worker.ip }: ${ e.message }` )
+    // Filter to valid IPv4 workers and chunk them for parallelized querying
+    const valid_workers = relevant_workers.filter( w => is_ipv4( w.ip ) )
+    const workers_per_chunk = 10
+    const chunk_count = Math.ceil( valid_workers.length / workers_per_chunk )
+    const chunked_workers = Array.from( { length: chunk_count }, ( _, i ) =>
+        valid_workers.slice( i * workers_per_chunk, ( i + 1 ) * workers_per_chunk )
+    )
+
+    log.info( `Split ${ valid_workers.length } workers into ${ chunked_workers.length } chunks of up to ${ workers_per_chunk } workers each` )
+
+    // Query workers chunk by chunk until we get a config
+    let config = null
+
+    for( const [ index, chunk ] of chunked_workers.entries() ) {
+
+        log.info( `Attempting to get ${ type } config from chunk ${ index + 1 }/${ chunked_workers.length } with ${ chunk.length } workers` )
+
+        // Query all workers in chunk simultaneously, return first success
+        // Wrap calls so null results reject (Promise.any only rejects on thrown errors)
+        config = await Promise.any(
+            chunk.map( async worker => {
+                const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url } )
+                if( !result ) throw new Error( `No config from ${ worker.ip }` )
+                return result
+            } )
+        ).catch( e => {
+            if( e instanceof AggregateError ) log.info( `Chunk ${ index + 1 } failed: all ${ chunk.length } workers rejected` )
             return null
         } )
 
+        if( config ) break
+
+    }
+
+    // Mark request complete so losing workers can free their configs
+    if( config ) {
+        cache( `request_${ request_id }`, { status: 'complete' }, 60_000 )
+        log.info( `Marked request ${ request_id } as complete` )
     }
 
     // On mock success
     if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
-    
+
     // Return the config
     return config
 

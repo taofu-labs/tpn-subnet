@@ -150,9 +150,19 @@ for arg in "$@"; do
   esac
 done
 
+# Expand TPN_DIR to absolute path (handles ~)
+TPN_DIR=$(eval echo "$TPN_DIR")
+TPN_DIR=$(cd "$TPN_DIR" 2>/dev/null && pwd || echo "$TPN_DIR")
+
 # Check for TPN repository
 if [ ! -d "$TPN_DIR" ]; then
     red "TPN repository not found at $TPN_DIR. Please clone it first."
+    exit 1
+fi
+
+# Validate update_node.sh script exists
+if [ ! -f "$TPN_DIR/scripts/update_node.sh" ]; then
+    red "update_node.sh script not found at $TPN_DIR/scripts/update_node.sh. Cannot set up autoupdate."
     exit 1
 fi
 
@@ -212,31 +222,28 @@ printf ' %q' "${DOCKER_CMD[@]}"
 printf '\n'
 
 # Define the command to ensure in crontab
-restart_command="0 * * * * bash $TPN_DIR/scripts/update_node.sh --force_restart=false"
+restart_command="0 * * * * bash $TPN_DIR/scripts/update_node.sh --tpn_dir=$TPN_DIR --force_restart=false"
 
 if [ "$ENABLE_AUTOUPDATE" = "true" ]; then
 
     # Dump crontab, fallback to empty if none exists
     existing_cron=$(crontab -l 2>/dev/null || true)
-    
-    # Check if restart_command already exists
-    if ! printf '%s\n' "$existing_cron" | grep -Fxq "$restart_command"; then
 
-        # Remove any old node update entries
-        new_cron=$(printf "%s" "$existing_cron" | grep -v "scripts/update_node.sh" || true)
+    # Remove any existing TPN update entries (match various patterns)
+    new_cron=$(printf "%s" "$existing_cron" | grep -v "update_node.sh" || true)
 
-        # Append the new cron job
+    # Remove empty lines and add the new cron job
+    new_cron=$(printf "%s" "$new_cron" | sed '/^$/d')
+    if [ -n "$new_cron" ]; then
         new_cron=$(printf "%s\n%s" "$new_cron" "$restart_command")
-
-        # Add the correct restart_command
-        printf "%s\n" "$new_cron" | crontab -
-        grey "Tab is now up to date"
-
     else
-
-        grey "Tab was already up to date, no changes made."
-
+        new_cron="$restart_command"
     fi
+
+    # Install the updated crontab
+    printf "%s\n" "$new_cron" | crontab -
+    grey "Crontab updated with TPN autoupdate at: $TPN_DIR"
+
 else
     grey "Autoupdate disabled, skipping crontab check."
 fi
@@ -407,7 +414,7 @@ if [ "$RUN_MODE" != "worker" ]; then
 
         source venv/bin/activate
         TPN_CACHE="$HOME/.tpn_cache"
-        mkdir -p $TPN_CACHE
+        mkdir -p "$TPN_CACHE"
         export TMPDIR=$TPN_CACHE
         export WANDB_CACHE_DIR=$TPN_CACHE
 

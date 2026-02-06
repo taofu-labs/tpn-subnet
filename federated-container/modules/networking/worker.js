@@ -38,13 +38,17 @@ export const MINING_POOL_URL = get_worker_mining_pool_url()
  * @param {string} [params.format='text'] - Response format (text or json).
  * @param {number} [params.timeout_ms=5000] - Request timeout in milliseconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot.
+ * @param {string} [params.feedback_url] - URL for workers to check if they won the config race.
  * @returns {Promise<string|Object>} - WireGuard configuration.
  */
-export async function get_config_directly_from_worker( { worker, max_retries=2, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000, priority } ) {
+export async function get_config_directly_from_worker( { worker, max_retries=2, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000, priority, feedback_url } ) {
 
     const { ip, public_port=3000 } = worker
     const { CI_MOCK_WORKER_RESPONSES } = process.env
-    const query = `http://${ ip }:${ public_port }/api/lease/new?type=${ type }&lease_seconds=${ lease_seconds }&format=${ format }&priority=${ priority ? 'true' : 'false' }`
+
+    // Build query with optional feedback_url for config race resolution
+    let query = `http://${ ip }:${ public_port }/api/lease/new?type=${ type }&lease_seconds=${ lease_seconds }&format=${ format }&priority=${ priority ? 'true' : 'false' }`
+    if( feedback_url ) query += `&feedback_url=${ encodeURIComponent( feedback_url ) }`
     log.info( `Fetching ${ type } config directly from worker at ${ query }` )
 
     // Get config from workers
