@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { cache, log, round_number_to_decimals } from "mentie"
+import { abort_controller, cache, log, round_number_to_decimals } from "mentie"
 import { get_tpn_cache } from "../../modules/caching.js"
 import { run_mode } from "../../modules/validations.js"
 import { get_worker_performance, get_workers } from "../../modules/database/workers.js"
@@ -182,13 +182,32 @@ router.get( '/worker_performance', async ( req, res ) => {
     }
 } )
 
-router.get( '/request/:id', ( req, res ) => {
+router.get( '/request/:id', async ( req, res ) => {
 
     try {
+
         const { id } = req.params || {}
-        const value = cache( `request_${ id }` ) || {}
-        return res.json( value )
+
+        // Check local cache first (mining pool's own race resolution)
+        const local_value = cache( `request_${ id }` )
+        if( local_value?.status === 'complete' ) return res.json( local_value )
+
+        // Cascade to upstream feedback URL if available (e.g. validator's race resolution)
+        const upstream = cache( `request_upstream_${ id }` )
+        if( upstream?.url ) {
+            const { signal } = abort_controller( { timeout_ms: 5_000 } )
+            const upstream_status = await fetch( upstream.url, { signal } ).then( r => r.json() ).catch( () => ( {} ) )
+            if( upstream_status?.status === 'complete' ) {
+                // Cache locally so subsequent workers get an immediate answer
+                cache( `request_${ id }`, upstream_status, 60_000 )
+                return res.json( upstream_status )
+            }
+        }
+
+        return res.json( local_value || {} )
+
     } catch ( error ) {
         return res.status( 500 ).json( { error: `Error handling request route: ${ error.message }` } )
     }
+
 } )
