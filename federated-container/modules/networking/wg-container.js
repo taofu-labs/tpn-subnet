@@ -213,7 +213,7 @@ export async function delete_wireguard_configs( ids=[] ) {
 async function exec_in_wireguard_container( command ) {
     const docker_command = `docker exec wireguard ${ command }`
     log.debug( `Executing in wireguard container: ${ command }` )
-    const result = await run( docker_command )
+    const result = await run( docker_command, { timeout_ms: 0 } )
     const { stdout, stderr, error } = result
     if( error ) log.info( `Error executing command in wireguard container:`, { command, error, stderr, stdout } )
     return result
