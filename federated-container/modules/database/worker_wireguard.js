@@ -1,8 +1,8 @@
 import { log } from "mentie"
 import { with_lock } from "../locks.js"
 import { get_pg_pool } from "./postgres.js"
-import { delete_wireguard_configs, replace_wireguard_configs, restart_wg_container, wireguard_server_ready } from "../networking/wg-container.js"
-const { WIREGUARD_PEER_COUNT=254, BETA_REFRESH_LEASE_INSTEAD_OF_DELETE } = process.env 
+import { delete_wireguard_configs, get_wireguard_peer_count, replace_wireguard_configs, restart_wg_container, wireguard_server_ready } from "../networking/wg-container.js"
+const { BETA_REFRESH_LEASE_INSTEAD_OF_DELETE } = process.env
 
 async function cleanup_expired_wireguard_configs() {
 
@@ -15,7 +15,7 @@ async function cleanup_expired_wireguard_configs() {
     log.debug( `Expired rows: ${ expired_rows.rows.map( row => row.id ).join( ', ' ) }` ) 
     // Delete all expired rows and their associated configs
     const expired_ids = expired_rows.rows.map( row => row.id )
-    log.debug( `Expired ids: ${ expired_ids.length } of ${ WIREGUARD_PEER_COUNT }` )
+    log.debug( `Expired ids: ${ expired_ids.length } of ${ get_wireguard_peer_count() }` )
     if( BETA_REFRESH_LEASE_INSTEAD_OF_DELETE !== 'true' && expired_ids.length > 0 ) {
 
         log.info( `${ expired_ids.length } WireGuard configs have expired, deleting them and restarting server` )
@@ -106,7 +106,7 @@ async function attempt_wireguard_lease_allocation( { start_id, end_id, expires_a
  * @returns {Promise<number>} The allocated WireGuard lease ID
  * @throws {Error} If no available WireGuard config slots are found
  */
-export async function register_wireguard_lease( { start_id=1, end_id=WIREGUARD_PEER_COUNT, expires_at } ) {
+export async function register_wireguard_lease( { start_id=1, end_id=get_wireguard_peer_count(), expires_at } ) {
 
     log.info( `Registering WireGuard lease between ${ start_id } and ${ end_id }, expires at ${ expires_at }`, new Date( expires_at ) )
 
