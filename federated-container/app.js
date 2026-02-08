@@ -240,12 +240,12 @@ if( CI_MODE === 'true' ) {
     if( worker_mode ) interval += 10_000
 
     const pull = async () => {
-        let { stderr, stdout, error } = await run( `git pull`, { silent: true, timeout_ms: 0 } )
+        let { stderr, stdout } = await run( `git pull`, { silent: true, timeout_ms: 0 } )
         while( !stdout?.includes( `Already up to date` ) && !stderr?.includes( `commit or stash` ) ) {
             log.info( `♻️ Pulled remote version` )
             await run( `npm i`, { timeout_ms: 0 } ).catch( e => log.error( `Error installing dependencies: ${ e.message }` ) )
             await wait( interval );
-            ( { stderr, stdout, error } = await run( `git pull`, { silent: true, timeout_ms: 0 } ) )
+            ( { stderr, stdout } = await run( `git pull`, { silent: true, timeout_ms: 0 } ) )
             log.warn( `The process should have restarted by now, killing it manually` )
             process.exit( 1 )
         }
