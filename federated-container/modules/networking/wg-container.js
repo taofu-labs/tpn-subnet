@@ -165,7 +165,7 @@ export async function wait_for_wireguard_config_count( { count=WIREGUARD_PEER_CO
     log.info( `Waiting for wireguard config count to reach ${ count }, max wait time ${ max_wait_ms }ms` )
 
     // If count is above 253, overwrite it to 253 since that's the max number of peer configs supported by the wg container
-    if( count > WIREGUARD_PEER_COUNT ) count = WIREGUARD_PEER_COUNT
+    if( count > 253 ) count = WIREGUARD_PEER_COUNT
 
     // Wait for count
     let current_count = await count_wireguard_configs( count )
