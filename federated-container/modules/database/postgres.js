@@ -26,17 +26,17 @@ export async function get_pg_pool() {
         try {
 
             // Check if docker is running
-            let { stdout: docker_info } = await run( `docker info` )
+            let { stdout: docker_info } = await run( `docker info`, { timeout_ms: 0 } )
             while( docker_info?.includes( 'Cannot connect to the Docker daemon' ) ) {
                 log.info( `Waiting for Docker to start...` )
-                await run( `open --hide --background -a Docker` )
+                await run( `open --hide --background -a Docker`, { timeout_ms: 0 } )
                 await wait( 10_000 )
-                const { stdout } = await run( `docker info` )
+                const { stdout } = await run( `docker info`, { timeout_ms: 0 } )
                 docker_info = stdout
             }
 
             // Check if the container is running
-            const { stdout } = await run( `docker ps` )
+            const { stdout } = await run( `docker ps`, { timeout_ms: 0 } )
             const is_running = stdout?.includes( container_name )
 
             // If running, and this is the first boot, refresh the container
@@ -54,11 +54,11 @@ export async function get_pg_pool() {
                             --health-interval=10s \\
                             --health-timeout=5s \\
                             --health-retries=5 \\
-                            -p ${ POSTGRES_PORT }:5432 postgres:latest`, { verbose: true } )
+                            -p ${ POSTGRES_PORT }:5432 postgres:latest`, { verbose: true, timeout_ms: 0 } )
             }
             let is_healthy = false
             while( !is_healthy ) {
-                const { stdout } = await run( `docker inspect --format='{{json .State.Health.Status}}' ${ container_name }` )
+                const { stdout } = await run( `docker inspect --format='{{json .State.Health.Status}}' ${ container_name }`, { timeout_ms: 0 } )
                 is_healthy = stdout?.includes( 'healthy' )
                 if( !is_healthy ) {
                     log.info( `Waiting for Postgres container to become healthy...` )
