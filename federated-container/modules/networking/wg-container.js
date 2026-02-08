@@ -6,7 +6,7 @@ import { mark_config_as_free, register_wireguard_lease } from '../database/worke
 import { run } from "../system/shell.js"
 const { dirname } = import.meta
 const wireguard_folder = join( dirname, '../../', 'wg_configs' )
-const { CI_MODE, CI_MOCK_WG_CONTAINER, WIREGUARD_PEER_COUNT=254 } = process.env
+const { CI_MODE, CI_MOCK_WG_CONTAINER, WIREGUARD_PEER_COUNT=253 } = process.env
 const wireguard_container_config_folder = '/config'
 
 /**
@@ -163,6 +163,9 @@ export async function wait_for_wireguard_config_count( { count=WIREGUARD_PEER_CO
     const start = Date.now()
     let time_passed = 0
     log.info( `Waiting for wireguard config count to reach ${ count }, max wait time ${ max_wait_ms }ms` )
+
+    // If count is above 253, overwrite it to 253 since that's the max number of peer configs supported by the wg container
+    if( count > WIREGUARD_PEER_COUNT ) count = WIREGUARD_PEER_COUNT
 
     // Wait for count
     let current_count = await count_wireguard_configs( count )

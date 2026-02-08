@@ -2,7 +2,7 @@ import { log } from "mentie"
 import { with_lock } from "../locks.js"
 import { get_pg_pool } from "./postgres.js"
 import { delete_wireguard_configs, replace_wireguard_configs, restart_wg_container, wireguard_server_ready } from "../networking/wg-container.js"
-const { WIREGUARD_PEER_COUNT=254, BETA_REFRESH_LEASE_INSTEAD_OF_DELETE } = process.env 
+const { WIREGUARD_PEER_COUNT=253, BETA_REFRESH_LEASE_INSTEAD_OF_DELETE } = process.env
 
 async function cleanup_expired_wireguard_configs() {
 
