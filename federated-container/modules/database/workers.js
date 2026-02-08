@@ -1,4 +1,4 @@
-import { log, sanetise_string } from "mentie"
+import { log, sanetise_string, cache } from "mentie"
 import { get_pg_pool, format } from "./postgres.js"
 import { annotate_worker_with_defaults, is_valid_worker, sanetise_worker } from "../validations.js"
 const { CI_MODE } = process.env
@@ -200,11 +200,16 @@ async function mark_workers_stale( { mining_pool_uid, active_workers=[] } ) {
  */
 export async function get_worker_countries_for_pool( { mining_pool_uid, connection_type }={} ) {
 
-    // Get the postgres pool
-    const pool = await get_pg_pool()
-
     // If connection_type is 'any' then ignore the filter
     if( [ 'any', 'ANY', 'undefined', 'null', '' ].includes( connection_type ) ) connection_type = null
+
+    // Return cached result if available (30s TTL)
+    const cache_key = `worker_countries_${ connection_type || 'any' }_${ mining_pool_uid || 'all' }`
+    const cached = cache( cache_key )
+    if( cached ) return cached
+
+    // Get the postgres pool
+    const pool = await get_pg_pool()
 
     // Formulate query
     const wheres = [ 'status = $1' ]
@@ -231,7 +236,12 @@ export async function get_worker_countries_for_pool( { mining_pool_uid, connecti
         log.debug( `Fetching worker countries for pool ${ mining_pool_uid || 'all pools' } with query: ${ query } and values: `, values )
         const result = await pool.query( query, values )
         log.debug( `Fetched worker countries for pool ${ mining_pool_uid || 'all pools' }: `, result.rows )
-        return result.rows.map( row => row.country_code )
+        const country_codes = result.rows.map( row => row.country_code )
+
+        // Cache result for 30 seconds to avoid repeated table scans
+        cache( cache_key, country_codes, 30_000 )
+
+        return country_codes
     } catch ( e ) {
         throw new Error( `Error fetching worker countries for pool ${ mining_pool_uid }: ${ e.message }` )
     }
