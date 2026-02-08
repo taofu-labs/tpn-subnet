@@ -6,8 +6,14 @@ import { mark_config_as_free, register_wireguard_lease } from '../database/worke
 import { run } from "../system/shell.js"
 const { dirname } = import.meta
 const wireguard_folder = join( dirname, '../../', 'wg_configs' )
-const { CI_MODE, CI_MOCK_WG_CONTAINER, WIREGUARD_PEER_COUNT=253 } = process.env
+const { CI_MODE, CI_MOCK_WG_CONTAINER } = process.env
 const wireguard_container_config_folder = '/config'
+
+/**
+ * Gets the wireguard peer count from the environment, clamped to the subnet maximum of 253
+ * @returns {number} The peer count as a number, clamped to 253
+ */
+export const get_wireguard_peer_count = () => Math.min( Number( process.env.WIREGUARD_PEER_COUNT ) || 253, 253 )
 
 /**
  * Checks if the WireGuard server is reachable on its public IP and port.
@@ -125,7 +131,7 @@ export async function wireguard_server_ready( { grace_window_ms=5_000, polling_s
  * @param {number} [max_count=255] - The maximum number of configuration files to check.
  * @returns {Promise<number>} - A promise that resolves to the count of existing WireGuard configuration files.
  */
-export async function count_wireguard_configs( max_count=WIREGUARD_PEER_COUNT ) {
+export async function count_wireguard_configs( max_count=get_wireguard_peer_count() ) {
 
     // Check for cached value
     const cache_key = 'wireguard_config_count'
@@ -153,19 +159,19 @@ export async function count_wireguard_configs( max_count=WIREGUARD_PEER_COUNT ) 
 /**
  * Waits until the number of WireGuard configurations reaches the specified count or until the maximum wait time is exceeded.
  * @param {Object} params - The parameters for the function.
- * @param {number} [params.count=WIREGUARD_PEER_COUNT] - The target number of WireGuard configurations to wait for.
+ * @param {number} [params.count=get_wireguard_peer_count()] - The target number of WireGuard configurations to wait for.
  * @param {number} [params.max_wait_ms=Infinity] - The maximum time in milliseconds to wait.
  * @returns {Promise<boolean>} - A promise that resolves to true if the target count is reached, or false if the maximum wait time is exceeded.
  */
-export async function wait_for_wireguard_config_count( { count=WIREGUARD_PEER_COUNT, max_wait_ms=Infinity }={} ) {
+export async function wait_for_wireguard_config_count( { count=get_wireguard_peer_count(), max_wait_ms=Infinity }={} ) {
 
     // Time tracking
     const start = Date.now()
     let time_passed = 0
-    log.info( `Waiting for wireguard config count to reach ${ count }, max wait time ${ max_wait_ms }ms` )
 
-    // If count is above 253, overwrite it to 253 since that's the max number of peer configs supported by the wg container
-    if( count > 253 ) count = WIREGUARD_PEER_COUNT
+    // Clamp count to the configured peer count (max 253) since the wg container can't have more
+    count = Math.min( count, get_wireguard_peer_count() )
+    log.info( `Waiting for wireguard config count to reach ${ count }, max wait time ${ max_wait_ms }ms` )
 
     // Wait for count
     let current_count = await count_wireguard_configs( count )
