@@ -194,14 +194,20 @@ router.get( '/request/:id', async ( req, res ) => {
 
         // Cascade to upstream feedback URL if available (e.g. validator's race resolution)
         const upstream = cache( `request_upstream_${ id }` )
-        if( upstream?.url ) {
-            const { signal } = abort_controller( { timeout_ms: 5_000 } )
-            const upstream_status = await fetch( upstream.url, { signal } ).then( r => r.json() ).catch( () => ( {} ) )
+        const recently_checked = cache( `request_upstream_checked_${ id }` )
+        if( upstream?.url && !recently_checked ) {
+
+            const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+            const upstream_status = await fetch( upstream.url, fetch_options ).then( r => r.json() ).catch( () => ( {} ) )
+
+            // Prevent thundering herd: cache that we checked, regardless of result
+            cache( `request_upstream_checked_${ id }`, true, 5_000 )
+
             if( upstream_status?.status === 'complete' ) {
-                // Cache locally so subsequent workers get an immediate answer
                 cache( `request_${ id }`, upstream_status, 60_000 )
                 return res.json( upstream_status )
             }
+
         }
 
         return res.json( local_value || {} )
