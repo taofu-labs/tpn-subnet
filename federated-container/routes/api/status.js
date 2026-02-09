@@ -188,13 +188,12 @@ router.get( '/request/:id', async ( req, res ) => {
 
         const { id } = req.params || {}
 
-        // Check local cache first (mining pool's own race resolution)
-        const local_value = cache( `request_${ id }` )
-        if( local_value?.status === 'complete' ) return res.json( local_value )
+        let local_value = cache( `request_${ id }` )
 
-        // Cascade to upstream feedback URL if available (e.g. validator's race resolution)
+        // Check upstream for pool-level race resolution (even if local is already complete)
         const upstream = cache( `request_upstream_${ id }` )
         const recently_checked = cache( `request_upstream_checked_${ id }` )
+
         if( upstream?.url && !recently_checked ) {
 
             const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
@@ -204,8 +203,21 @@ router.get( '/request/:id', async ( req, res ) => {
             cache( `request_upstream_checked_${ id }`, true, 5_000 )
 
             if( upstream_status?.status === 'complete' ) {
-                cache( `request_${ id }`, upstream_status, 60_000 )
-                return res.json( upstream_status )
+
+                // Determine if this pool won or lost the upstream race
+                const my_nonce = new URL( upstream.url ).searchParams.get( 'nonce' )
+                const pool_won = !my_nonce || !upstream_status.winner || my_nonce === upstream_status.winner
+
+                if( !pool_won ) {
+                    // Pool lost upstream race - override local cache (strip worker winner to cascade release)
+                    local_value = { status: 'complete' }
+                    cache( `request_${ id }`, local_value, 60_000 )
+                } else if( !local_value?.status ) {
+                    // Pool won and local not yet resolved - cache upstream result
+                    local_value = upstream_status
+                    cache( `request_${ id }`, local_value, 60_000 )
+                }
+
             }
 
         }

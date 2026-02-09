@@ -1,5 +1,5 @@
 import { abort_controller, log } from "mentie"
-import { get_valid_wireguard_config } from "../networking/wg-container.js"
+import { get_valid_wireguard_config, monitor_lease_ownership } from "../networking/wg-container.js"
 import { parse_wireguard_config } from "../networking/wireguard.js"
 import { MINING_POOL_URL } from "../networking/worker.js"
 import { base_url } from "../networking/url.js"
@@ -35,6 +35,12 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         const { json_config, text_config } = parse_wireguard_config( { wireguard_config } )
         if( format == 'text' ) config = text_config
         else config = json_config
+
+        // Fire-and-forget: monitor whether we won the race, release lease if we lost
+        if( feedback_url && peer_id ) {
+            monitor_lease_ownership( { peer_id, feedback_url: decodeURIComponent( feedback_url ) } )
+                .catch( e => log.warn( `Lease ownership monitor failed for peer${ peer_id }:`, e ) )
+        }
     }
 
     // Get relevant socks5 config

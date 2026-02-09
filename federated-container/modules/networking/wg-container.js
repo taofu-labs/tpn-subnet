@@ -613,5 +613,57 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
     }
 
     return { wireguard_config, peer_id, peer_slots, expires_at }
-    
+
+}
+
+/**
+ * Monitors whether this worker won the lease race via the feedback URL nonce.
+ * If the worker lost, the lease is released immediately instead of waiting for expiry.
+ * @param {Object} params
+ * @param {number} params.peer_id - The peer ID of the leased config
+ * @param {string} params.feedback_url - The feedback URL containing the nonce query param
+ * @returns {Promise<void>}
+ */
+export async function monitor_lease_ownership( { peer_id, feedback_url } ) {
+
+    // Extract nonce from the feedback URL
+    const url = new URL( feedback_url )
+    const my_nonce = url.searchParams.get( 'nonce' )
+
+    // No nonce means backwards-compatible mode, nothing to monitor
+    if( !my_nonce ) return
+
+    // Derive the poll URL (strip nonce query param so we hit the base status endpoint)
+    const poll_url = `${ url.origin }${ url.pathname }`
+    const max_polls = 10
+
+    log.info( `Monitoring lease ownership for peer${ peer_id } with nonce ${ my_nonce }` )
+
+    for( let poll = 0; poll < max_polls; poll++ ) {
+
+        // Wait before polling to give the race time to resolve
+        await wait( 3_000 )
+
+        // Fetch the current request status
+        const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+        const status = await fetch( poll_url, fetch_options ).then( r => r.json() ).catch( () => ( {} ) )
+
+        // Not complete yet, keep polling
+        if( status?.status !== 'complete' ) continue
+
+        // Complete with matching winner - we won, keep the lease
+        if( status.winner === my_nonce ) {
+            log.info( `Lease monitor: peer${ peer_id } won the race, keeping lease` )
+            return
+        }
+
+        // Complete with no winner (upstream cascade loss) or different winner - we lost
+        log.info( `Lease monitor: peer${ peer_id } lost the race (winner: ${ status.winner || 'none' }), releasing lease` )
+        await mark_config_as_free( { peer_id } )
+        return
+
+    }
+
+    log.info( `Lease monitor: peer${ peer_id } timed out after ${ max_polls } polls, keeping lease` )
+
 }
