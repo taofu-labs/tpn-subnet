@@ -1,4 +1,4 @@
-import { log } from "mentie"
+import { abort_controller, log } from "mentie"
 import { get_valid_wireguard_config } from "../networking/wg-container.js"
 import { parse_wireguard_config } from "../networking/wireguard.js"
 import { MINING_POOL_URL } from "../networking/worker.js"
@@ -84,7 +84,10 @@ export async function register_with_mining_pool() {
         const query = `${ MINING_POOL_URL }/miner/broadcast/worker`
         log.info( `Registering with mining pool ${ MINING_POOL_URL } at ${ query } with`, worker_with_configs )
 
+        // Timeout after 60s to prevent hanging on unresponsive pools
+        const { fetch_options } = abort_controller( { timeout_ms: 60_000 } )
         const { registered, worker, error } = await fetch( query, {
+            ...fetch_options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify( worker_with_configs )
