@@ -51,7 +51,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     // Set up feedback url
     const request_id = uuidv4()
-    const feedback_url = `${ base_url }/api/status/request/${ request_id }`
+    const feedback_url = `${ base_url }/api/request/${ request_id }`
 
     // Get config from workers
     let config = null

@@ -18,9 +18,10 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot from the worker.
+ * @param {string} [params.feedback_url] - Upstream feedback URL (e.g. from validator) for cascade race resolution.
  * @returns {Promise<string|Object|null>} - WireGuard configuration or null if no workers available.
  */
-export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority } ) {
+export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url } ) {
 
     // Get relevant workers
     let { workers: relevant_workers } = await get_workers( { country_code: geo, mining_pool_uid: 'internal', status: 'up', limit: 50 } )
@@ -38,9 +39,12 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // Shuffle the worker ip array
     shuffle_array( relevant_workers )
 
-    // Generate feedback_url so losing workers can free their configs
+    // Generate own feedback_url for internal race resolution
     const request_id = uuidv4()
-    const feedback_url = `${ base_url }/api/status/request/${ request_id }`
+    const feedback_url = `${ base_url }/api/request/${ request_id }`
+
+    // Store upstream feedback URL (e.g. from validator) for cascade checking by workers
+    if( upstream_feedback_url ) cache( `request_upstream_${ request_id }`, { url: upstream_feedback_url }, 120_000 )
 
     // Filter to valid IPv4 workers and chunk them for parallelized querying
     const valid_workers = relevant_workers.filter( w => is_ipv4( w.ip ) )
@@ -106,26 +110,22 @@ export async function register_mining_pool_with_validators() {
     // Register with validators with allSettled
     const results = await Promise.allSettled( validator_ips.map( async ip => {
         
-        // Abort controller
-        let { signal } = abort_controller( { timeout_ms: 60_000 } )
-
         // Get protocol data from validator
-        const validator_broadcast = await fetch( `http://${ ip }:3000/`, { signal } ).then( res => res.json() )
+        const { fetch_options: broadcast_options } = abort_controller( { timeout_ms: 60_000 } )
+        const validator_broadcast = await fetch( `http://${ ip }:3000/`, broadcast_options ).then( res => res.json() )
 
         // Formulate registration request
-        ;( { signal } = abort_controller( { timeout_ms: 30_000 } ) )
+        const { fetch_options: register_options } = abort_controller( { timeout_ms: 30_000 } )
         const body = JSON.stringify( identity )
         const protocol = validator_broadcast.SERVER_PUBLIC_PROTOCOL || 'http'
         const host = validator_broadcast.SERVER_PUBLIC_HOST || ip
         const port = validator_broadcast.SERVER_PUBLIC_PORT || 3000
         const url = `${ protocol }://${ host }:${ port }/validator/broadcast/mining_pool`
         return fetch( url, {
+            ...register_options,
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body,
-            signal
         } ).then( res => res.json() )
 
     } ) )
@@ -158,14 +158,12 @@ export async function register_mining_pool_workers_with_validators() {
     // Register with validators with allSettled
     const results = await Promise.allSettled( validator_ips.map( async ip => {
 
-        // Abort controller
-        let { signal } = abort_controller( { timeout_ms: 60_000 } )
-
         // Get protocol data from validator
-        const validator_broadcast = await fetch( `http://${ ip }:3000/`, { signal } ).then( res => res.json() )
+        const { fetch_options: broadcast_options } = abort_controller( { timeout_ms: 60_000 } )
+        const validator_broadcast = await fetch( `http://${ ip }:3000/`, broadcast_options ).then( res => res.json() )
 
         // Formulate registration request
-        const { signal: _signal } = abort_controller( { timeout_ms: 30_000 } )
+        const { fetch_options: register_options } = abort_controller( { timeout_ms: 30_000 } )
         const body = JSON.stringify( { workers } )
         const protocol = validator_broadcast.SERVER_PUBLIC_PROTOCOL || 'http'
         const host = validator_broadcast.SERVER_PUBLIC_HOST || ip
@@ -173,12 +171,10 @@ export async function register_mining_pool_workers_with_validators() {
         const url = `${ protocol }://${ host }:${ port }/validator/broadcast/workers`
         log.info( `Registering at ${ url } with ${ workers.length } workers.`, CI_MODE === 'true' ? body : '' )
         const registration = await fetch( url, {
+            ...register_options,
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body,
-            signal: _signal
         } ).then( res => res.json() )
         log.info( `Registered ${ workers.length } workers with validator at ${ url }` )
         return registration
