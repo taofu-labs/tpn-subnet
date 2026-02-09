@@ -132,6 +132,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             log.info( `Socks5 config validation result: ${ valid } for config: ${ sock }` )
         }
 
+        log.info( `Successfully obtained config as ${ mode } for geo ${ geo } with priority ${ priority }` )
         return config
 
     }

@@ -80,11 +80,13 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             
             // Get config
             const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds, feedback_url } )
+            if( !_config ) throw new Error( `No config obtained from worker ${ worker_ip } through mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
             if( _config ) log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
             return _config
 
         } ) ).catch( e => {
 
+            // AggregateError is thrown when all promises reject, log all errors
             if( e instanceof AggregateError ) {
                 log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: All promises rejected.` )
                 e.errors.forEach( ( err, idx ) => {
