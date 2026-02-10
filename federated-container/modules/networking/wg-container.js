@@ -607,7 +607,7 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
 
         // If status is complete, clear this config as free again
         if( status === 'complete' ) {
-            log.info( `Lease request already marked as complete according to feedback URL ${ decoded_feedback_url }, marking config as free again` )
+            log.info( `Lease monitor: peer${ peer_id } lost the race (pre-flight cancel, request already complete)` )
             await mark_config_as_free( { peer_id, expected_expires_at: expires_at } )
             return { cancelled: true }
         }
@@ -639,7 +639,7 @@ export async function monitor_lease_ownership( { peer_id, feedback_url, expires_
     const poll_url = `${ origin }${ pathname }`
     const max_polls = 10
 
-    log.info( `Monitoring lease ownership for peer${ peer_id } with nonce ${ my_nonce }` )
+    log.info( `Lease monitor: peer${ peer_id } polling with nonce ${ my_nonce }` )
 
     for( let poll = 0; poll < max_polls; poll++ ) {
 
@@ -671,6 +671,6 @@ export async function monitor_lease_ownership( { peer_id, feedback_url, expires_
 
     }
 
-    log.info( `Lease monitor: peer${ peer_id } timed out after ${ max_polls } polls, keeping lease` )
+    log.info( `Lease monitor: peer${ peer_id } won the race (timeout, no resolution after ${ max_polls } polls)` )
 
 }

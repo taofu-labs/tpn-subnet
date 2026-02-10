@@ -25,7 +25,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
         const { wireguard_config, peer_id, peer_slots, expires_at, cancelled } = await get_valid_wireguard_config( { lease_seconds, priority, feedback_url } )
         if( cancelled ) {
-            log.info( `Lease request cancelled according to feedback URL ${ feedback_url }, not returning any config` )
+            log.info( `Lease monitor: lost the race (config cancelled by feedback URL)` )
             return {}
         }
         if( !wireguard_config ) throw new Error( `Failed to get valid wireguard config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
@@ -39,7 +39,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         // Fire-and-forget: monitor whether we won the race, release lease if we lost
         if( feedback_url && peer_id ) {
             monitor_lease_ownership( { peer_id, feedback_url, expires_at } )
-                .catch( e => log.warn( `Lease ownership monitor failed for peer${ peer_id }:`, e ) )
+                .catch( e => log.warn( `Lease monitor: peer${ peer_id } error:`, e ) )
         }
     }
 
