@@ -226,6 +226,7 @@ router.get( '/request/:id', async ( req, res ) => {
                         // Pool won upstream but local worker-level winner not yet resolved
                         // Don't cache upstream nonce - workers need the worker-level nonce, not the pool-level one
                         // The pool's own Promise.any resolution will set the correct worker-level winner
+                        log.debug( `Pool won upstream race for request ${ id } but local winner not yet resolved, waiting for Promise.any` )
                     }
                 }
 
