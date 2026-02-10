@@ -624,9 +624,10 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
  * @param {Object} params
  * @param {number} params.peer_id - The peer ID of the leased config
  * @param {string} params.feedback_url - The feedback URL containing the nonce query param
+ * @param {number} [params.expires_at] - Lease expiry timestamp, used to guard against freeing re-allocated leases
  * @returns {Promise<void>}
  */
-export async function monitor_lease_ownership( { peer_id, feedback_url } ) {
+export async function monitor_lease_ownership( { peer_id, feedback_url, expires_at } ) {
 
     // Extract nonce from the feedback URL (decode since it arrives URL-encoded)
     const { origin, pathname, nonce: my_nonce, error } = parse_url( { url: feedback_url, params: [ 'nonce' ], decode: true } )
@@ -661,7 +662,7 @@ export async function monitor_lease_ownership( { peer_id, feedback_url } ) {
         // Explicit winner field (including null for cascade loss) means race resolved - we lost
         if( 'winner' in status ) {
             log.info( `Lease monitor: peer${ peer_id } lost the race (winner: ${ status.winner || 'none' }), releasing lease` )
-            await mark_config_as_free( { peer_id } )
+            await mark_config_as_free( { peer_id, expected_expires_at: expires_at } )
             return
         }
 

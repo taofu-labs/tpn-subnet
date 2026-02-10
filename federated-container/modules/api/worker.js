@@ -38,7 +38,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
         // Fire-and-forget: monitor whether we won the race, release lease if we lost
         if( feedback_url && peer_id ) {
-            monitor_lease_ownership( { peer_id, feedback_url } )
+            monitor_lease_ownership( { peer_id, feedback_url, expires_at } )
                 .catch( e => log.warn( `Lease ownership monitor failed for peer${ peer_id }:`, e ) )
         }
     }

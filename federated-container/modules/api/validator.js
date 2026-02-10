@@ -85,7 +85,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             // Get config
             const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds, feedback_url } )
             if( !_config ) throw new Error( `No config obtained from worker ${ worker_ip } through mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
-            if( _config ) log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
+            log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
 
             // Return config with the winning nonce so we can mark the winner
             return { config: _config, winner_nonce: call_nonce }
@@ -111,21 +111,18 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     }
 
-    // Destructure the race result to extract config and winning nonce
-    let winner_nonce = null
-    if( config?.winner_nonce ) {
-        winner_nonce = config.winner_nonce
-        config = config.config
-    }
+    // Extract the race result (config wrapped with winner metadata from Promise.any)
+    const winner_nonce = config?.winner_nonce ?? null
+    const resolved_config = config?.winner_nonce ? config.config : config
 
     // When config was obtained, mark request as complete with the winner nonce
-    if( config ) {
+    if( resolved_config ) {
         log.debug( `Successfully obtained ${ type } config after ${ attempts } attempts, marking request_${ request_id } as 'complete' in cache` )
         cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
     }
 
     // Return the config
-    return config
+    return resolved_config
     
 
 }

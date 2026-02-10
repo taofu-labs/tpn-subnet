@@ -86,24 +86,21 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
 
     }
 
-    // Destructure the race result to extract config and winning nonce
-    let winner_nonce = null
-    if( config?.winner_nonce ) {
-        winner_nonce = config.winner_nonce
-        config = config.config
-    }
+    // Extract the race result (config wrapped with winner metadata from Promise.any)
+    const winner_nonce = config?.winner_nonce ?? null
+    const resolved_config = config?.winner_nonce ? config.config : config
 
     // Mark request complete with winner so losing workers can free their configs
-    if( config ) {
+    if( resolved_config ) {
         cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
         log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
     }
 
-    // On mock success
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
+    // On mock success, return a fake config
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
 
     // Return the config
-    return config
+    return resolved_config
 
 }
 
