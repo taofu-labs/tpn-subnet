@@ -39,9 +39,9 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // Shuffle the worker ip array
     shuffle_array( relevant_workers )
 
-    // Generate own feedback_url for internal race resolution
+    // Generate own feedback_url for internal race resolution (nonce is added per-worker)
     const request_id = uuidv4()
-    const feedback_url = `${ base_url }/api/request/${ request_id }`
+    const base_feedback_url = `${ base_url }/api/request/${ request_id }`
 
     // Store upstream feedback URL (e.g. from validator) for cascade checking by workers
     if( upstream_feedback_url ) cache( `request_upstream_${ request_id }`, { url: upstream_feedback_url }, 120_000 )
@@ -67,9 +67,15 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         // Wrap calls so null results reject (Promise.any only rejects on thrown errors)
         config = await Promise.any(
             chunk.map( async worker => {
+
+                // Generate a unique nonce per worker so we can identify the winner
+                const worker_nonce = uuidv4()
+                const feedback_url = `${ base_feedback_url }?nonce=${ worker_nonce }`
+
                 const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url } )
                 if( !result ) throw new Error( `No config from ${ worker.ip }` )
-                return result
+
+                return { config: result, winner_nonce: worker_nonce }
             } )
         ).catch( e => {
             if( e instanceof AggregateError ) log.info( `Chunk ${ index + 1 } failed: all ${ chunk.length } workers rejected` )
@@ -80,17 +86,21 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
 
     }
 
-    // Mark request complete so losing workers can free their configs
-    if( config ) {
-        cache( `request_${ request_id }`, { status: 'complete' }, 60_000 )
-        log.info( `Marked request ${ request_id } as complete` )
+    // Extract the race result (config wrapped with winner metadata from Promise.any)
+    const winner_nonce = config?.winner_nonce ?? null
+    const resolved_config = config?.winner_nonce ? config.config : config
+
+    // Mark request complete with winner so losing workers can free their configs
+    if( resolved_config ) {
+        cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
+        log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
     }
 
-    // On mock success
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
+    // On mock success, return a fake config
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
 
     // Return the config
-    return config
+    return resolved_config
 
 }
 

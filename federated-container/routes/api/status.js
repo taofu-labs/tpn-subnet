@@ -1,5 +1,6 @@
 import { Router } from "express"
 import { abort_controller, cache, log, round_number_to_decimals } from "mentie"
+import { parse_url } from "../../modules/networking/url.js"
 import { get_tpn_cache } from "../../modules/caching.js"
 import { run_mode } from "../../modules/validations.js"
 import { get_worker_performance, get_workers } from "../../modules/database/workers.js"
@@ -188,13 +189,12 @@ router.get( '/request/:id', async ( req, res ) => {
 
         const { id } = req.params || {}
 
-        // Check local cache first (mining pool's own race resolution)
-        const local_value = cache( `request_${ id }` )
-        if( local_value?.status === 'complete' ) return res.json( local_value )
+        let local_value = cache( `request_${ id }` )
 
-        // Cascade to upstream feedback URL if available (e.g. validator's race resolution)
+        // Check upstream for pool-level race resolution (even if local is already complete)
         const upstream = cache( `request_upstream_${ id }` )
         const recently_checked = cache( `request_upstream_checked_${ id }` )
+
         if( upstream?.url && !recently_checked ) {
 
             const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
@@ -204,8 +204,32 @@ router.get( '/request/:id', async ( req, res ) => {
             cache( `request_upstream_checked_${ id }`, true, 5_000 )
 
             if( upstream_status?.status === 'complete' ) {
-                cache( `request_${ id }`, upstream_status, 60_000 )
-                return res.json( upstream_status )
+
+                // Determine if this pool won or lost the upstream race
+                const parsed = parse_url( { url: upstream.url, params: [ 'nonce' ] } )
+                const has_upstream_winner = 'winner' in upstream_status
+
+                // If we can't parse our own URL, we can't determine if we won - treat conservatively as a loss when upstream has a winner
+                if( parsed.error && has_upstream_winner ) {
+                    log.warn( `Failed to parse upstream URL ${ upstream.url }, treating as loss for safety` )
+                    local_value = { status: 'complete', winner: null }
+                    cache( `request_${ id }`, local_value, 60_000 )
+                } else {
+                    const my_nonce = parsed.nonce
+                    const pool_won = !my_nonce || !has_upstream_winner || my_nonce === upstream_status.winner
+
+                    if( !pool_won ) {
+                        // Pool lost upstream race - override local cache with explicit null winner to cascade release
+                        local_value = { status: 'complete', winner: null }
+                        cache( `request_${ id }`, local_value, 60_000 )
+                    } else if( !local_value?.status ) {
+                        // Pool won upstream but local worker-level winner not yet resolved
+                        // Don't cache upstream nonce - workers need the worker-level nonce, not the pool-level one
+                        // The pool's own Promise.any resolution will set the correct worker-level winner
+                        log.debug( `Pool won upstream race for request ${ id } but local winner not yet resolved, waiting for Promise.any` )
+                    }
+                }
+
             }
 
         }

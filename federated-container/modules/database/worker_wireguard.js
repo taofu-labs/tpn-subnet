@@ -176,15 +176,24 @@ export async function check_open_leases() {
  * Marks a WireGuard config as free by deleting its entry from the database.
  * @param {Object} params
  * @param {number} params.peer_id - The ID of the WireGuard config to mark as free.
+ * @param {number} [params.expected_expires_at] - If provided, only free the config if the lease matches this expiry (prevents freeing re-allocated leases).
  */
-export async function mark_config_as_free( { peer_id } ) {
+export async function mark_config_as_free( { peer_id, expected_expires_at } ) {
 
     try {
-        log.info( `Marking WireGuard config ${ peer_id } as free` )
+        log.info( `Marking WireGuard config ${ peer_id } as free${ expected_expires_at ? ` (guarded by expires_at ${ expected_expires_at })` : '' }` )
         const pool = await get_pg_pool()
-        await pool.query( `DELETE FROM worker_wireguard_configs WHERE id = $1`, [ peer_id ] )
+
+        // When expected_expires_at is provided, only delete if the lease still matches (prevents freeing a re-allocated lease)
+        if( expected_expires_at ) {
+            const { rowCount } = await pool.query( `DELETE FROM worker_wireguard_configs WHERE id = $1 AND expires_at = $2`, [ peer_id, expected_expires_at ] )
+            if( !rowCount ) log.info( `Config ${ peer_id } was not freed — lease was re-allocated or already cleaned up` )
+        } else {
+            await pool.query( `DELETE FROM worker_wireguard_configs WHERE id = $1`, [ peer_id ] )
+        }
+
     } catch ( e ) {
         log.error( `Error in mark_config_as_free:`, e )
     }
-    
+
 }
