@@ -608,7 +608,7 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
         // If status is complete, clear this config as free again
         if( status === 'complete' ) {
             log.info( `Lease request already marked as complete according to feedback URL ${ decoded_feedback_url }, marking config as free again` )
-            await mark_config_as_free( { peer_id } )
+            await mark_config_as_free( { peer_id, expected_expires_at: expires_at } )
             return { cancelled: true }
         }
 

@@ -206,18 +206,27 @@ router.get( '/request/:id', async ( req, res ) => {
             if( upstream_status?.status === 'complete' ) {
 
                 // Determine if this pool won or lost the upstream race
-                const { nonce: my_nonce } = parse_url( { url: upstream.url, params: [ 'nonce' ] } )
+                const parsed = parse_url( { url: upstream.url, params: [ 'nonce' ] } )
                 const has_upstream_winner = 'winner' in upstream_status
-                const pool_won = !my_nonce || !has_upstream_winner || my_nonce === upstream_status.winner
 
-                if( !pool_won ) {
-                    // Pool lost upstream race - override local cache with explicit null winner to cascade release
+                // If we can't parse our own URL, we can't determine if we won - treat conservatively as a loss when upstream has a winner
+                if( parsed.error && has_upstream_winner ) {
+                    log.warn( `Failed to parse upstream URL ${ upstream.url }, treating as loss for safety` )
                     local_value = { status: 'complete', winner: null }
                     cache( `request_${ id }`, local_value, 60_000 )
-                } else if( !local_value?.status ) {
-                    // Pool won upstream but local worker-level winner not yet resolved
-                    // Don't cache upstream nonce - workers need the worker-level nonce, not the pool-level one
-                    // The pool's own Promise.any resolution will set the correct worker-level winner
+                } else {
+                    const my_nonce = parsed.nonce
+                    const pool_won = !my_nonce || !has_upstream_winner || my_nonce === upstream_status.winner
+
+                    if( !pool_won ) {
+                        // Pool lost upstream race - override local cache with explicit null winner to cascade release
+                        local_value = { status: 'complete', winner: null }
+                        cache( `request_${ id }`, local_value, 60_000 )
+                    } else if( !local_value?.status ) {
+                        // Pool won upstream but local worker-level winner not yet resolved
+                        // Don't cache upstream nonce - workers need the worker-level nonce, not the pool-level one
+                        // The pool's own Promise.any resolution will set the correct worker-level winner
+                    }
                 }
 
             }
