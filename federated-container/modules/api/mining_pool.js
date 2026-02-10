@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_validators } from "../networking/validators.js"
 import { get_workers } from "../database/workers.js"
-import { base_url } from "../networking/url.js"
+import { base_url, parse_url } from "../networking/url.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES } = process.env
 let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SERVER_PUBLIC_HOST } = process.env
 
@@ -46,6 +46,13 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // Store upstream feedback URL (e.g. from validator) for cascade checking by workers
     if( upstream_feedback_url ) cache( `request_upstream_${ request_id }`, { url: upstream_feedback_url }, 120_000 )
 
+    // Propagate trace from upstream, or start a new trace when this pool is the origin
+    let trace_id = request_id
+    if( upstream_feedback_url ) {
+        const { trace } = parse_url( { url: upstream_feedback_url, params: [ 'trace' ] } )
+        if( trace ) trace_id = trace
+    }
+
     // Filter to valid IPv4 workers and chunk them for parallelized querying
     const valid_workers = relevant_workers.filter( w => is_ipv4( w.ip ) )
     const workers_per_chunk = 10
@@ -70,7 +77,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
 
                 // Generate a unique nonce per worker so we can identify the winner
                 const worker_nonce = uuidv4()
-                const feedback_url = `${ base_feedback_url }?nonce=${ worker_nonce }`
+                const feedback_url = `${ base_feedback_url }?nonce=${ worker_nonce }&trace=${ trace_id }`
 
                 const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url } )
                 if( !result ) throw new Error( `No config from ${ worker.ip }` )

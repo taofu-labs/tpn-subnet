@@ -206,7 +206,7 @@ router.get( '/request/:id', async ( req, res ) => {
             if( upstream_status?.status === 'complete' ) {
 
                 // Determine if this pool won or lost the upstream race
-                const parsed = parse_url( { url: upstream.url, params: [ 'nonce' ] } )
+                const parsed = parse_url( { url: upstream.url, params: [ 'nonce', 'trace' ] } )
                 const has_upstream_winner = 'winner' in upstream_status
 
                 // If we can't parse our own URL, we can't determine if we won - treat conservatively as a loss when upstream has a winner
@@ -226,7 +226,8 @@ router.get( '/request/:id', async ( req, res ) => {
                         // Pool won upstream but local worker-level winner not yet resolved
                         // Don't cache upstream nonce - workers need the worker-level nonce, not the pool-level one
                         // The pool's own Promise.any resolution will set the correct worker-level winner
-                        log.debug( `Lease monitor: request ${ id } won the race (upstream), awaiting local worker resolution` )
+                        const trace_tag = parsed.trace ? `[${ parsed.trace }] ` : ``
+                        log.debug( `Lease monitor: ${ trace_tag }request ${ id } won the race (upstream), awaiting local worker resolution` )
                     }
                 }
 

@@ -595,8 +595,9 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
     if( feedback_url ) {
 
         // Safely decode the URL-encoded feedback URL
-        const { href: decoded_feedback_url, error } = parse_url( { url: feedback_url, decode: true } )
+        const { href: decoded_feedback_url, trace, error } = parse_url( { url: feedback_url, params: [ 'trace' ], decode: true } )
         if( error ) return { wireguard_config, peer_id, peer_slots, expires_at }
+        const log_tag = trace ? `[${ trace }] ` : ``
 
         // First check what the request status is
         const { fetch_options } = abort_controller( { timeout_ms: 10_000 } )
@@ -607,7 +608,7 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
 
         // If status is complete, clear this config as free again
         if( status === 'complete' ) {
-            log.info( `Lease monitor: peer${ peer_id } lost the race (pre-flight cancel, request already complete)` )
+            log.info( `Lease monitor: ${ log_tag }peer${ peer_id } lost the race (pre-flight cancel, request already complete)` )
             await mark_config_as_free( { peer_id, expected_expires_at: expires_at } )
             return { cancelled: true }
         }
@@ -630,16 +631,19 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
 export async function monitor_lease_ownership( { peer_id, feedback_url, expires_at } ) {
 
     // Extract nonce from the feedback URL (decode since it arrives URL-encoded)
-    const { origin, pathname, nonce: my_nonce, error } = parse_url( { url: feedback_url, params: [ 'nonce' ], decode: true } )
+    const { origin, pathname, nonce: my_nonce, trace, error } = parse_url( { url: feedback_url, params: [ 'nonce', 'trace' ], decode: true } )
 
     // No nonce or parse failure means backwards-compatible mode, nothing to monitor
     if( error || !my_nonce ) return
+
+    // Build trace tag for log correlation across hops
+    const log_tag = trace ? `[${ trace }] ` : ``
 
     // Derive the poll URL (strip nonce query param so we hit the base status endpoint)
     const poll_url = `${ origin }${ pathname }`
     const max_polls = 10
 
-    log.info( `Lease monitor: peer${ peer_id } polling with nonce ${ my_nonce }` )
+    log.info( `Lease monitor: ${ log_tag }peer${ peer_id } polling with nonce ${ my_nonce }` )
 
     for( let poll = 0; poll < max_polls; poll++ ) {
 
@@ -655,13 +659,13 @@ export async function monitor_lease_ownership( { peer_id, feedback_url, expires_
 
         // Complete with matching winner - we won, keep the lease
         if( status.winner === my_nonce ) {
-            log.info( `Lease monitor: peer${ peer_id } won the race, keeping lease` )
+            log.info( `Lease monitor: ${ log_tag }peer${ peer_id } won the race, keeping lease` )
             return
         }
 
         // Explicit winner field (including null for cascade loss) means race resolved - we lost
         if( 'winner' in status ) {
-            log.info( `Lease monitor: peer${ peer_id } lost the race (winner: ${ status.winner || 'none' }), releasing lease` )
+            log.info( `Lease monitor: ${ log_tag }peer${ peer_id } lost the race (winner: ${ status.winner || 'none' }), releasing lease` )
             await mark_config_as_free( { peer_id, expected_expires_at: expires_at } )
             return
         }
@@ -671,6 +675,6 @@ export async function monitor_lease_ownership( { peer_id, feedback_url, expires_
 
     }
 
-    log.info( `Lease monitor: peer${ peer_id } won the race (timeout, no resolution after ${ max_polls } polls)` )
+    log.info( `Lease monitor: ${ log_tag }peer${ peer_id } won the race (timeout, no resolution after ${ max_polls } polls)` )
 
 }

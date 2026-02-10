@@ -67,7 +67,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
             // Generate a unique nonce for this call so we can identify the winner
             const call_nonce = uuidv4()
-            const feedback_url = `${ base_feedback_url }?nonce=${ call_nonce }`
+            const feedback_url = `${ base_feedback_url }?nonce=${ call_nonce }&trace=${ request_id }`
 
             // Check if worker matches
             const matches = await worker_matches_miner( { worker, mining_pool_url: worker.mining_pool_url } ).catch( e => false )
