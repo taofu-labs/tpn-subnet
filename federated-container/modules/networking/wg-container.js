@@ -3,6 +3,7 @@ import { promises as fs } from "fs"
 import { join } from "path"
 import { exec } from "child_process"
 import { mark_config_as_free, register_wireguard_lease } from '../database/worker_wireguard.js'
+import { parse_url } from './url.js'
 import { run } from "../system/shell.js"
 const { dirname } = import.meta
 const wireguard_folder = join( dirname, '../../', 'wg_configs' )
@@ -593,19 +594,20 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
     // If feedback url was provided, use it to check if validator already was served
     if( feedback_url ) {
 
-        // Decode url 
-        feedback_url = decodeURIComponent( feedback_url )
+        // Safely decode the URL-encoded feedback URL
+        const { href: decoded_feedback_url, error } = parse_url( { url: feedback_url, decode: true } )
+        if( error ) return { wireguard_config, peer_id, peer_slots, expires_at }
 
         // First check what the request status is
         const { fetch_options } = abort_controller( { timeout_ms: 10_000 } )
-        const { status } = await fetch( feedback_url, fetch_options ).then( r => r.json() ).catch( e => {
-            log.warn( `Failed to fetch feedback URL ${ feedback_url } to check request status (suggests validator misconfiguration):`, e )
+        const { status } = await fetch( decoded_feedback_url, fetch_options ).then( r => r.json() ).catch( e => {
+            log.warn( `Failed to fetch feedback URL ${ decoded_feedback_url } to check request status (suggests validator misconfiguration):`, e )
             return {}
         } )
 
         // If status is complete, clear this config as free again
         if( status === 'complete' ) {
-            log.info( `Lease request already marked as complete according to feedback URL ${ feedback_url }, marking config as free again` )
+            log.info( `Lease request already marked as complete according to feedback URL ${ decoded_feedback_url }, marking config as free again` )
             await mark_config_as_free( { peer_id } )
             return { cancelled: true }
         }
@@ -626,15 +628,14 @@ export async function get_valid_wireguard_config( { priority=false, lease_second
  */
 export async function monitor_lease_ownership( { peer_id, feedback_url } ) {
 
-    // Extract nonce from the feedback URL
-    const url = new URL( feedback_url )
-    const my_nonce = url.searchParams.get( 'nonce' )
+    // Extract nonce from the feedback URL (decode since it arrives URL-encoded)
+    const { origin, pathname, nonce: my_nonce, error } = parse_url( { url: feedback_url, params: [ 'nonce' ], decode: true } )
 
-    // No nonce means backwards-compatible mode, nothing to monitor
-    if( !my_nonce ) return
+    // No nonce or parse failure means backwards-compatible mode, nothing to monitor
+    if( error || !my_nonce ) return
 
     // Derive the poll URL (strip nonce query param so we hit the base status endpoint)
-    const poll_url = `${ url.origin }${ url.pathname }`
+    const poll_url = `${ origin }${ pathname }`
     const max_polls = 10
 
     log.info( `Monitoring lease ownership for peer${ peer_id } with nonce ${ my_nonce }` )
@@ -657,10 +658,15 @@ export async function monitor_lease_ownership( { peer_id, feedback_url } ) {
             return
         }
 
-        // Complete with no winner (upstream cascade loss) or different winner - we lost
-        log.info( `Lease monitor: peer${ peer_id } lost the race (winner: ${ status.winner || 'none' }), releasing lease` )
-        await mark_config_as_free( { peer_id } )
-        return
+        // Explicit winner field (including null for cascade loss) means race resolved - we lost
+        if( 'winner' in status ) {
+            log.info( `Lease monitor: peer${ peer_id } lost the race (winner: ${ status.winner || 'none' }), releasing lease` )
+            await mark_config_as_free( { peer_id } )
+            return
+        }
+
+        // No winner field = old format response, keep polling
+        continue
 
     }
 

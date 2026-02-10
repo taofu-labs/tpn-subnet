@@ -1,5 +1,6 @@
 import { Router } from "express"
 import { abort_controller, cache, log, round_number_to_decimals } from "mentie"
+import { parse_url } from "../../modules/networking/url.js"
 import { get_tpn_cache } from "../../modules/caching.js"
 import { run_mode } from "../../modules/validations.js"
 import { get_worker_performance, get_workers } from "../../modules/database/workers.js"
@@ -205,12 +206,12 @@ router.get( '/request/:id', async ( req, res ) => {
             if( upstream_status?.status === 'complete' ) {
 
                 // Determine if this pool won or lost the upstream race
-                const my_nonce = new URL( upstream.url ).searchParams.get( 'nonce' )
+                const { nonce: my_nonce } = parse_url( { url: upstream.url, params: [ 'nonce' ] } )
                 const pool_won = !my_nonce || !upstream_status.winner || my_nonce === upstream_status.winner
 
                 if( !pool_won ) {
-                    // Pool lost upstream race - override local cache (strip worker winner to cascade release)
-                    local_value = { status: 'complete' }
+                    // Pool lost upstream race - override local cache with explicit null winner to cascade release
+                    local_value = { status: 'complete', winner: null }
                     cache( `request_${ id }`, local_value, 60_000 )
                 } else if( !local_value?.status ) {
                     // Pool won and local not yet resolved - cache upstream result
