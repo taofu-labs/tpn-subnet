@@ -46,3 +46,32 @@ if( SERVER_PUBLIC_PORT && !base_url.includes( `:${ SERVER_PUBLIC_PORT }` ) ) {
 }
 
 export { base_url }
+
+/**
+ * Safely parses a URL string with optional decoding and query param extraction.
+ * @param {Object} options
+ * @param {string} options.url - The URL to parse
+ * @param {string[]} [options.params] - Query param names to hoist into the result. Must not collide with URL property names (origin, pathname, host, hostname, port, protocol, hash, href).
+ * @param {boolean} [options.decode] - Whether to URL-decode the input first
+ * @returns {{ origin: string, pathname: string, host: string, hostname: string, port: string, protocol: string, hash: string, href: string, url: URL } | { error: string }}
+ */
+export const parse_url = ( { url: raw_url, params = [], decode = false } ) => {
+
+    try {
+
+        const url = new URL( decode ? decodeURIComponent( raw_url ) : raw_url )
+        const { origin, pathname, host, hostname, port, protocol, hash, href } = url
+
+        // Extract requested query params into the result object
+        const query = Object.fromEntries( params.map( p => [ p, url.searchParams.get( p ) ] ) )
+
+        return { origin, pathname, host, hostname, port, protocol, hash, href, ...query, url }
+
+    } catch ( e ) {
+
+        log.warn( `Failed to parse URL: ${ raw_url }`, e )
+        return { error: e.message }
+
+    }
+
+}

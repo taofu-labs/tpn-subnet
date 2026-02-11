@@ -49,9 +49,9 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
     } )
     log.info( `Split ${ relevant_workers.length } workers into ${ chunked_workers.length } chunks of up to ${ workers_to_call_at_once } workers each` )
 
-    // Set up feedback url
+    // Set up feedback url (nonce is added per-call to identify the winner)
     const request_id = uuidv4()
-    const feedback_url = `${ base_url }/api/status/request/${ request_id }`
+    const base_feedback_url = `${ base_url }/api/request/${ request_id }`
 
     // Get config from workers
     let config = null
@@ -65,6 +65,10 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         log.info( `Attempting to get ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length } with ${ workers.length } workers` )
         config = await Promise.any( workers.map( async ( worker ) => {
 
+            // Generate a unique nonce for this call so we can identify the winner
+            const call_nonce = uuidv4()
+            const feedback_url = `${ base_feedback_url }?nonce=${ call_nonce }&trace=${ request_id }`
+
             // Check if worker matches
             const matches = await worker_matches_miner( { worker, mining_pool_url: worker.mining_pool_url } ).catch( e => false )
             if( !matches ) {
@@ -77,14 +81,18 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: mining_pool_url } )
             if( !is_ipv4( worker_ip ) ) throw new Error( `Worker ${ worker_ip } has invalid IP` )
             if( !is_ipv4( mining_pool_ip ) ) throw new Error( `Mining pool ${ mining_pool_uid } has invalid IP` )
-            
+
             // Get config
             const _config = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds, feedback_url } )
-            if( _config ) log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
-            return _config
+            if( !_config ) throw new Error( `No config obtained from worker ${ worker_ip } through mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
+            log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
+
+            // Return config with the winning nonce so we can mark the winner
+            return { config: _config, winner_nonce: call_nonce }
 
         } ) ).catch( e => {
 
+            // AggregateError is thrown when all promises reject, log all errors
             if( e instanceof AggregateError ) {
                 log.info( `Error fetching ${ type } config from chunk ${ attempts + 1 }/${ chunked_workers.length }: All promises rejected.` )
                 e.errors.forEach( ( err, idx ) => {
@@ -103,14 +111,18 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     }
 
-    // When config was obtained, flat request_id as complete
-    if( config ) {
+    // Extract the race result (config wrapped with winner metadata from Promise.any)
+    const winner_nonce = config?.winner_nonce ?? null
+    const resolved_config = config?.winner_nonce ? config.config : config
+
+    // When config was obtained, mark request as complete with the winner nonce
+    if( resolved_config ) {
         log.debug( `Successfully obtained ${ type } config after ${ attempts } attempts, marking request_${ request_id } as 'complete' in cache` )
-        cache( `request_${ request_id }`, { status: 'complete' }, 60_000 )
+        cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
     }
 
     // Return the config
-    return config
+    return resolved_config
     
 
 }

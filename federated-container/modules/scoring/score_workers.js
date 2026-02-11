@@ -1,4 +1,4 @@
-import { log } from "mentie"
+import { abort_controller, log } from "mentie"
 import { try_acquire_lock } from "../locks.js"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
 import { default_mining_pool, is_valid_worker, run_mode } from "../validations.js"
@@ -76,15 +76,17 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
  * @param {number} params.worker.public_port - Public port of the worker.
  * @param {string} params.mining_pool_url - Expected URL of the mining pool.
  * @param {boolean} [params.throw_on_mismatch=false] - Whether to throw an error on mismatch.
+ * @param {number} [params.timeout_ms=5_000] - Timeout in ms for the worker membership check.
  * @returns {Promise<boolean>} - True if worker matches miner, false otherwise.
  */
-export async function worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch=false } ) {
+export async function worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch=false, timeout_ms=5_000 } ) {
 
     try {
 
         // Check that the worker broadcasts mining pool membership
-        const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true' 
-        const { MINING_POOL_URL } = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }` ).then( res => res.json() )
+        const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true'
+        const { fetch_options } = abort_controller( { timeout_ms } )
+        const { MINING_POOL_URL } = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
         if( !mock_pool_check && !MINING_POOL_URL ) throw new Error( `Worker does not broadcast mining pool membership` )
         if( CI_MODE !== 'true' && MINING_POOL_URL !== mining_pool_url && MINING_POOL_URL !== default_mining_pool ) throw new Error( `Worker broadcast ${ MINING_POOL_URL } which does not correspond to our expectation of ${ mining_pool_url }` )
 

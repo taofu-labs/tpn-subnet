@@ -1,8 +1,8 @@
-import { log } from "mentie"
-import { get_valid_wireguard_config } from "../networking/wg-container.js"
+import { abort_controller, log } from "mentie"
+import { get_valid_wireguard_config, monitor_lease_ownership } from "../networking/wg-container.js"
 import { parse_wireguard_config } from "../networking/wireguard.js"
 import { MINING_POOL_URL } from "../networking/worker.js"
-import { base_url } from "../networking/url.js"
+import { base_url, parse_url } from "../networking/url.js"
 import { get_valid_socks5_config } from '../networking/dante-container.js'
 import { add_configs_to_workers } from "../scoring/query_workers.js"
 
@@ -20,12 +20,19 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
     let config = null
 
+    // Extract trace from feedback URL for log correlation across hops
+    let log_tag = ``
+    if( feedback_url ) {
+        const { trace } = parse_url( { url: feedback_url, params: [ 'trace' ], decode: true } )
+        if( trace ) log_tag = `[${ trace }] `
+    }
+
     // Get relevant wireguard config
     if( type === 'wireguard' ) {
 
         const { wireguard_config, peer_id, peer_slots, expires_at, cancelled } = await get_valid_wireguard_config( { lease_seconds, priority, feedback_url } )
         if( cancelled ) {
-            log.info( `Lease request cancelled according to feedback URL ${ feedback_url }, not returning any config` )
+            log.info( `Lease monitor: ${ log_tag }lost the race (config cancelled by feedback URL)` )
             return {}
         }
         if( !wireguard_config ) throw new Error( `Failed to get valid wireguard config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
@@ -35,6 +42,12 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         const { json_config, text_config } = parse_wireguard_config( { wireguard_config } )
         if( format == 'text' ) config = text_config
         else config = json_config
+
+        // Fire-and-forget: monitor whether we won the race, release lease if we lost
+        if( feedback_url && peer_id ) {
+            monitor_lease_ownership( { peer_id, feedback_url, expires_at } )
+                .catch( e => log.warn( `Lease monitor: ${ log_tag }peer${ peer_id } error:`, e ) )
+        }
     }
 
     // Get relevant socks5 config
@@ -84,7 +97,10 @@ export async function register_with_mining_pool() {
         const query = `${ MINING_POOL_URL }/miner/broadcast/worker`
         log.info( `Registering with mining pool ${ MINING_POOL_URL } at ${ query } with`, worker_with_configs )
 
+        // Timeout after 60s to prevent hanging on unresponsive pools
+        const { fetch_options } = abort_controller( { timeout_ms: 60_000 } )
         const { registered, worker, error } = await fetch( query, {
+            ...fetch_options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify( worker_with_configs )

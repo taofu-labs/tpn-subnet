@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_validators } from "../networking/validators.js"
 import { get_workers } from "../database/workers.js"
-import { base_url } from "../networking/url.js"
+import { base_url, parse_url } from "../networking/url.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES } = process.env
 let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SERVER_PUBLIC_HOST } = process.env
 
@@ -18,9 +18,10 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot from the worker.
+ * @param {string} [params.feedback_url] - Upstream feedback URL (e.g. from validator) for cascade race resolution.
  * @returns {Promise<string|Object|null>} - WireGuard configuration or null if no workers available.
  */
-export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority } ) {
+export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url } ) {
 
     // Get relevant workers
     let { workers: relevant_workers } = await get_workers( { country_code: geo, mining_pool_uid: 'internal', status: 'up', limit: 50 } )
@@ -38,9 +39,19 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // Shuffle the worker ip array
     shuffle_array( relevant_workers )
 
-    // Generate feedback_url so losing workers can free their configs
+    // Generate own feedback_url for internal race resolution (nonce is added per-worker)
     const request_id = uuidv4()
-    const feedback_url = `${ base_url }/api/status/request/${ request_id }`
+    const base_feedback_url = `${ base_url }/api/request/${ request_id }`
+
+    // Store upstream feedback URL (e.g. from validator) for cascade checking by workers
+    if( upstream_feedback_url ) cache( `request_upstream_${ request_id }`, { url: upstream_feedback_url }, 120_000 )
+
+    // Propagate trace from upstream, or start a new trace when this pool is the origin
+    let trace_id = request_id
+    if( upstream_feedback_url ) {
+        const { trace } = parse_url( { url: upstream_feedback_url, params: [ 'trace' ] } )
+        if( trace ) trace_id = trace
+    }
 
     // Filter to valid IPv4 workers and chunk them for parallelized querying
     const valid_workers = relevant_workers.filter( w => is_ipv4( w.ip ) )
@@ -63,9 +74,15 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         // Wrap calls so null results reject (Promise.any only rejects on thrown errors)
         config = await Promise.any(
             chunk.map( async worker => {
+
+                // Generate a unique nonce per worker so we can identify the winner
+                const worker_nonce = uuidv4()
+                const feedback_url = `${ base_feedback_url }?nonce=${ worker_nonce }&trace=${ trace_id }`
+
                 const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url } )
                 if( !result ) throw new Error( `No config from ${ worker.ip }` )
-                return result
+
+                return { config: result, winner_nonce: worker_nonce }
             } )
         ).catch( e => {
             if( e instanceof AggregateError ) log.info( `Chunk ${ index + 1 } failed: all ${ chunk.length } workers rejected` )
@@ -76,17 +93,21 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
 
     }
 
-    // Mark request complete so losing workers can free their configs
-    if( config ) {
-        cache( `request_${ request_id }`, { status: 'complete' }, 60_000 )
-        log.info( `Marked request ${ request_id } as complete` )
+    // Extract the race result (config wrapped with winner metadata from Promise.any)
+    const winner_nonce = config?.winner_nonce ?? null
+    const resolved_config = config?.winner_nonce ? config.config : config
+
+    // Mark request complete with winner so losing workers can free their configs
+    if( resolved_config ) {
+        cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
+        log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
     }
 
-    // On mock success
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) config = format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
+    // On mock success, return a fake config
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
 
     // Return the config
-    return config
+    return resolved_config
 
 }
 
@@ -106,26 +127,22 @@ export async function register_mining_pool_with_validators() {
     // Register with validators with allSettled
     const results = await Promise.allSettled( validator_ips.map( async ip => {
         
-        // Abort controller
-        let { signal } = abort_controller( { timeout_ms: 60_000 } )
-
         // Get protocol data from validator
-        const validator_broadcast = await fetch( `http://${ ip }:3000/`, { signal } ).then( res => res.json() )
+        const { fetch_options: broadcast_options } = abort_controller( { timeout_ms: 60_000 } )
+        const validator_broadcast = await fetch( `http://${ ip }:3000/`, broadcast_options ).then( res => res.json() )
 
         // Formulate registration request
-        ;( { signal } = abort_controller( { timeout_ms: 30_000 } ) )
+        const { fetch_options: register_options } = abort_controller( { timeout_ms: 30_000 } )
         const body = JSON.stringify( identity )
         const protocol = validator_broadcast.SERVER_PUBLIC_PROTOCOL || 'http'
         const host = validator_broadcast.SERVER_PUBLIC_HOST || ip
         const port = validator_broadcast.SERVER_PUBLIC_PORT || 3000
         const url = `${ protocol }://${ host }:${ port }/validator/broadcast/mining_pool`
         return fetch( url, {
+            ...register_options,
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body,
-            signal
         } ).then( res => res.json() )
 
     } ) )
@@ -158,14 +175,12 @@ export async function register_mining_pool_workers_with_validators() {
     // Register with validators with allSettled
     const results = await Promise.allSettled( validator_ips.map( async ip => {
 
-        // Abort controller
-        let { signal } = abort_controller( { timeout_ms: 60_000 } )
-
         // Get protocol data from validator
-        const validator_broadcast = await fetch( `http://${ ip }:3000/`, { signal } ).then( res => res.json() )
+        const { fetch_options: broadcast_options } = abort_controller( { timeout_ms: 60_000 } )
+        const validator_broadcast = await fetch( `http://${ ip }:3000/`, broadcast_options ).then( res => res.json() )
 
         // Formulate registration request
-        const { signal: _signal } = abort_controller( { timeout_ms: 30_000 } )
+        const { fetch_options: register_options } = abort_controller( { timeout_ms: 30_000 } )
         const body = JSON.stringify( { workers } )
         const protocol = validator_broadcast.SERVER_PUBLIC_PROTOCOL || 'http'
         const host = validator_broadcast.SERVER_PUBLIC_HOST || ip
@@ -173,12 +188,10 @@ export async function register_mining_pool_workers_with_validators() {
         const url = `${ protocol }://${ host }:${ port }/validator/broadcast/workers`
         log.info( `Registering at ${ url } with ${ workers.length } workers.`, CI_MODE === 'true' ? body : '' )
         const registration = await fetch( url, {
+            ...register_options,
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body,
-            signal: _signal
         } ).then( res => res.json() )
         log.info( `Registered ${ workers.length } workers with validator at ${ url }` )
         return registration

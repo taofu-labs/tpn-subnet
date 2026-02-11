@@ -211,6 +211,10 @@ services:
       - "${WIREGUARD_SERVERPORT:-51820}:51820/udp"
     sysctls:
       - net.ipv4.conf.all.src_valid_mark=1
+      # Traffic obfuscation: TCP keepalive tuned to Windows defaults
+      - net.ipv4.tcp_keepalive_time=7200
+      - net.ipv4.tcp_keepalive_intvl=75
+      - net.ipv4.tcp_keepalive_probes=9
     networks:
       - tpn-external
     profiles:
@@ -238,6 +242,11 @@ services:
       - ./dante_logs:/var/log
     ports:
       - "${DANTE_PORT:-1080}:${DANTE_PORT:-1080}"
+    sysctls:
+      # Traffic obfuscation: TCP keepalive tuned to Windows defaults
+      - net.ipv4.tcp_keepalive_time=7200
+      - net.ipv4.tcp_keepalive_intvl=75
+      - net.ipv4.tcp_keepalive_probes=9
     networks:
       - tpn-external
     profiles:

@@ -51,6 +51,12 @@ export async function init_database() {
             )
         ` )
         log.info( `✅ Workers table initialized` )
+
+        // Speed up country code lookups for the /api/lease/countries endpoint
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_workers_status_country ON workers ( status, country_code, connection_type )` )
+
+        // Speed up cleanup deletes that filter on updated_at
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_workers_updated_at ON workers ( updated_at )` )
     }
 
     // Create the WORKER_PERFORMANCE table if it doesn't exist
@@ -64,6 +70,9 @@ export async function init_database() {
             )
         ` )
         log.info( `✅ Worker performance table initialized` )
+
+        // Speed up time-range reads and cleanup deletes on the append-only performance log
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_worker_performance_updated_at ON worker_performance ( updated_at )` )
     }
 
     // Create WORKER_BROADCAST_METADATA table if it does not exist yet
@@ -136,6 +145,9 @@ export async function init_database() {
         ` )
         log.info( `✅ Worker WireGuard configs table initialized` )
 
+        // Speed up expired lease lookups and cleanup deletes
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_wg_configs_expires_at ON worker_wireguard_configs ( expires_at )` )
+
     }
 
     // Create the WORKER_SOCKS5_CONFIGS table if it doesn't exist
@@ -153,6 +165,12 @@ export async function init_database() {
             )
         ` )
         log.info( `✅ Worker Socks5 configs table initialized` )
+
+        // Speed up lease allocation queries that filter on availability
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_socks5_available ON worker_socks5_configs ( available, id )` )
+
+        // Speed up expired lease lookups and cleanup deletes
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_socks5_expires_at ON worker_socks5_configs ( expires_at )` )
     }
 
     // Create the TIMESTAMPS table if it doesn't exist

@@ -111,6 +111,7 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
 
     // Get mining pool data
     const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
+    if( !url ) throw new Error( `No URL found in metadata for mining pool ${ mining_pool_uid } at IP ${ mining_pool_ip }` )
     if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
     const endpoint = `${ url }/api/lease/new`
     const query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }${ feedback_url ? `&feedback_url=${ encodeURIComponent( feedback_url ) }` : '' }`
@@ -135,7 +136,7 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
             log.warn( `Error fetching worker config from mining pool ${ mining_pool_uid } on attempt ${ attempts }:`, e.message )
             return null
         } )
-        log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.uid }` )
+        log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.ip }` )
 
     }
 
