@@ -1,6 +1,7 @@
 import { cache, is_ipv4, log, multiline_trim, random_number_between, sanetise_ipv4, wait } from "mentie"
 import { run } from "../system/shell.js"
 import { generate_challenge } from "../scoring/challenge_response.js"
+import { evaluate_egress_identity } from "./egress_identity.js"
 import { get_free_interfaces } from "./network.js"
 
 // Global path config
@@ -26,55 +27,26 @@ async function verify_worker_egress_identity( { namespace_id, claimed_worker_ip,
 
     try {
 
-        // Validate claimed ip
-        const expected_ip = sanetise_ipv4( { ip: claimed_worker_ip, validate: true, error_on_invalid: false } )
-        if( !expected_ip ) {
-            return {
-                ok: false,
-                claimed_worker_ip,
-                failure_code: 'no_egress_ip',
-                message: `Invalid claimed worker ip: ${ claimed_worker_ip }`
-            }
-        }
-
         // Check observed egress through the wireguard namespace
         const egress_check_command = `ip netns exec ${ namespace_id } curl -m ${ timeout_s } -s https://ipv4.icanhazip.com`
-        const { stdout, stderr, error } = await run( egress_check_command, { silent: true, log_tag } )
+        const { stdout, error } = await run( egress_check_command, { silent: true, log_tag } )
         if( error ) {
             return {
                 ok: false,
-                claimed_worker_ip: expected_ip,
+                claimed_worker_ip,
                 failure_code: 'wireguard_connectivity_failure',
                 message: `Failed to query egress ip through namespace ${ namespace_id }: ${ error.message }`
             }
         }
 
-        // Parse observed egress ip and compare
-        const observed_egress_ip = sanetise_ipv4( { ip: stdout, validate: true, error_on_invalid: false } )
-        if( !observed_egress_ip ) {
-            return {
-                ok: false,
-                claimed_worker_ip: expected_ip,
-                failure_code: 'no_egress_ip',
-                message: `Could not parse a valid egress ip for namespace ${ namespace_id }. stderr: ${ stderr }`
-            }
-        }
-
-        const matches_claim = observed_egress_ip === expected_ip
-        if( !matches_claim ) {
-            return {
-                ok: false,
-                observed_egress_ip,
-                claimed_worker_ip: expected_ip,
-                failure_code: 'egress_ip_mismatch',
-                message: `Observed egress ip ${ observed_egress_ip } does not match claimed worker ip ${ expected_ip }`
-            }
-        }
+        // Use shared identity evaluator for consistency across transports
+        const identity = evaluate_egress_identity( { observed_egress_ip: stdout, claimed_worker_ip, transport: 'wireguard' } )
+        if( !identity.valid ) return { ok: false, ...identity }
 
         return {
             ok: true,
-            observed_egress_ip,
-            claimed_worker_ip: expected_ip
+            observed_egress_ip: identity.observed_egress_ip,
+            claimed_worker_ip: identity.claimed_worker_ip
         }
 
     } catch ( e ) {
