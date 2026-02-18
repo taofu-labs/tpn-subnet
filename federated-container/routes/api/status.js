@@ -101,16 +101,16 @@ router.get( '/worker_performance', async ( req, res ) => {
         const totals = workers.reduce( ( acc, { status } ) => {
             acc[ status ] = ( acc[ status ] || 0 ) + 1
             return acc
-        }, { up: 0, down: 0, unknown: 0 } )
+        }, { up: 0, down: 0, unknown: 0, cheat: 0 } )
         workers = workers.reduce( ( acc, { ip, status, ...worker } ) => {
 
             // Increment status scores
-            const history = acc[ ip ] || { up: 0, down: 0, unknown: 0, uptime: 0 }
-            acc[ ip ] = { ...defaults, ...history, ...metadata, ...worker, [ status ]: history[ status ] + 1 }
+            const history = acc[ ip ] || { up: 0, down: 0, unknown: 0, cheat: 0, uptime: 0 }
+            acc[ ip ] = { ...defaults, ...history, ...metadata, ...worker, [ status ]: ( history[ status ] || 0 ) + 1 }
 
             // Increment worker uptime
-            const { up, down, unknown } = acc[ ip ]
-            const uptime = Math.round(  up / ( up + down + unknown )  * 10000 ) / 100
+            const { up, down, unknown, cheat } = acc[ ip ]
+            const uptime = Math.round(  up / ( up + down + unknown + cheat )  * 10000 ) / 100
             acc[ ip ].uptime = isNaN( uptime ) ? 0 : uptime
 
             return acc

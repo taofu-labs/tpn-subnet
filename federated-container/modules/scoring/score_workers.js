@@ -43,7 +43,7 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
         // Save all worker data
         const annotated_workers = [
             ...successes.map( worker => ( { ...worker, status: 'up' } ) ),
-            ...failures.map( worker => ( { ...worker, status: 'down' } ) )
+            ...failures.map( worker => ( { ...worker, status: worker.status || 'down' } ) )
         ]
 
         // Save worker ips to db
@@ -157,7 +157,17 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             await worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch: true } )
 
             // Validate that wireguard config works
-            const { valid, message } = await test_wireguard_connection( { wireguard_config: text_config } )
+            const wireguard_validation = await test_wireguard_connection( { wireguard_config: text_config, claimed_worker_ip: worker.ip } )
+            const { valid, message, failure_code, observed_egress_ip, claimed_worker_ip } = wireguard_validation
+            if( !valid && failure_code === 'egress_ip_mismatch' ) {
+                test_result.success = false
+                test_result.status = 'cheat'
+                test_result.failure_code = failure_code
+                test_result.observed_egress_ip = observed_egress_ip
+                test_result.claimed_worker_ip = claimed_worker_ip
+                test_result.error = `Wireguard identity mismatch for ${ worker.ip }: ${ message }`
+                return test_result
+            }
             if( !valid ) throw new Error( `Wireguard config invalid for ${ worker.ip }: ${ message }` )
 
             // Test the socks5 config works
