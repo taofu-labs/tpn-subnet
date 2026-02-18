@@ -6,6 +6,7 @@
 - unify WireGuard and SOCKS5 egress identity checks through shared evaluator
 - enforce SOCKS5 claimed worker egress matching in scoring paths
 - map SOCKS5 egress identity mismatches to `cheat` status in scoring
+- default `EGRESS_IDENTITY_ENFORCEMENT` to `false` (opt-in for WireGuard)
 
 ## [1.2.47] - 2026-02-18
 
