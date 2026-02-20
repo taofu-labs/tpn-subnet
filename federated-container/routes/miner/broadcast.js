@@ -49,6 +49,7 @@ router.post( '/worker', async ( req, res ) => {
         const [ successful_worker ] = successes
         if( successful_worker.ip !== worker.ip ) throw new Error( `Worker IP mismatch after validation, this should never happen` )
         worker = successful_worker
+        worker.mining_pool_uid = `internal`
 
         // Check for worker clashes
 
