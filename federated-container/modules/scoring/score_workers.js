@@ -75,11 +75,12 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
  * @param {string} params.worker.ip - IP address of the worker.
  * @param {number} params.worker.public_port - Public port of the worker.
  * @param {string} params.mining_pool_url - Expected URL of the mining pool.
- * @param {boolean} [params.throw_on_mismatch=false] - Whether to throw an error on mismatch.
  * @param {number} [params.timeout_ms=5_000] - Timeout in ms for the worker membership check.
- * @returns {Promise<boolean>} - True if worker matches miner, false otherwise.
+ * @returns {Promise<Object>} Result of the verification with claimed pool URL and match status.
+ * @returns {string} returns.worker_claimed_pool_url - The mining pool URL claimed by the worker.
+ * @returns {boolean} returns.matches - Whether the worker's claimed mining pool matches the expected URL.
  */
-export async function match_worker_to_pool( { worker, mining_pool_url, throw_on_mismatch=false, timeout_ms=5_000 } ) {
+export async function match_worker_to_pool( { worker, mining_pool_url, timeout_ms=5_000 } ) {
 
     try {
 
@@ -93,11 +94,11 @@ export async function match_worker_to_pool( { worker, mining_pool_url, throw_on_
         const matches = ci_mode ? true : pool_match
         if( ci_mode && !pool_match ) log.warn( `In CI mode, ignoring worker pool mismatch. Worker claims ${ worker_claimed_pool_url }, expected ${ mining_pool_url }` )
 
+        if( !matches ) log.debug( `Worker at ${ worker.ip } claims mining pool ${ worker_claimed_pool_url }, expected ${ mining_pool_url }` )
         return { worker_claimed_pool_url , matches }
     
     } catch ( e ) {
         log.info( `Error checking worker ${ worker.ip } matches miner at ${ mining_pool_url }: ${ e.message }:`, e )
-        if( throw_on_mismatch ) throw e
         return { error: e.message, matches: false }
     }
 }
@@ -157,7 +158,8 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
 
             // Check that the worker broadcasts mining pool membership
-            await match_worker_to_pool( { worker, mining_pool_url, throw_on_mismatch: true } )
+            const { matches, worker_claimed_pool_url } = await match_worker_to_pool( { worker, mining_pool_url } )
+            if( !matches ) throw new Error( `Worker does not claim expected mining pool ${ mining_pool_url } but claims ${ worker_claimed_pool_url }` )
 
             // Validate that wireguard config works
             const { valid, message } = await test_wireguard_connection( { wireguard_config: text_config } )
