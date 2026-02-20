@@ -7,7 +7,7 @@ const { CI_MODE } = process.env
  * Finds out which worker inputs clash with out current database
  * @param {Object} params
  * @param {Array} params.workers - Array of worker objects to check for clashes, with properties: ip, country_code, public_port, public_url, mining_pool_url, mining_pool_uid
- * @returns {Promise<{ clashing_workers: Array, non_clashing_workers: Array }>} - Object with arrays of clashing and non-clashing workers
+ * @returns {Promise<{ clashing_workers: Array, non_clashing_workers: Array, clashes_with_workers: Array }>} - Object with arrays of clashing and non-clashing workers
  */
 export async function find_clashing_workers( { workers } ) {
 
@@ -39,7 +39,7 @@ export async function find_clashing_workers( { workers } ) {
         const { rows: existing_workers } = await pool.query( query, [ Array.from( ips ) ] )
 
         // Determine clashing workers
-        const { clashing_workers, non_clashing_workers } = valid_workers.reduce( ( acc, worker ) => {
+        const { clashing_workers, non_clashing_workers, clashes_with_workers } = valid_workers.reduce( ( acc, worker ) => {
 
             const clash = existing_workers.find( existing => {
                 const same_ip = existing.ip === worker.ip
@@ -50,14 +50,16 @@ export async function find_clashing_workers( { workers } ) {
                 return same_ip && ( !same_port || !same_url || !same_pool_url || !same_pool_uid )
             } )
 
-            if( clash ) acc.clashing_workers.push( worker )
-            else acc.non_clashing_workers.push( worker )
+            if( clash ) {
+                acc.clashing_workers.push( worker )
+                acc.clashes_with_workers.push( clash )
+            } else acc.non_clashing_workers.push( worker )
             
             return acc
 
-        }, { clashing_workers: [], non_clashing_workers: [] } )
+        }, { clashing_workers: [], non_clashing_workers: [], clashes_with_workers: [] } )
 
-        return { clashing_workers, non_clashing_workers }
+        return { clashing_workers, non_clashing_workers, clashes_with_workers }
 
     } catch ( e ) {
         log.error( `Error finding clashing workers: ${ e.message }`, e )
