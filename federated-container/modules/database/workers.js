@@ -499,7 +499,7 @@ export async function read_worker_broadcast_metadata( { mining_pool_uid, limit }
  * @param {string} params.mining_pool_uid? - Unique identifier of the mining pool.
  * @param {string} params.mining_pool_url? - URL of the mining pool.
  * @param {string} params.country_code? - Country code of the worker; use 'any' to ignore this filter.
- * @param {string} params.status? - Status of the worker; defaults to null. Valid values are 'up', 'down', or 'unknown'.
+ * @param {string} params.status? - Status of the worker; defaults to null. Valid values are 'up', 'down', 'unknown', or 'cheat'.
  * @param {boolean} params.randomize? - If true, sample using tsm_system_rows extension to get random rows
  * @param {number} params.limit? - Maximum number of worker records to return.
  * @param {string} params.connection_type? - Connection type of the worker; use 'any' to ignore this filter. Valid values are 'datacenter' or 'residential'.
@@ -520,8 +520,8 @@ export async function get_workers( { ip, mining_pool_uid, mining_pool_url, count
     // Force country code to capitals
     if( country_code ) country_code = `${ country_code }`.toUpperCase()
 
-    // Status must be up, down, or unknown
-    if( status && ![ 'up', 'down', 'unknown' ].includes( sanetise_string( status ) ) ) {
+    // Status must be up, down, unknown, or cheat
+    if( status && ![ 'up', 'down', 'unknown', 'cheat' ].includes( sanetise_string( status ) ) ) {
         log.warn( `Invalid status filter provided: ${ status }, THIS SHOULD NEVER HAPPEN, defaulting to 'up'` )
         status = 'up'
     }

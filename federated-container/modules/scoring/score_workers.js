@@ -10,6 +10,8 @@ import { test_socks5_connection } from "../networking/socks5.js"
 import { score_node_version } from "./score_node.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
 
+const status_from_failure_code = failure_code => failure_code === 'egress_ip_mismatch' ? 'cheat' : 'down'
+
 /**
  * Tests and scores all known workers registered with the mining pool.
  * @param {number} [max_duration_minutes=15] - Maximum duration in minutes before function times out.
@@ -43,7 +45,7 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
         // Save all worker data
         const annotated_workers = [
             ...successes.map( worker => ( { ...worker, status: 'up' } ) ),
-            ...failures.map( worker => ( { ...worker, status: 'down' } ) )
+            ...failures.map( worker => ( { ...worker, status: worker.status || 'down' } ) )
         ]
 
         // Save worker ips to db
@@ -211,7 +213,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
         try {
     
             // Start test
-            const { json_config, text_config, mining_pool_url } = worker
+            const { text_config, mining_pool_url } = worker
             if( CI_MODE === 'true' ) log.info( `Validating worker ${ worker.ip } with config:`, worker )
 
             // Check that the worker is up to date
@@ -223,15 +225,33 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             if( !matches ) throw new Error( `Worker does not claim expected mining pool ${ mining_pool_url } but claims ${ worker_claimed_pool_url }` )
 
             // Validate that wireguard config works
-            const { valid, message } = await test_wireguard_connection( { wireguard_config: text_config } )
-            if( !valid ) throw new Error( `Wireguard config invalid for ${ worker.ip }: ${ message }` )
+            const wireguard_validation = await test_wireguard_connection( { wireguard_config: text_config, claimed_worker_ip: worker.ip } )
+            const { valid, message, failure_code, observed_egress_ip, claimed_worker_ip } = wireguard_validation
+            if( !valid ) {
+                const status = status_from_failure_code( failure_code )
+                test_result.success = false
+                test_result.status = status
+                test_result.failure_code = failure_code
+                test_result.observed_egress_ip = observed_egress_ip
+                test_result.claimed_worker_ip = claimed_worker_ip
+                test_result.error = `Wireguard validation failed for ${ worker.ip }: ${ message }`
+                throw new Error( `Wireguard config invalid for ${ worker.ip }: ${ message }` )
+            }
 
+    
             // Test the socks5 config works
             const { socks5_config: sock } = worker
-            const socks5_valid = await test_socks5_connection( { sock } )
+            const socks5_validation = await test_socks5_connection( { sock, claimed_worker_ip: worker.ip } )
+            const { valid: socks5_valid, failure_code: socks5_failure_code, observed_socks5_ip, message: socks5_message, claimed_worker_ip: socks5_claimed_ip } = socks5_validation
             if( !socks5_valid ) {
-                log.warn( `Socks5 config invalid for ${ worker.ip }, this probably means you need to update your worker:`, worker )
-                throw new Error( `Socks5 config invalid for ${ worker.ip }` )
+                const status = status_from_failure_code( socks5_failure_code )
+                test_result.success = false
+                test_result.status = status
+                test_result.failure_code = socks5_failure_code
+                test_result.observed_socks5_ip = observed_socks5_ip
+                test_result.claimed_worker_ip = socks5_claimed_ip
+                test_result.error = `Socks5 validation failed for ${ worker.ip }: ${ socks5_message }`
+                throw new Error( `Socks5 config invalid for ${ worker.ip }: ${ socks5_message }` )
             }
 
             // Get the most recent country data for these workers
@@ -246,8 +266,8 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
         } catch ( e ) {
             log.info( `Error scoring worker ${ worker.ip }: ${ e.message }:`, e )
             test_result.success = false
-            test_result.error = e.message
-            test_result.status = 'down'
+            test_result.error = test_result.error || e.message
+            test_result.status = test_result.status || 'down'
         } finally {
             test_result.test_duration_s = ( Date.now() - start ) / 1_000
         }

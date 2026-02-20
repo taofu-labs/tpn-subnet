@@ -128,7 +128,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( !config ) throw new Error( `${ mode } failed to get config for ${ geo }` )
         if( type == 'socks5' ) {
             const sock = format == 'text' ? config : `socks5://${ config.username }:${ config.password }@${ config.ip_address }:${ config.port }`
-            const valid = await test_socks5_connection( { sock } )
+            const { valid } = await test_socks5_connection( { sock } )
             log.info( `Socks5 config validation result: ${ valid } for config: ${ sock }` )
         }
 
