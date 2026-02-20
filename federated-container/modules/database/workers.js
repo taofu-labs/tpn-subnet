@@ -69,7 +69,7 @@ export async function find_clashing_workers( { workers } ) {
 }
 
 /**
- * Write an array of worker objects to the WORKERS table, where the composite primary key is (mining_pool_uid, mining_pool_ip, ip), and the entry is updated if it already exists.
+ * Write an array of worker objects to the WORKERS table, where the composite primary key is (mining_pool_uid, mining_pool_url, ip), and the entry is updated if it already exists.
  * @param {Array<{ ip: string, country_code: string, status?: string }>} workers - Array of worker objects with properties: ip, country_code
  * @param {string} mining_pool_uid - Unique identifier of the mining pool submitting the workers, used only for metadata broadcast
  * @param {boolean} is_miner_broadcast - broadcasts update mining pool worker metadata based on the worker array, only set if worker array is full worker list from mining pool

@@ -66,7 +66,7 @@ router.post( '/worker', async ( req, res ) => {
         await map_ips_to_geodata( { ips: [ worker.ip ], cache_prefix: `worker_`, prefix_merge: true } )
 
         // Save worker to database
-        await write_workers( { workers: [ worker ], mining_pool_uid: 'internal', mining_pool_ip: 'internal' } )
+        await write_workers( { workers: [ worker ], mining_pool_uid: 'internal' } )
 
         // Resolve to success
         return res.json( { registered: true, worker } )
