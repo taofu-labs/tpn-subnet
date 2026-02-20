@@ -506,7 +506,7 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         }
 
         // Verify wireguard egress identity against claimed worker ip unless explicitly disabled
-        const { EGRESS_IDENTITY_ENFORCEMENT='false' } = process.env
+        const { EGRESS_IDENTITY_ENFORCEMENT='true' } = process.env
         const enforce_egress_identity = `${ EGRESS_IDENTITY_ENFORCEMENT }` !== 'false'
         if( enforce_egress_identity && claimed_worker_ip ) {
             const identity_check = await verify_worker_egress_identity( { namespace_id, claimed_worker_ip, log_tag } )
