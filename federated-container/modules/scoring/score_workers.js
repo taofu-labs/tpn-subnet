@@ -126,7 +126,7 @@ export async function find_first_valid_workers_by_ip( { workers } ) {
 
     } catch ( e ) {
         log.info( `Error finding first valid worker by IP: ${ e.message }:`, e )
-        return { error: e.message }
+        throw new Error( `Error finding first valid worker by IP: ${ e.message }` )
     }
 
 }

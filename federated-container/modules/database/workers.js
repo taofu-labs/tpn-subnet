@@ -90,8 +90,32 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
     if( invalid_workers.length > 0 ) log.warn( `Invalid worker entries found:`, invalid_workers )
     if( valid_workers.length === 0 ) return { success: true, count: 0 }
 
+    // Enforce one `up` worker per ip within this input batch before touching the database.
+    // We keep the first `up` worker we see for each ip, and discard the rest.
+    const seen_up_ips = new Set()
+    const workers_for_write = valid_workers.filter( worker => {
+
+        const worker_status = `${ worker?.status || '' }`.toLowerCase()
+        const worker_is_up = worker_status === 'up'
+        const has_ip = !!worker?.ip
+        if( !worker_is_up || !has_ip ) return true
+
+        const worker_ip = sanetise_string( `${ worker.ip }` )
+        const is_duplicate_up_ip = seen_up_ips.has( worker_ip )
+        if( is_duplicate_up_ip ) return false
+
+        seen_up_ips.add( worker_ip )
+        return true
+    } )
+    const discarded_duplicate_up_workers = valid_workers.length - workers_for_write.length
+    if( discarded_duplicate_up_workers > 0 ) {
+        log.warn(
+            `Discarded ${ discarded_duplicate_up_workers } duplicate input workers while enforcing one active 'up' worker per ip in this write batch`
+        )
+    }
+
     // Prepare the query with pg-format
-    const values = valid_workers.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown', connection_type='unknown' } ) => [
+    const values = workers_for_write.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown', connection_type='unknown' } ) => [
         ip,
         public_port,
         public_url,
@@ -129,30 +153,62 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
     // Execute the query
     try {
 
-        // Keep only one active `up` row per ip by demoting previous active rows first
+        // Prepare the set of ips that are being written as active `up` rows in this batch.
         const up_worker_ips = [
             ...new Set(
-                valid_workers
+                workers_for_write
                     .filter( worker => `${ worker?.status || '' }`.toLowerCase() === 'up' && worker?.ip )
                     .map( worker => sanetise_string( `${ worker.ip }` ) )
             )
         ]
-        if( up_worker_ips.length > 0 ) {
-            const demote_existing_up_query = `
-                UPDATE workers
-                SET status = 'unknown', updated_at = $1
-                WHERE status = 'up' AND ip = ANY($2)
-            `
-            await pool.query( demote_existing_up_query, [ Date.now(), up_worker_ips ] )
+
+        // Use a dedicated client so demote + insert happen in one transaction.
+        const client = await pool.connect()
+        let worker_write_result
+        try {
+
+            await client.query( `BEGIN` )
+
+            if( up_worker_ips.length > 0 ) {
+
+                // Acquire transaction-scoped advisory locks in deterministic ip order.
+                // This serializes writers touching the same ip and avoids race-condition collisions.
+                const lock_query = `
+                    SELECT pg_advisory_xact_lock( hashtext( ip ) )
+                    FROM unnest( $1::text[] ) AS ip
+                    ORDER BY ip
+                `
+                await client.query( lock_query, [ up_worker_ips ] )
+
+                // Demote any currently active rows for these ips before inserting/updating.
+                const demote_existing_up_query = `
+                    UPDATE workers
+                    SET status = 'unknown', updated_at = $1
+                    WHERE status = 'up' AND ip = ANY($2)
+                `
+                await client.query( demote_existing_up_query, [ Date.now(), up_worker_ips ] )
+            }
+            
+            // Write workers once previous `up` rows for the same ips are demoted.
+            worker_write_result = await client.query( query )
+            await client.query( `COMMIT` )
+
+        } catch ( tx_error ) {
+
+            await client.query( `ROLLBACK` ).catch( () => null )
+            throw tx_error
+
+        } finally {
+
+            client.release()
+
         }
         
-        // Writing workers to db
-        const worker_write_result = await pool.query( query )
-        const broadcast_metadata = is_miner_broadcast ? await write_worker_broadcast_metadata( { mining_pool_uid, workers: valid_workers } ) : null
+        const broadcast_metadata = is_miner_broadcast ? await write_worker_broadcast_metadata( { mining_pool_uid, workers: workers_for_write } ) : null
         log.info( `Wrote ${ worker_write_result.rowCount } workers to database${ is_miner_broadcast ? ' through miner broadcast ' : ''  }for mining pool ${ mining_pool_uid } ${ broadcast_metadata ? 'with broadcast metadata: ' : '' }`, broadcast_metadata ? broadcast_metadata : '' )
         
         // Mark workers not in this broadcast as stale
-        if( is_miner_broadcast ) await mark_workers_stale( { mining_pool_uid, active_workers: valid_workers } )
+        if( is_miner_broadcast ) await mark_workers_stale( { mining_pool_uid, active_workers: workers_for_write } )
         
         return { success: true, count: worker_write_result.rowCount, broadcast_metadata }
     } catch ( e ) {
