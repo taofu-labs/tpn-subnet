@@ -114,8 +114,29 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
         )
     }
 
+    // Dedupe by write key so one INSERT batch never tries to update the same row twice.
+    // Write key mirrors the ON CONFLICT target: (mining_pool_uid, mining_pool_url, ip).
+    const workers_by_write_key = workers_for_write.reduce( ( acc, worker ) => {
+
+        const worker_ip = sanetise_string( `${ worker.ip }` )
+        const worker_mining_pool_url = sanetise_string( `${ worker.mining_pool_url }` )
+        const worker_write_key = `${ mining_pool_uid }|${ worker_mining_pool_url }|${ worker_ip }`
+        if( acc.has( worker_write_key ) ) return acc
+
+        acc.set( worker_write_key, worker )
+        return acc
+
+    }, new Map() )
+    const deduped_workers_for_write = [ ...workers_by_write_key.values() ]
+    const discarded_duplicate_write_key_workers = workers_for_write.length - deduped_workers_for_write.length
+    if( discarded_duplicate_write_key_workers > 0 ) {
+        log.warn(
+            `Discarded ${ discarded_duplicate_write_key_workers } duplicate input workers while enforcing unique write keys`
+        )
+    }
+
     // Prepare the query with pg-format
-    const values = workers_for_write.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown', connection_type='unknown' } ) => [
+    const values = deduped_workers_for_write.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown', connection_type='unknown' } ) => [
         ip,
         public_port,
         public_url,
@@ -156,7 +177,7 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
         // Prepare the set of ips that are being written as active `up` rows in this batch.
         const up_worker_ips = [
             ...new Set(
-                workers_for_write
+                deduped_workers_for_write
                     .filter( worker => `${ worker?.status || '' }`.toLowerCase() === 'up' && worker?.ip )
                     .map( worker => sanetise_string( `${ worker.ip }` ) )
             )
@@ -204,11 +225,11 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
 
         }
         
-        const broadcast_metadata = is_miner_broadcast ? await write_worker_broadcast_metadata( { mining_pool_uid, workers: workers_for_write } ) : null
+        const broadcast_metadata = is_miner_broadcast ? await write_worker_broadcast_metadata( { mining_pool_uid, workers: deduped_workers_for_write } ) : null
         log.info( `Wrote ${ worker_write_result.rowCount } workers to database${ is_miner_broadcast ? ' through miner broadcast ' : ''  }for mining pool ${ mining_pool_uid } ${ broadcast_metadata ? 'with broadcast metadata: ' : '' }`, broadcast_metadata ? broadcast_metadata : '' )
         
         // Mark workers not in this broadcast as stale
-        if( is_miner_broadcast ) await mark_workers_stale( { mining_pool_uid, active_workers: workers_for_write } )
+        if( is_miner_broadcast ) await mark_workers_stale( { mining_pool_uid, active_workers: deduped_workers_for_write } )
         
         return { success: true, count: worker_write_result.rowCount, broadcast_metadata }
     } catch ( e ) {
