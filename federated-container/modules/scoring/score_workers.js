@@ -1,7 +1,7 @@
 import { abort_controller, log } from "mentie"
 import { try_acquire_lock } from "../locks.js"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
-import { default_mining_pool, is_valid_worker, run_mode } from "../validations.js"
+import { is_valid_worker, run_mode } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
 import { get_workers, write_workers, write_worker_performance } from "../database/workers.js"
 import { add_configs_to_workers } from "./query_workers.js"
@@ -79,23 +79,26 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
  * @param {number} [params.timeout_ms=5_000] - Timeout in ms for the worker membership check.
  * @returns {Promise<boolean>} - True if worker matches miner, false otherwise.
  */
-export async function worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch=false, timeout_ms=5_000 } ) {
+export async function match_worker_to_pool( { worker, mining_pool_url, throw_on_mismatch=false, timeout_ms=5_000 } ) {
 
     try {
 
         // Check that the worker broadcasts mining pool membership
         const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true'
         const { fetch_options } = abort_controller( { timeout_ms } )
-        const { MINING_POOL_URL } = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
-        if( !mock_pool_check && !MINING_POOL_URL ) throw new Error( `Worker does not broadcast mining pool membership` )
-        if( CI_MODE !== 'true' && MINING_POOL_URL !== mining_pool_url && MINING_POOL_URL !== default_mining_pool ) throw new Error( `Worker broadcast ${ MINING_POOL_URL } which does not correspond to our expectation of ${ mining_pool_url }` )
+        const { MINING_POOL_URL: worker_claimed_pool_url } = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
+        if( !mock_pool_check && !worker_claimed_pool_url ) throw new Error( `Worker does not broadcast mining pool membership` )
+        const ci_mode = CI_MODE === 'true'
+        const pool_match = worker_claimed_pool_url === mining_pool_url
+        const matches = ci_mode ? true : pool_match
+        if( ci_mode && !pool_match ) log.warn( `In CI mode, ignoring worker pool mismatch. Worker claims ${ worker_claimed_pool_url }, expected ${ mining_pool_url }` )
 
-        return true
+        return { worker_claimed_pool_url , matches }
     
     } catch ( e ) {
         log.info( `Error checking worker ${ worker.ip } matches miner at ${ mining_pool_url }: ${ e.message }:`, e )
         if( throw_on_mismatch ) throw e
-        return false
+        return { error: e.message, matches: false }
     }
 }
 
@@ -154,7 +157,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
 
             // Check that the worker broadcasts mining pool membership
-            await worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch: true } )
+            await match_worker_to_pool( { worker, mining_pool_url, throw_on_mismatch: true } )
 
             // Validate that wireguard config works
             const { valid, message } = await test_wireguard_connection( { wireguard_config: text_config } )
