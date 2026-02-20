@@ -4,6 +4,69 @@ import { annotate_worker_with_defaults, is_valid_worker, sanetise_worker } from 
 const { CI_MODE } = process.env
 
 /**
+ * Finds out which worker inputs clash with out current database
+ * @param {Object} params
+ * @param {Array} params.workers - Array of worker objects to check for clashes, with properties: ip, country_code, public_port, public_url, mining_pool_url, mining_pool_uid
+ * @returns {Promise<{ clashing_workers: Array, non_clashing_workers: Array }>} - Object with arrays of clashing and non-clashing workers
+ */
+export async function find_clashing_workers( { workers } ) {
+
+    try {
+
+        // Get the postgres pool
+        const pool = await get_pg_pool()
+
+        // Sanetise and validate workers, keeping track of invalid entries for logging
+        const [ valid_workers, invalid_workers ] = workers.reduce( ( acc, worker ) => {
+            const sanetised = annotate_worker_with_defaults( sanetise_worker( worker ) )
+            if( is_valid_worker( sanetised ) ) acc[0].push( sanetised )
+            else acc[1].push( worker )
+            return acc
+        }, [ [], [] ] )
+
+        // Log invalid workers
+        if( invalid_workers.length > 0 ) log.warn( `Invalid worker entries found during clash check:`, invalid_workers )
+
+        // If no valid workers, return empty clashes
+        if( valid_workers.length === 0 ) return { clashing_workers: [], non_clashing_workers: [] }
+
+        // Check for clash, befined by same ip but differing at one of: public_url, public_port, mining_pool_url, mining_pool_uid
+        const ips = new Set( valid_workers.map( worker => worker.ip ) )
+        const query = `
+            SELECT * FROM workers
+            WHERE ip = ANY($1) AND status = 'up'
+        `
+        const { rows: existing_workers } = await pool.query( query, [ Array.from( ips ) ] )
+
+        // Determine clashing workers
+        const { clashing_workers, non_clashing_workers } = valid_workers.reduce( ( acc, worker ) => {
+
+            const clash = existing_workers.find( existing => {
+                const same_ip = existing.ip === worker.ip
+                const same_port = existing.public_port === worker.public_port
+                const same_url = existing.public_url === worker.public_url
+                const same_pool_url = existing.mining_pool_url === worker.mining_pool_url
+                const same_pool_uid = existing.mining_pool_uid === worker.mining_pool_uid
+                return same_ip && ( !same_port || !same_url || !same_pool_url || !same_pool_uid )
+            } )
+
+            if( clash ) acc.clashing_workers.push( worker )
+            else acc.non_clashing_workers.push( worker )
+            
+            return acc
+
+        }, { clashing_workers: [], non_clashing_workers: [] } )
+
+        return { clashing_workers, non_clashing_workers }
+
+    } catch ( e ) {
+        log.error( `Error finding clashing workers: ${ e.message }`, e )
+        throw new Error( `Error finding clashing workers: ${ e.message }` )
+    }
+
+}
+
+/**
  * Write an array of worker objects to the WORKERS table, where the composite primary key is (mining_pool_uid, mining_pool_ip, ip), and the entry is updated if it already exists.
  * @param {Array<{ ip: string, country_code: string, status?: string }>} workers - Array of worker objects with properties: ip, country_code
  * @param {string} mining_pool_uid - Unique identifier of the mining pool submitting the workers, used only for metadata broadcast
@@ -12,9 +75,6 @@ const { CI_MODE } = process.env
  * @throws {Error} - If there is an error writing to the database
  */
 export async function write_workers( { workers, mining_pool_uid='internal', is_miner_broadcast=false } ) {
-
-    // Get the postgres pool
-    const pool = await get_pg_pool()
 
     // Annotate workers with defaults and sanetise
     workers = workers.map( annotate_worker_with_defaults ).map( sanetise_worker )
@@ -61,8 +121,28 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
 
     if( CI_MODE === 'true' ) log.info( `Valid worker example:`, values[0] )
 
+    // Get the postgres pool
+    const pool = await get_pg_pool()
+
     // Execute the query
     try {
+
+        // Keep only one active `up` row per ip by demoting previous active rows first
+        const up_worker_ips = [
+            ...new Set(
+                valid_workers
+                    .filter( worker => `${ worker?.status || '' }`.toLowerCase() === 'up' && worker?.ip )
+                    .map( worker => sanetise_string( `${ worker.ip }` ) )
+            )
+        ]
+        if( up_worker_ips.length > 0 ) {
+            const demote_existing_up_query = `
+                UPDATE workers
+                SET status = 'unknown', updated_at = $1
+                WHERE status = 'up' AND ip = ANY($2)
+            `
+            await pool.query( demote_existing_up_query, [ Date.now(), up_worker_ips ] )
+        }
         
         // Writing workers to db
         const worker_write_result = await pool.query( query )
@@ -74,6 +154,9 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
         
         return { success: true, count: worker_write_result.rowCount, broadcast_metadata }
     } catch ( e ) {
+
+        // Keep error message explicit when the global one-up-per-ip guard is hit
+        if( e?.code === '23505' ) throw new Error( `Error writing workers to database: unique constraint violated while enforcing one active 'up' worker per ip` )
         throw new Error( `Error writing workers to database: ${ e.message }` )
     }
 }
