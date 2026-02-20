@@ -70,7 +70,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             const feedback_url = `${ base_feedback_url }?nonce=${ call_nonce }&trace=${ request_id }`
 
             // Check if worker matches
-            const { matches } = await match_worker_to_pool( { worker, mining_pool_url: worker.mining_pool_url } ).catch( e => false )
+            const { matches } = await match_worker_to_pool( { worker, mining_pool_url: worker.mining_pool_url } )
             if( !matches ) {
                 log.info( `Worker ${ worker.ip } not confirmed to consent to be with the mining pool ${ worker.mining_pool_url }, skipping` )
                 throw new Error( `Worker ${ worker.ip } does not consent to mining pool ${ worker.mining_pool_url }` )
