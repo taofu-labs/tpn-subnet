@@ -100,10 +100,10 @@ router.post( '/workers', async ( req, res ) => {
         log.info( `Sanetised worker data, ${ workers.length } valid entries, example: `, workers[0] )
 
         // Filter out clashing workers
-        const { clashing_workers, non_clashing_workers, clashing_with_workers } = await find_clashing_workers( { workers } )
+        const { clashing_workers, non_clashing_workers, clashes_with_workers } = await find_clashing_workers( { workers } )
 
         // For the clashing workers, find the first matching winner
-        const cleared_clashing_workers = await find_first_valid_workers_by_ip( { workers: [ ...clashing_workers, ...clashing_with_workers ] } )
+        const cleared_clashing_workers = await find_first_valid_workers_by_ip( { workers: [ ...clashing_workers, ...clashes_with_workers ] } )
 
         // Combine the cleared clashing workers with the non-clashing workers
         workers = [ ...non_clashing_workers, ...cleared_clashing_workers ]

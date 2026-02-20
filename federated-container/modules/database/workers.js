@@ -28,7 +28,7 @@ export async function find_clashing_workers( { workers } ) {
         if( invalid_workers.length > 0 ) log.warn( `Invalid worker entries found during clash check:`, invalid_workers )
 
         // If no valid workers, return empty clashes
-        if( valid_workers.length === 0 ) return { clashing_workers: [], non_clashing_workers: [] }
+        if( valid_workers.length === 0 ) return { clashing_workers: [], non_clashing_workers: [], clashes_with_workers: [] }
 
         // Check for clash, befined by same ip but differing at one of: public_url, public_port, mining_pool_url, mining_pool_uid
         const ips = new Set( valid_workers.map( worker => worker.ip ) )

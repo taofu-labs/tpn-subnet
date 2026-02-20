@@ -56,7 +56,7 @@ router.post( '/worker', async ( req, res ) => {
         const { clashing_workers, non_clashing_workers, clashes_with_workers } = await find_clashing_workers( { workers: [ worker ] } )
         if( clashing_workers.length ) {
             log.info( `Found ${ clashing_workers.length } clashing workers with IP ${ worker.ip }, will attempt to resolve` )
-            const cleared_clashing_workers = await find_first_valid_workers_by_ip( { workers: [ clashes_with_workers[0], worker ] } )
+            const cleared_clashing_workers = await find_first_valid_workers_by_ip( { workers: [ worker, ...clashes_with_workers ] } )
             if( !cleared_clashing_workers.length ) throw new Error( `Clashing worker with IP ${ worker.ip } failed to clear` )
 
             worker = cleared_clashing_workers[0]
