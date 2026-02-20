@@ -482,8 +482,8 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         let observed_egress_ip = null
 
         // Check for ip address conflicts
-        const timeout = test_timeout_seconds * 5 // How many ip addresses to assume in the worst of circumstances to take their max timeout
-        const ip_free = await wait_for_ip_free( { ip_address: Address, timeout, log_tag } )
+        const timeout_s = test_timeout_seconds * 5 // How many ip addresses to assume in the worst of circumstances to take their max timeout
+        const ip_free = await wait_for_ip_free( { ip_address: Address, timeout_s, log_tag } )
         if( !ip_free ) {
             const ip_cleared = await clean_up_tpn_interfaces( { ip_addresses: [ Address ] } )
             if( !ip_cleared ) throw new Error( `IP address ${ Address } is still in use after cleanup` )
@@ -491,7 +491,7 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         }
 
         // Mark the ip address as in processing
-        cache( `ip_being_processed_${ Address }`, true, timeout * 1000 )
+        cache( `ip_being_processed_${ Address }`, true, timeout_s * 1000 )
         log.debug( `${ log_tag } Marking ip address ${ Address } as in processing` )
 
         // Write the wireguard config to a file
