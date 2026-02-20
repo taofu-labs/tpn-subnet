@@ -30,7 +30,7 @@ export async function find_clashing_workers( { workers } ) {
         // If no valid workers, return empty clashes
         if( valid_workers.length === 0 ) return { clashing_workers: [], non_clashing_workers: [], clashes_with_workers: [] }
 
-        // Check for clash, befined by same ip but differing at one of: public_url, public_port, mining_pool_url, mining_pool_uid
+        // Check for clash, defined by same ip but differing at one of: public_url, public_port, mining_pool_url, mining_pool_uid
         const ips = new Set( valid_workers.map( worker => worker.ip ) )
         const query = `
             SELECT * FROM workers
@@ -42,11 +42,11 @@ export async function find_clashing_workers( { workers } ) {
         const { clashing_workers, non_clashing_workers, clashes_with_workers } = valid_workers.reduce( ( acc, worker ) => {
 
             const clash = existing_workers.find( existing => {
-                const same_ip = existing.ip === worker.ip
-                const same_port = existing.public_port === worker.public_port
-                const same_url = existing.public_url === worker.public_url
-                const same_pool_url = existing.mining_pool_url === worker.mining_pool_url
-                const same_pool_uid = existing.mining_pool_uid === worker.mining_pool_uid
+                const same_ip = existing.ip == worker.ip
+                const same_port = existing.public_port == worker.public_port
+                const same_url = existing.public_url == worker.public_url
+                const same_pool_url = existing.mining_pool_url == worker.mining_pool_url
+                const same_pool_uid = existing.mining_pool_uid == worker.mining_pool_uid
                 return same_ip && ( !same_port || !same_url || !same_pool_url || !same_pool_uid )
             } )
 

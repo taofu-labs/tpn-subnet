@@ -86,7 +86,6 @@ export async function get_worker_metadata( { worker, timeout_ms=5_000 } ) {
         const { fetch_options } = abort_controller( { timeout_ms } )
         const worker_metadata = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
         const { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL } = worker_metadata || {}
-        if( !MINING_POOL_URL || !SERVER_PUBLIC_HOST || !SERVER_PUBLIC_URL || !SERVER_PUBLIC_PORT || !SERVER_PUBLIC_PROTOCOL ) throw new Error( `Worker did not broadcast expected metadata` )
         const url = `${ SERVER_PUBLIC_PROTOCOL }://${ SERVER_PUBLIC_HOST }:${ SERVER_PUBLIC_PORT }`
 
         return { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL, url }
