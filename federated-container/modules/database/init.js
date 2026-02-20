@@ -57,6 +57,50 @@ export async function init_database() {
 
         // Speed up cleanup deletes that filter on updated_at
         await pool.query( `CREATE INDEX IF NOT EXISTS idx_workers_updated_at ON workers ( updated_at )` )
+
+        // Global invariant: an ip can have many historical rows, but only one row may be `up`
+        await pool.query( `
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_workers_single_up_ip
+            ON workers (ip)
+            WHERE status = 'up'
+        ` ).catch( async e => {
+
+            log.warn( `Could not create one-up-per-ip index on workers: ${ e.message }` )
+            log.info( `Attempting to remove duplicate active ips and retry...` )
+
+            try {
+
+                // Keep the most recent `up` row per ip and drop older competing `up` rows
+                await pool.query( `
+                    DELETE FROM workers w
+                    USING (
+                        SELECT ctid
+                        FROM (
+                            SELECT
+                                ctid,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY ip
+                                    ORDER BY updated_at DESC, mining_pool_uid DESC, mining_pool_url DESC
+                                ) AS row_num
+                            FROM workers
+                            WHERE status = 'up'
+                        ) ranked
+                        WHERE row_num > 1
+                    ) duplicates
+                    WHERE w.ctid = duplicates.ctid
+                ` )
+
+                // Retry index creation after cleanup
+                await pool.query( `
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_workers_single_up_ip
+                    ON workers (ip)
+                    WHERE status = 'up'
+                ` )
+                log.info( `✅ Created one-up-per-ip workers index after deduping active rows` )
+            } catch ( cleanup_error ) {
+                log.error( `Failed to enforce one-up-per-ip index on workers: ${ cleanup_error.message }` )
+            }
+        } )
     }
 
     // Create the WORKER_PERFORMANCE table if it doesn't exist

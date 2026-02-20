@@ -2,12 +2,13 @@ import { Router } from 'express'
 import { log, make_retryable, sanetise_ipv4, sanetise_string } from 'mentie'
 import { cooldown_in_s, retry_times } from "../../modules/networking/routing.js"
 import { annotate_worker_with_defaults, is_valid_worker } from '../../modules/validations.js'
-import { write_workers } from '../../modules/database/workers.js'
+import { find_clashing_workers, write_workers } from '../../modules/database/workers.js'
 import { is_miner_request } from '../../modules/networking/miners.js'
 import { write_mining_pool_metadata } from '../../modules/database/mining_pools.js'
 import { map_ips_to_geodata } from '../../modules/geolocation/ip_mapping.js'
 import { resolve_domain_to_ip } from '../../modules/networking/network.js'
 import { ip_geodata } from '../../modules/geolocation/helpers.js'
+import { find_first_valid_workers_by_ip } from '../../modules/scoring/score_workers.js'
 const { CI_MODE } = process.env
 
 export const router = Router()
@@ -97,6 +98,16 @@ router.post( '/workers', async ( req, res ) => {
 
         }, [] )
         log.info( `Sanetised worker data, ${ workers.length } valid entries, example: `, workers[0] )
+
+        // Filter out clashing workers
+        const { clashing_workers, non_clashing_workers, clashes_with_workers } = await find_clashing_workers( { workers } )
+
+        // For the clashing workers, find the first matching winner
+        const cleared_clashing_workers = await find_first_valid_workers_by_ip( { workers: [ ...clashing_workers, ...clashes_with_workers ] } )
+
+        // Combine the cleared clashing workers with the non-clashing workers
+        workers = [ ...non_clashing_workers, ...cleared_clashing_workers ]
+        log.info( `Filtered out clashing workers, ${ workers.length } workers cleared to be registered` )
 
         // Save worker ips to cache
         const ips = workers.map( worker => worker.ip )

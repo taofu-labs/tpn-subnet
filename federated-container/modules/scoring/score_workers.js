@@ -69,6 +69,69 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
 }
 
 /**
+ * Gets up to date cleimed metadata from a worker
+ * @param {Object} params - Parameters for fetching worker metadata.
+ * @param {Object} params.worker - Worker object containing at least the IP and public port.
+ * @param {string} params.worker.ip - IP address of the worker.
+ * @param {number} params.worker.public_port - Public port of the worker.
+ * @param {number} [params.timeout_ms=5_000] - Timeout in milliseconds for the fetch request.
+ * @returns {Promise<Object>} - An object containing the worker's claimed metadata or an error message.
+ */
+export async function get_worker_metadata( { worker, timeout_ms=5_000 } ) {
+
+    try {
+
+        // Check that the worker broadcasts mining pool membership
+        const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true'
+        const { fetch_options } = abort_controller( { timeout_ms } )
+        const worker_metadata = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
+        const { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL } = worker_metadata || {}
+        const url = `${ SERVER_PUBLIC_PROTOCOL }://${ SERVER_PUBLIC_HOST }:${ SERVER_PUBLIC_PORT }`
+
+        return { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL, url }
+
+    } catch ( e ) {
+        log.info( `Error fetching worker metadata from ${ worker.ip }: ${ e.message }:`, e )
+        return { error: e.message }
+
+    }
+
+}
+/**
+ * Takes in worker objects where some may have the same ip, for those with same ip, checks the pool meta, first match wins
+ * @param {Object} params - Parameters for finding valid workers by IP.
+ * @param {Array} params.workers - Array of worker objects to check, each must have an 'ip' property.
+ * @returns {Promise<Array>} - An array of valid worker objects, with at most one worker per unique IP address.
+ */
+export async function find_first_valid_workers_by_ip( { workers } ) {
+
+    try {
+
+        const ips = [ ...new Set( workers.map( worker => worker.ip ) ) ]
+        const winning_workers = []
+        await Promise.all( ips.map( async ( ip ) => {
+
+            const workers_with_ip = workers.filter( worker => worker.ip === ip )
+            const worker_results = await Promise.all( workers_with_ip.map( async ( worker ) => {
+                const { matches } = await match_worker_to_pool( { worker, mining_pool_url: worker.mining_pool_url } )
+                return { worker, matches }
+            } ) )
+
+            const valid_worker_result = worker_results.find( result => result.matches === true )
+            if( valid_worker_result ) winning_workers.push( valid_worker_result.worker )
+
+        } ) )
+
+        return winning_workers
+
+    } catch ( e ) {
+        log.info( `Error finding first valid worker by IP: ${ e.message }:`, e )
+        throw new Error( `Error finding first valid worker by IP: ${ e.message }` )
+    }
+
+}
+
+/**
  * Verifies that a worker is associated with the expected mining pool.
  * @param {Object} params - Verification parameters.
  * @param {Object} params.worker - Worker object.
@@ -85,10 +148,8 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
     try {
 
         // Check that the worker broadcasts mining pool membership
-        const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true'
-        const { fetch_options } = abort_controller( { timeout_ms } )
-        const { MINING_POOL_URL: worker_claimed_pool_url } = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
-        if( !mock_pool_check && !worker_claimed_pool_url ) throw new Error( `Worker does not broadcast mining pool membership` )
+        const { MINING_POOL_URL: worker_claimed_pool_url } = await get_worker_metadata( { worker, timeout_ms } )
+        if( !worker_claimed_pool_url ) throw new Error( `Worker does not broadcast mining pool membership` )
         const ci_mode = CI_MODE === 'true'
         const pool_match = worker_claimed_pool_url === mining_pool_url
         const matches = ci_mode ? true : pool_match
