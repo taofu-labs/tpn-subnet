@@ -279,7 +279,10 @@ will_hard_reset=false
 
 if [ "$CURRENT_BRANCH" = "development" ]; then
     echo "Checking for divergent branches on development..."
-    timeout 60 git fetch origin development >/dev/null 2>&1
+    if ! timeout 60 git fetch origin development >/dev/null 2>&1; then
+        red "Error: Failed to fetch origin/development within timeout; cannot reliably check for branch divergence."
+        exit 1
+    fi
 
     # Check if branches have diverged
     LOCAL_COMMIT=$(git rev-parse development)
