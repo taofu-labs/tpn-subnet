@@ -375,8 +375,8 @@ if [ "$REPO_UP_TO_DATE" -eq 0 ]; then
     containers_downed=true
 
     # Use --force-recreate + --remove-orphans instead of down+up.
-    # This atomically replaces containers (old one removed only after new one
-    # starts) AND cleans up orphaned containers from renamed/removed services.
+    # This sequentially recreates containers (one service at a time, with brief
+    # downtime per service) AND cleans up orphaned containers from renamed/removed services.
     "${DOCKER_CMD[@]}" up -d --force-recreate --remove-orphans
 
     # Containers are back — disarm the safety net
