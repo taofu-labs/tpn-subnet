@@ -5,7 +5,7 @@ import { get_pool_scores } from "../../modules/database/mining_pools.js"
 import { request_is_local } from "../../modules/networking/network.js"
 import { get_workers } from "../../modules/database/workers.js"
 import { parse_wireguard_config } from "../../modules/networking/wireguard.js"
-import { validate_and_annotate_workers, worker_matches_miner } from "../../modules/scoring/score_workers.js"
+import { validate_and_annotate_workers, match_worker_to_pool } from "../../modules/scoring/score_workers.js"
 import { get_worker_config_as_validator } from "../../modules/api/validator.js"
 
 
@@ -99,8 +99,8 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
         // Verify worker membership - skip workers that don't report correct mining pool
         await Promise.allSettled( workers.map( async ( worker, index ) => {
             const { mining_pool_url } = worker
-            const is_member = await worker_matches_miner( { worker, mining_pool_url } )
-            workers[ index ].is_member = is_member
+            const { matches } = await match_worker_to_pool( { worker, mining_pool_url } )
+            workers[ index ].is_member = matches
         } ) )
 
         // Filter to only test members

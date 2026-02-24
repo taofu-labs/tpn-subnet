@@ -1,9 +1,9 @@
 import { cache, is_ipv4, log, shuffle_array } from "mentie"
 import { get_workers } from "../database/workers.js"
 import { get_worker_config_through_mining_pool } from "../networking/miners.js"
-import { worker_matches_miner } from "../scoring/score_workers.js"
 import { resolve_domain_to_ip } from "../networking/network.js"
 import { base_url } from "../networking/url.js"
+import { match_worker_to_pool } from "../scoring/score_workers.js"
 import { v4 as uuidv4 } from 'uuid'
 
 /**
@@ -70,7 +70,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             const feedback_url = `${ base_feedback_url }?nonce=${ call_nonce }&trace=${ request_id }`
 
             // Check if worker matches
-            const matches = await worker_matches_miner( { worker, mining_pool_url: worker.mining_pool_url } ).catch( e => false )
+            const { matches } = await match_worker_to_pool( { worker, mining_pool_url: worker.mining_pool_url } )
             if( !matches ) {
                 log.info( `Worker ${ worker.ip } not confirmed to consent to be with the mining pool ${ worker.mining_pool_url }, skipping` )
                 throw new Error( `Worker ${ worker.ip } does not consent to mining pool ${ worker.mining_pool_url }` )

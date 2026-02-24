@@ -2,12 +2,13 @@ import { Router } from 'express'
 import { log, make_retryable, sanetise_ipv4, sanetise_string } from 'mentie'
 import { cooldown_in_s, retry_times } from "../../modules/networking/routing.js"
 import { annotate_worker_with_defaults, is_valid_worker } from '../../modules/validations.js'
-import { write_workers } from '../../modules/database/workers.js'
+import { find_clashing_workers, write_workers } from '../../modules/database/workers.js'
 import { is_miner_request } from '../../modules/networking/miners.js'
 import { write_mining_pool_metadata } from '../../modules/database/mining_pools.js'
 import { map_ips_to_geodata } from '../../modules/geolocation/ip_mapping.js'
 import { resolve_domain_to_ip } from '../../modules/networking/network.js'
 import { ip_geodata } from '../../modules/geolocation/helpers.js'
+import { find_first_valid_workers_by_ip } from '../../modules/scoring/score_workers.js'
 const { CI_MODE } = process.env
 
 export const router = Router()
@@ -36,6 +37,28 @@ router.post( '/workers', async ( req, res ) => {
             const { country_code, connection_type, datacenter } = await ip_geodata( ip )
             return { ip, country_code, connection_type, datacenter }
         } ) )
+
+        // Filter out workers where the mining_pool_url ip does not match the mining_pool_ip
+        const pool_urls_to_check = [ ...new Set( workers.map( worker => worker.mining_pool_url ) ) ]
+        const pool_url_ip_map = {}
+        await Promise.all( pool_urls_to_check.map( async ( url ) => {
+            try {
+                const { ip } = await resolve_domain_to_ip( { domain: url } )
+                pool_url_ip_map[ url ] = ip
+            } catch ( e ) {
+                log.warn( `Failed to resolve mining pool url ${ url } to IP: ${ e.message }` )
+            }
+        } ) )
+        workers = workers.filter( worker => {
+            const pool_url = worker.mining_pool_url
+            const expected_ip = pool_url_ip_map[ pool_url ]
+            if( expected_ip !== mining_pool_ip ) {
+                log.warn( `Worker ${ worker.ip } claims mining pool url ${ pool_url } which resolves to ${ expected_ip }, expected ${ mining_pool_ip }. Skipping worker.` )
+                return false
+            }
+            return true
+        } )
+        log.info( `Filtered workers to ${ workers.length } entries after verifying mining pool URL IPs` )
 
         // Overwrite the claimed country codes and track mismatches
         const geo_mismatches = []
@@ -66,15 +89,25 @@ router.post( '/workers', async ( req, res ) => {
             // Sanetise the IP address
             let { ip, country_code } = worker || {}
             ip = sanetise_ipv4( { ip, validate: true } )
-            acc.push( { ...worker, ip, country_code } )
 
             // Force override the minining pool uid to the one we know to be real
             worker.mining_pool_uid = mining_pool_uid
+            acc.push( { ...worker, ip, country_code } )
 
             return acc
 
         }, [] )
         log.info( `Sanetised worker data, ${ workers.length } valid entries, example: `, workers[0] )
+
+        // Filter out clashing workers
+        const { clashing_workers, non_clashing_workers, clashes_with_workers } = await find_clashing_workers( { workers } )
+
+        // For the clashing workers, find the first matching winner
+        const cleared_clashing_workers = await find_first_valid_workers_by_ip( { workers: [ ...clashing_workers, ...clashes_with_workers ] } )
+
+        // Combine the cleared clashing workers with the non-clashing workers
+        workers = [ ...non_clashing_workers, ...cleared_clashing_workers ]
+        log.info( `Filtered out clashing workers, ${ workers.length } workers cleared to be registered` )
 
         // Save worker ips to cache
         const ips = workers.map( worker => worker.ip )
