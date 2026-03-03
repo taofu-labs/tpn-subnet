@@ -81,6 +81,15 @@ router.get( "/stats/pools", async ( req, res ) => {
             // Get pool metadata
             const [ { last_known_worker_pool_size }={} ] = await read_worker_broadcast_metadata( { mining_pool_uid } )
 
+            // Get last known up worker count (cached per pool for 5 minutes)
+            const up_cache_key = `up_worker_count_${ mining_pool_uid }`
+            let last_known_up_worker_count = cache( up_cache_key )
+            if( last_known_up_worker_count === undefined ) {
+                const { workers: up_workers } = await get_workers( { mining_pool_uid, status: 'up', limit: null } )
+                last_known_up_worker_count = up_workers?.length || 0
+                cache( up_cache_key, last_known_up_worker_count, 5 * 60_000 )
+            }
+
             // Get pool broadcast data
             const { fetch_options } = abort_controller( { timeout_ms: 1_000 } )
             const { version, MINING_POOL_REWARDS, MINING_POOL_WEBSITE_URL } = await fetch( url, fetch_options ).then( res => res.json() ).catch( e => ( { error: e.message } ) )
@@ -97,7 +106,8 @@ router.get( "/stats/pools", async ( req, res ) => {
                 MINING_POOL_REWARDS,
                 MINING_POOL_WEBSITE_URL,
                 countries,
-                last_known_worker_pool_size
+                last_known_worker_pool_size,
+                last_known_up_worker_count
             }
 
             // Return data for this pool
