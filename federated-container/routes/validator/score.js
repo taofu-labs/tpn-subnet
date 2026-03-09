@@ -113,14 +113,14 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
             // Pin selection to this specific worker by geo and whitelist
             const audit_params = { geo: worker.country_code, whitelist: [ worker.ip ] }
 
-            const wireguard_result = await get_worker_config_as_validator( { ...audit_params, worker } )
+            const wireguard_result = await get_worker_config_as_validator( audit_params )
             const wireguard_config = wireguard_result?._lease_result ? wireguard_result.config : wireguard_result
             const { text_config } = parse_wireguard_config( { wireguard_config } )
             log.insane( `Parsed wireguard config for worker ${ worker.ip }:`, wireguard_config )
             if( text_config ) member_workers[ index ].wireguard_config = text_config
 
             log.debug( `Fetching socks5 config for worker ${ worker.ip }` )
-            const socks5_result = await get_worker_config_as_validator( { ...audit_params, worker, type: 'socks5', format: 'text' } )
+            const socks5_result = await get_worker_config_as_validator( { ...audit_params, type: 'socks5', format: 'text' } )
             const socks5_config = socks5_result?._lease_result ? socks5_result.config : socks5_result
             if( socks5_config ) member_workers[ index ].socks5_config = socks5_config
             log.insane( `Parsed socks5 config for worker ${ worker.ip }:`, socks5_config )
