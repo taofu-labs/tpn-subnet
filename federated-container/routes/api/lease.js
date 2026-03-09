@@ -24,6 +24,10 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
     const handle_route = async () => {
 
+        // Clear stale metadata from previous retry attempts
+        delete resolved_meta.connection_type
+        delete resolved_meta.country
+
         // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
         const request_from_validator = await is_validator_request( req )
