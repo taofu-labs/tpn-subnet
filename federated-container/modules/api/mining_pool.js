@@ -24,11 +24,12 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
 export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url } ) {
 
     // Get relevant workers — push whitelist/blacklist filtering into the DB query
+    const has_whitelist = whitelist?.length > 0
     let { workers: relevant_workers } = await get_workers( {
         country_code: geo, mining_pool_uid: 'internal', status: 'up',
-        ips: whitelist?.length ? whitelist : undefined,
+        ips: has_whitelist ? whitelist : undefined,
         exclude_ips: blacklist?.length ? blacklist : undefined,
-        limit: 50
+        limit: has_whitelist ? null : 50
     } )
     log.info( `Found ${ relevant_workers.length } relevant workers for geo ${ geo }` )
 
