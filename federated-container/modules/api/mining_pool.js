@@ -19,7 +19,7 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot from the worker.
  * @param {string} [params.feedback_url] - Upstream feedback URL (e.g. from validator) for cascade race resolution.
- * @returns {Promise<string|Object|null>} - WireGuard configuration or null if no workers available.
+ * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
  */
 export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url } ) {
 
@@ -104,8 +104,13 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
     }
 
-    // On mock success, return a fake config
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
+    // On mock success, return a fake config in the same wrapper shape
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return {
+        _lease_result: true,
+        config: format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`,
+        connection_type: null,
+        country: null,
+    }
 
     // Return config wrapped with resolved worker metadata (available for all formats)
     if( !resolved_config ) return null

@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from 'uuid'
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {string} [params.connection_type='any'] - Connection type filter ('any', 'datacenter', 'residential').
- * @returns {Promise<string|Object|null>} - Worker configuration or null if no workers available.
+ * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
  */
 export async function get_worker_config_as_validator( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, connection_type='any' } ) {
     
