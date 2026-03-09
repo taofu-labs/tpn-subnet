@@ -104,17 +104,17 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
     }
 
-    // Enrich JSON responses with resolved worker metadata (connection_type, country)
-    if( resolved_config && typeof resolved_config === 'object' && winning_worker ) {
-        resolved_config.connection_type = winning_worker.connection_type
-        resolved_config.country = winning_worker.country_code
-    }
-
     // On mock success, return a fake config
     if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
 
-    // Return the config
-    return resolved_config
+    // Return config wrapped with resolved worker metadata (available for all formats)
+    if( !resolved_config ) return null
+    return {
+        _lease_result: true,
+        config: resolved_config,
+        connection_type: winning_worker?.connection_type ?? null,
+        country: winning_worker?.country_code ?? null,
+    }
 
 }
 

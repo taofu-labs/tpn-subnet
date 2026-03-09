@@ -122,14 +122,18 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
     }
 
-    // Enrich JSON responses with resolved worker metadata if not already set by the mining pool
-    if( resolved_config && typeof resolved_config === 'object' && !resolved_config.connection_type && winning_worker ) {
-        resolved_config.connection_type = winning_worker.connection_type
-        resolved_config.country = winning_worker.country_code
+    // Return config wrapped with resolved worker metadata (available for all formats)
+    // Prefer metadata from the mining pool response (already enriched for JSON), fall back to local worker record
+    if( !resolved_config ) return null
+    const upstream_meta = typeof resolved_config === 'object'
+    const meta_connection_type = upstream_meta && resolved_config.connection_type ? resolved_config.connection_type : winning_worker?.connection_type ?? null
+    const meta_country = upstream_meta && resolved_config.country ? resolved_config.country : winning_worker?.country_code ?? null
+    return {
+        _lease_result: true,
+        config: resolved_config,
+        connection_type: meta_connection_type,
+        country: meta_country,
     }
-
-    // Return the config
-    return resolved_config
     
 
 }

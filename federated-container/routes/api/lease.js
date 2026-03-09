@@ -19,6 +19,9 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
     const { format='json' } = req.query || {}
 
+    // Shared ref for resolved worker metadata — populated inside handle_route, read after
+    const resolved_meta = {}
+
     const handle_route = async () => {
 
         // Mining pool access controls
@@ -119,10 +122,24 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Get relevant wireguard config based on run mode
         log.debug( `Getting config as ${ mode } with params:`, config_meta )
-        let config = null
-        if( validator_mode ) config = await get_worker_config_as_validator( config_meta )
-        if( miner_mode ) config = await get_worker_config_as_miner( config_meta )
-        if( worker_mode ) config = await get_worker_config_as_worker( config_meta )
+        let result = null
+        if( validator_mode ) result = await get_worker_config_as_validator( config_meta )
+        if( miner_mode ) result = await get_worker_config_as_miner( config_meta )
+        if( worker_mode ) result = await get_worker_config_as_worker( config_meta )
+
+        // Unwrap lease result — mining pool and validator return { _lease_result, config, connection_type, country }
+        let config = result
+        if( result?._lease_result ) {
+            if( result.connection_type ) resolved_meta.connection_type = result.connection_type
+            if( result.country ) resolved_meta.country = result.country
+            config = result.config
+        }
+
+        // Enrich JSON responses with resolved metadata in the body
+        if( config && typeof config === 'object' ) {
+            if( resolved_meta.connection_type && !config.connection_type ) config.connection_type = resolved_meta.connection_type
+            if( resolved_meta.country && !config.country ) config.country = resolved_meta.country
+        }
 
         // Validate config
         if( !config ) throw new Error( `${ mode } failed to get config for ${ geo }` )
@@ -142,10 +159,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         const response_data = await retryable_handler()
 
         // Set resolved metadata headers for all response formats (text consumers can read these)
-        const resolved_country = typeof response_data === 'object' ? response_data?.country : undefined
-        const resolved_connection_type = typeof response_data === 'object' ? response_data?.connection_type : undefined
-        if( resolved_country ) res.set( 'X-Country', resolved_country )
-        if( resolved_connection_type ) res.set( 'X-Connection-Type', resolved_connection_type )
+        if( resolved_meta.country ) res.set( 'X-Country', resolved_meta.country )
+        if( resolved_meta.connection_type ) res.set( 'X-Connection-Type', resolved_meta.connection_type )
 
         return format == 'text' ? res.send( response_data ) : res.json( response_data )
     } catch ( e ) {
