@@ -19,16 +19,19 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot from the worker.
  * @param {string} [params.feedback_url] - Upstream feedback URL (e.g. from validator) for cascade race resolution.
- * @returns {Promise<string|Object|null>} - WireGuard configuration or null if no workers available.
+ * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
  */
 export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url } ) {
 
-    // Get relevant workers
-    let { workers: relevant_workers } = await get_workers( { country_code: geo, mining_pool_uid: 'internal', status: 'up', limit: 50 } )
+    // Get relevant workers — push whitelist/blacklist filtering into the DB query
+    const has_whitelist = whitelist?.length > 0
+    let { workers: relevant_workers } = await get_workers( {
+        country_code: geo, mining_pool_uid: 'internal', status: 'up',
+        ips: has_whitelist ? whitelist : undefined,
+        exclude_ips: blacklist?.length ? blacklist : undefined,
+        limit: has_whitelist ? null : 50
+    } )
     log.info( `Found ${ relevant_workers.length } relevant workers for geo ${ geo }` )
-    if( blacklist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => !blacklist.includes( ip ) )
-    if( whitelist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => whitelist.includes( ip ) )
-    log.info( `Filtered to ${ relevant_workers.length } relevant workers for geo ${ geo }` )
 
     // If no workers, exit
     if( CI_MOCK_MINING_POOL_RESPONSES !== 'true' && !relevant_workers?.length ) {
@@ -104,17 +107,22 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
     }
 
-    // Enrich JSON responses with resolved worker metadata (connection_type, country)
-    if( resolved_config && typeof resolved_config === 'object' && winning_worker ) {
-        resolved_config.connection_type = winning_worker.connection_type
-        resolved_config.country = winning_worker.country_code
+    // On mock success, return a fake config in the same wrapper shape
+    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return {
+        _lease_result: true,
+        config: format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`,
+        connection_type: null,
+        country: null,
     }
 
-    // On mock success, return a fake config
-    if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`
-
-    // Return the config
-    return resolved_config
+    // Return config wrapped with resolved worker metadata (available for all formats)
+    if( !resolved_config ) return null
+    return {
+        _lease_result: true,
+        config: resolved_config,
+        connection_type: winning_worker?.connection_type ?? null,
+        country: winning_worker?.country_code ?? null,
+    }
 
 }
 

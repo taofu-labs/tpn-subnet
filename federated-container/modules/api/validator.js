@@ -16,16 +16,21 @@ import { v4 as uuidv4 } from 'uuid'
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {string} [params.connection_type='any'] - Connection type filter ('any', 'datacenter', 'residential').
- * @returns {Promise<string|Object|null>} - Worker configuration or null if no workers available.
+ * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
  */
 export async function get_worker_config_as_validator( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, connection_type='any' } ) {
     
-    // Get relevant workers
-    let { workers: relevant_workers } = await get_workers( { country_code: geo, status: 'up', limit: 50, randomize: true, connection_type } )
+    // Get relevant workers — push whitelist/blacklist filtering into the DB query
+    const has_whitelist = whitelist?.length > 0
+    let { workers: relevant_workers } = await get_workers( {
+        country_code: geo, status: 'up',
+        ips: has_whitelist ? whitelist : undefined,
+        exclude_ips: blacklist?.length ? blacklist : undefined,
+        limit: has_whitelist ? null : 50,
+        randomize: !has_whitelist,
+        connection_type
+    } )
     log.info( `Found ${ relevant_workers.length } relevant workers for geo ${ geo }` )
-    if( blacklist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => !blacklist.includes( ip ) )
-    if( whitelist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => whitelist.includes( ip ) )
-    log.info( `Filtered to ${ relevant_workers.length } relevant workers for geo ${ geo }` )
     
     // If no workers, exit
     if( !relevant_workers?.length ) {
@@ -122,14 +127,18 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
     }
 
-    // Enrich JSON responses with resolved worker metadata if not already set by the mining pool
-    if( resolved_config && typeof resolved_config === 'object' && !resolved_config.connection_type && winning_worker ) {
-        resolved_config.connection_type = winning_worker.connection_type
-        resolved_config.country = winning_worker.country_code
+    // Return config wrapped with resolved worker metadata (available for all formats)
+    // Prefer metadata from the mining pool response (already enriched for JSON), fall back to local worker record
+    if( !resolved_config ) return null
+    const upstream_meta = typeof resolved_config === 'object'
+    const meta_connection_type = upstream_meta && resolved_config.connection_type ? resolved_config.connection_type : winning_worker?.connection_type ?? null
+    const meta_country = upstream_meta && resolved_config.country ? resolved_config.country : winning_worker?.country_code ?? null
+    return {
+        _lease_result: true,
+        config: resolved_config,
+        connection_type: meta_connection_type,
+        country: meta_country,
     }
-
-    // Return the config
-    return resolved_config
     
 
 }
