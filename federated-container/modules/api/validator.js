@@ -20,8 +20,10 @@ import { v4 as uuidv4 } from 'uuid'
  */
 export async function get_worker_config_as_validator( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, connection_type='any' } ) {
     
-    // Get relevant workers
-    let { workers: relevant_workers } = await get_workers( { country_code: geo, status: 'up', limit: 50, randomize: true, connection_type } )
+    // Get relevant workers — skip random sampling when a whitelist is provided, since the
+    // whitelist filter runs after the query and the target IPs could fall outside the sample
+    const has_whitelist = whitelist?.length > 0
+    let { workers: relevant_workers } = await get_workers( { country_code: geo, status: 'up', limit: has_whitelist ? null : 50, randomize: !has_whitelist, connection_type } )
     log.info( `Found ${ relevant_workers.length } relevant workers for geo ${ geo }` )
     if( blacklist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => !blacklist.includes( ip ) )
     if( whitelist?.length ) relevant_workers = relevant_workers.filter( ( { ip } ) => whitelist.includes( ip ) )
