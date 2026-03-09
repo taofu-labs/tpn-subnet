@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TPN Network Federated API
-  version: 1.0.15
+  version: 1.1.0
   description: |
     Public HTTP API exposed by the TPN Network federated container. The routes
     documented here are mounted under `/api` and cover live lease negotiation and
@@ -98,6 +98,16 @@ paths:
       responses:
         "200":
           description: Successfully allocated worker configuration.
+          headers:
+            X-Country:
+              schema:
+                type: string
+              description: ISO 3166-1 alpha-2 country code of the assigned worker. Present when resolved from the worker pool.
+            X-Connection-Type:
+              schema:
+                type: string
+                enum: [datacenter, residential, unknown]
+              description: Connection type of the assigned worker. Present when resolved from the worker pool.
           content:
             application/json:
               schema:
@@ -108,6 +118,8 @@ paths:
                 wireguardJson:
                   summary: WireGuard config as JSON
                   value:
+                    connection_type: datacenter
+                    country: NL
                     interface:
                       Address: 10.13.13.160/32
                       PrivateKey: EXAMPLEcL1qN8Qy0HPc9z1u5BhkgxP+0IV7PP85AvK=
@@ -121,6 +133,8 @@ paths:
                 socks5Json:
                   summary: SOCKS5 lease as JSON
                   value:
+                    connection_type: residential
+                    country: US
                     username: u_demo
                     password: p_secret
                     ip_address: 203.0.113.42
@@ -256,7 +270,16 @@ paths:
     get:
       tags: [Stats]
       summary: Fetch cached network statistics
-      description: Returns the cached run mode, country distribution, and worker IP mappings.
+      description: |
+        Returns the cached run mode and aggregated country distribution.
+        IP-level data (`country_code_to_ips`, `miner_uid_to_ip`) is only included
+        when a valid `api_key` matching the server's `ADMIN_API_KEY` is provided.
+      parameters:
+        - name: api_key
+          in: query
+          schema:
+            type: string
+          description: Admin API key. When provided and valid, the response includes IP-level worker data.
       responses:
         "200":
           description: Statistics snapshot of the currently running node.
@@ -264,21 +287,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatsResponse"
-              example:
-                mode: validator
-                country_count:
-                  US: 7
-                  NL: 6
-                  FR: 5
-                country_code_to_ips:
-                  US:
-                    - 178.128.6.96
-                    - 138.197.37.170
-                  NL:
-                    - 64.227.71.160
-                miner_uid_to_ip:
-                  "1": 185.237.185.222
-                  "2": 38.165.233.70
+              examples:
+                unauthenticated:
+                  summary: Public response (no api_key)
+                  value:
+                    mode: validator
+                    country_count:
+                      US: 7
+                      NL: 6
+                      FR: 5
+                authenticated:
+                  summary: Authenticated response (valid api_key)
+                  value:
+                    mode: validator
+                    country_count:
+                      US: 7
+                      NL: 6
+                      FR: 5
+                    country_code_to_ips:
+                      US:
+                        - 178.128.6.96
+                        - 138.197.37.170
+                      NL:
+                        - 64.227.71.160
+                    miner_uid_to_ip:
+                      "1": 185.237.185.222
+                      "2": 38.165.233.70
         "500":
           $ref: "#/components/responses/InternalError"
   /api/worker_performance:
@@ -405,6 +439,13 @@ components:
       type: object
       required: [interface, peer]
       properties:
+        connection_type:
+          type: string
+          enum: [datacenter, residential, unknown]
+          description: Resolved connection type of the assigned worker. Especially useful when `connection_type=any` was requested.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code of the assigned worker. Especially useful when `geo=any` was requested.
         interface:
           type: object
           required: [Address, PrivateKey, ListenPort, DNS]
@@ -441,6 +482,13 @@ components:
       type: object
       required: [username, password, ip_address, port]
       properties:
+        connection_type:
+          type: string
+          enum: [datacenter, residential, unknown]
+          description: Resolved connection type of the assigned worker. Especially useful when `connection_type=any` was requested.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code of the assigned worker. Especially useful when `geo=any` was requested.
         username:
           type: string
           description: SOCKS5 username allocated for this lease.
@@ -463,7 +511,7 @@ components:
       description: Ordered list of supported worker geographies.
     StatsResponse:
       type: object
-      required: [mode, country_count, country_code_to_ips]
+      required: [mode, country_count]
       properties:
         mode:
           type: string
@@ -481,14 +529,14 @@ components:
               type: string
               format: ipv4
               description: Public ingress IP address for a worker registered under the keyed country.
-          description: Map of ISO country codes to worker ingress IPs.
+          description: Map of ISO country codes to worker ingress IPs. Only included when a valid `api_key` is provided.
         miner_uid_to_ip:
           type: object
           nullable: true
           additionalProperties:
             type: string
             format: ipv4
-          description: Present in validator mode, maps miner UIDs to their public IPs.
+          description: Maps miner UIDs to their public IPs. Only included in validator mode with a valid `api_key`.
     WorkerPerformanceEntry:
       type: object
       required:

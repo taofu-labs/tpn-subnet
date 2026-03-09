@@ -13,12 +13,22 @@ router.get( '/stats', async ( req, res ) => {
 
     try {
 
+        const { api_key } = req.query || {}
+        const { ADMIN_API_KEY } = process.env
         const { mode, validator_mode } = run_mode()
+        const is_authenticated = ADMIN_API_KEY && api_key === ADMIN_API_KEY
         const country_count = get_tpn_cache( 'country_count' )
-        const country_code_to_ips = get_tpn_cache( 'country_code_to_ips' )
-        const miner_uid_to_ip = validator_mode && get_tpn_cache( 'miner_uid_to_ip' )
 
-        return res.json( { mode, country_count, country_code_to_ips, miner_uid_to_ip } )
+        // Base response: aggregated data only
+        const response = { mode, country_count }
+
+        // Include IP-level data only for authenticated requests
+        if( is_authenticated ) {
+            response.country_code_to_ips = get_tpn_cache( 'country_code_to_ips' )
+            if( validator_mode ) response.miner_uid_to_ip = get_tpn_cache( 'miner_uid_to_ip' )
+        }
+
+        return res.json( response )
 
     } catch ( error ) {
         return res.status( 500 ).json( { error: `Error handling stats route: ${ error.message }` } )
