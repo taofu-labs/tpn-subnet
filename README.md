@@ -363,6 +363,12 @@ To enable TLS connections for your node, take the following steps:
 - [ ] Create a subdomain that points to the ip address of your node, for example `validator.example.com` to `1.2.3.4`
 - [ ] In your `.env` file set the relevant variables: `SWAG_DOMAIN_NAME`, `SWAG_SUBDOMAINS`, `SWAG_EMAIL`
 - [ ] Run the update script, then test your domain name at `https://validator.example.com`, it should show your validator information
+- [ ] To block direct HTTP access and force all traffic through HTTPS, comment out the public port line in `docker-compose.yml`:
+  ```yaml
+  ports:
+    - "127.0.0.1:57287:${SERVER_PUBLIC_PORT:-3000}" # Keep this — allows the neuron to reach the container locally
+    # - "${SERVER_PUBLIC_PORT:-3000}:${SERVER_PUBLIC_PORT:-3000}" # Comment this out to block direct HTTP
+  ```
 
 ## FAQ
 

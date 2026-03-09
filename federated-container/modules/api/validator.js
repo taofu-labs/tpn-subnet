@@ -88,7 +88,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             log.info( `Successfully retrieved ${ type } config from worker ${ worker_ip } via mining pool ${ mining_pool_uid }@${ mining_pool_ip }` )
 
             // Return config with the winning nonce so we can mark the winner
-            return { config: _config, winner_nonce: call_nonce }
+            return { config: _config, winner_nonce: call_nonce, worker }
 
         } ) ).catch( e => {
 
@@ -113,12 +113,19 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     // Extract the race result (config wrapped with winner metadata from Promise.any)
     const winner_nonce = config?.winner_nonce ?? null
+    const winning_worker = config?.worker ?? null
     const resolved_config = config?.winner_nonce ? config.config : config
 
     // When config was obtained, mark request as complete with the winner nonce
     if( resolved_config ) {
         log.debug( `Successfully obtained ${ type } config after ${ attempts } attempts, marking request_${ request_id } as 'complete' in cache` )
         cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
+    }
+
+    // Enrich JSON responses with resolved worker metadata if not already set by the mining pool
+    if( resolved_config && typeof resolved_config === 'object' && !resolved_config.connection_type && winning_worker ) {
+        resolved_config.connection_type = winning_worker.connection_type
+        resolved_config.country = winning_worker.country_code
     }
 
     // Return the config

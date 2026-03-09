@@ -82,7 +82,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
                 const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url } )
                 if( !result ) throw new Error( `No config from ${ worker.ip }` )
 
-                return { config: result, winner_nonce: worker_nonce }
+                return { config: result, winner_nonce: worker_nonce, worker }
             } )
         ).catch( e => {
             if( e instanceof AggregateError ) log.info( `Chunk ${ index + 1 } failed: all ${ chunk.length } workers rejected` )
@@ -95,12 +95,19 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
 
     // Extract the race result (config wrapped with winner metadata from Promise.any)
     const winner_nonce = config?.winner_nonce ?? null
+    const winning_worker = config?.worker ?? null
     const resolved_config = config?.winner_nonce ? config.config : config
 
     // Mark request complete with winner so losing workers can free their configs
     if( resolved_config ) {
         cache( `request_${ request_id }`, { status: 'complete', winner: winner_nonce }, 60_000 )
         log.info( `Marked request ${ request_id } as complete, winner nonce: ${ winner_nonce }` )
+    }
+
+    // Enrich JSON responses with resolved worker metadata (connection_type, country)
+    if( resolved_config && typeof resolved_config === 'object' && winning_worker ) {
+        resolved_config.connection_type = winning_worker.connection_type
+        resolved_config.country = winning_worker.country_code
     }
 
     // On mock success, return a fake config

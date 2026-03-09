@@ -140,6 +140,13 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
     try {
         const retryable_handler = await make_retryable( handle_route, { retry_times, cooldown_in_s } )
         const response_data = await retryable_handler()
+
+        // Set resolved metadata headers for all response formats (text consumers can read these)
+        const resolved_country = typeof response_data === 'object' ? response_data?.country : undefined
+        const resolved_connection_type = typeof response_data === 'object' ? response_data?.connection_type : undefined
+        if( resolved_country ) res.set( 'X-Country', resolved_country )
+        if( resolved_connection_type ) res.set( 'X-Connection-Type', resolved_connection_type )
+
         return format == 'text' ? res.send( response_data ) : res.json( response_data )
     } catch ( e ) {
         log.info( `Error handling new lease route: ${ e.message }` )
