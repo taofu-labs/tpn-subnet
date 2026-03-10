@@ -174,10 +174,12 @@ export async function read_socks5_config_by_username( { username } ) {
 export async function extend_socks5_lease( { username, expected_expires_at, new_expires_at } ) {
 
     const pool = await get_pg_pool()
+    // Guard: only extend if the lease exists, matches expected expiry, and hasn't expired yet
+    const now = Date.now()
     const result = await pool.query(
         `UPDATE worker_socks5_configs SET expires_at = $1, updated = $2
-         WHERE username = $3 AND expires_at = $4`,
-        [ new_expires_at, Date.now(), username, expected_expires_at ]
+         WHERE username = $3 AND expires_at = $4 AND expires_at > $5`,
+        [ new_expires_at, now, username, expected_expires_at, now ]
     )
 
     if( !result.rowCount ) throw new Error( `Lease extension failed: config ${ username } not found or already expired/reallocated` )

@@ -145,11 +145,11 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
     const meta_connection_type = upstream_meta && resolved_config.connection_type ? resolved_config.connection_type : winning_worker?.connection_type ?? null
     const meta_country = upstream_meta && resolved_config.country ? resolved_config.country : winning_worker?.country_code ?? null
 
-    // Sign a lease token if we have the lease metadata from the worker chain
+    // Sign a lease token if we have complete lease metadata from the worker chain
     let signed_token = null
     const lease_ref = pool_result?.lease_ref ?? null
     const lease_expires_at = pool_result?.lease_expires_at ?? null
-    if( lease_ref && winning_worker ) {
+    if( lease_ref && Number.isFinite( lease_expires_at ) && winning_worker ) {
         signed_token = sign_lease_token( {
             config_ref: lease_ref,
             type,
@@ -166,6 +166,8 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         connection_type: meta_connection_type,
         country: meta_country,
         lease_token: signed_token,
+        lease_ref,
+        lease_expires_at,
     }
 
 
@@ -209,7 +211,7 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
     if( !pool_result?.config ) throw new Error( `Lease extension failed: no config returned for ref=${ config_ref } worker=${ worker_ip }` )
 
     // Re-sign a new token with the updated expires_at from the worker response
-    const new_expires_at = pool_result.lease_expires_at ?? ( Date.now() + lease_seconds * 1000 )
+    const new_expires_at = pool_result.lease_expires_at ??  Date.now() + lease_seconds * 1000 
     const new_token = sign_lease_token( {
         config_ref: pool_result.lease_ref ?? config_ref,
         type,

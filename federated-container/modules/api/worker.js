@@ -37,8 +37,13 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
     // --- Extension branch: extend an existing lease instead of allocating a new one ---
     if( extend_ref ) {
 
-        const new_expires_at = Date.now() + ( lease_seconds * 1000 )
+        // Validate extension inputs before proceeding
         const expected_expires_at = Number( extend_expires_at )
+        if( !Number.isFinite( expected_expires_at ) ) throw new Error( `Invalid extend_expires_at: must be a finite timestamp` )
+        if( type === `wireguard` && !Number.isFinite( Number( extend_ref ) ) ) throw new Error( `Invalid extend_ref for wireguard: must be a numeric peer_id` )
+        if( ![ `wireguard`, `socks5` ].includes( type ) ) throw new Error( `Unsupported type for lease extension: ${ type }` )
+
+        const new_expires_at = Date.now() +  lease_seconds * 1000 
 
         if( type === `wireguard` ) {
 

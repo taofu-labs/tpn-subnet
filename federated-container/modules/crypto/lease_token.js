@@ -1,10 +1,14 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { log } from 'mentie'
 
-const { LEASE_TOKEN_SECRET } = process.env
+const { LEASE_TOKEN_SECRET, CI_MODE } = process.env
 
 // Fall back to random per-process secret when env var is not set
+// Warning: random fallback invalidates tokens on restart and won't work across replicas
 const secret = LEASE_TOKEN_SECRET || randomBytes( 32 ).toString( `hex` )
+if( !LEASE_TOKEN_SECRET && CI_MODE !== `true` ) {
+    log.warn( `LEASE_TOKEN_SECRET is not set — lease tokens will not survive restarts or work across replicas` )
+}
 
 /**
  * Signs a lease token payload into a base64url-encoded opaque string.

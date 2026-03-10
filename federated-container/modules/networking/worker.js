@@ -84,9 +84,8 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
             config = result.body
             lease_ref = result.ref || null
             lease_expires_at = result.expires ? Number( result.expires ) : null
+            log.info( `Received ${ type } config from worker ${ ip }` )
         }
-
-        log.info( `Received ${ type } config from worker ${ ip }` )
 
     }
 

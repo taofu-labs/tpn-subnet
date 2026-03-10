@@ -158,10 +158,11 @@ export async function register_wireguard_lease( { start_id=1, end_id=get_wiregua
 export async function extend_wireguard_lease( { peer_id, expected_expires_at, new_expires_at } ) {
 
     const pool = await get_pg_pool()
+    // Guard: only extend if the lease exists, matches expected expiry, and hasn't expired yet
     const result = await pool.query(
         `UPDATE worker_wireguard_configs SET expires_at = $1, updated_at = NOW()
-         WHERE id = $2 AND expires_at = $3`,
-        [ new_expires_at, peer_id, expected_expires_at ]
+         WHERE id = $2 AND expires_at = $3 AND expires_at > $4`,
+        [ new_expires_at, peer_id, expected_expires_at, Date.now() ]
     )
 
     if( !result.rowCount ) throw new Error( `Lease extension failed: config ${ peer_id } not found or already expired/reallocated` )
