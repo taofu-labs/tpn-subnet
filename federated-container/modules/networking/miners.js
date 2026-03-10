@@ -108,15 +108,21 @@ export function get_miner_by_ip( ip ) {
  * @param {string} [params.feedback_url] - URL for feedback on the request status
  * @param {string} [params.extend_ref] - Lease reference to extend (forwarded through the mining pool to the worker)
  * @param {string|number} [params.extend_expires_at] - Current expires_at of the lease being extended
+ * @param {string} [params.endpoint_url] - Pre-resolved mining pool base URL (skips DB metadata lookup when provided)
  * @returns {Promise<{ config: Object|String, lease_ref: string|null, lease_expires_at: number|null }|null>} - Config with lease metadata
  */
-export async function get_worker_config_through_mining_pool( { worker, max_retries=2, timeout_ms=5_000, mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120, feedback_url, extend_ref, extend_expires_at } ) {
+export async function get_worker_config_through_mining_pool( { worker, max_retries=2, timeout_ms=5_000, mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120, feedback_url, extend_ref, extend_expires_at, endpoint_url } ) {
 
-    // Get mining pool data
-    const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
-    if( !url ) throw new Error( `No URL found in metadata for mining pool ${ mining_pool_uid } at IP ${ mining_pool_ip }` )
-    if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
-    const endpoint = `${ url }/api/lease/new`
+    // Resolve endpoint — use pre-resolved URL when provided (e.g. extension flow), otherwise look up from DB
+    let endpoint
+    if( endpoint_url ) {
+        endpoint = `${ endpoint_url }/api/lease/new`
+    } else {
+        const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
+        if( !url ) throw new Error( `No URL found in metadata for mining pool ${ mining_pool_uid } at IP ${ mining_pool_ip }` )
+        if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
+        endpoint = `${ url }/api/lease/new`
+    }
 
     // Build query string with optional extension and feedback params
     let query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }`

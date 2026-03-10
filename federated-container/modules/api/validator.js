@@ -196,7 +196,7 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
     // Build a synthetic worker object from the decoded token for the mining pool call
     const worker = { ip: worker_ip }
 
-    // Route the extension through the mining pool, targeting only the original worker
+    // Route the extension through the mining pool using the URL from the token (no DB lookup needed)
     const pool_result = await get_worker_config_through_mining_pool( {
         worker,
         mining_pool_ip,
@@ -206,6 +206,7 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
         lease_seconds,
         extend_ref: config_ref,
         extend_expires_at: expires_at,
+        endpoint_url: mining_pool_url,
     } )
 
     if( !pool_result?.config ) throw new Error( `Lease extension failed: no config returned for ref=${ config_ref } worker=${ worker_ip }` )

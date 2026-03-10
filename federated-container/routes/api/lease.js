@@ -126,6 +126,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( whitelist?.length && whitelist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in whitelist` )
         if( blacklist?.length && blacklist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in blacklist` )
         if( connection_type?.length && ![ 'any', 'datacenter', 'residential' ].includes( connection_type ) ) throw new Error( `Invalid connection_type: ${ connection_type }. Must be one of 'any', 'datacenter', 'residential'` )
+        if( lease_token && extend_ref ) throw new Error( `Ambiguous extension request: provide either lease_token or extend_ref, not both` )
+        if( extend_ref && !extend_expires_at ) throw new Error( `extend_expires_at is required when extend_ref is provided` )
 
         // Get relevant wireguard config based on run mode
         log.debug( `Getting config as ${ mode } with params:`, config_meta )
@@ -140,14 +142,14 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( result?._lease_result ) {
             if( result.connection_type ) resolved_meta.connection_type = result.connection_type
             if( result.country ) resolved_meta.country = result.country
-            if( result.lease_ref ) resolved_meta.lease_ref = result.lease_ref
-            if( result.lease_expires_at ) resolved_meta.lease_expires_at = result.lease_expires_at
+            if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
+            if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
             if( result.lease_token ) resolved_meta.lease_token = result.lease_token
             config = result.config
         } else if( result?.lease_ref !== undefined ) {
             // Worker-mode result: { config, lease_ref, lease_expires_at }
-            if( result.lease_ref ) resolved_meta.lease_ref = result.lease_ref
-            if( result.lease_expires_at ) resolved_meta.lease_expires_at = result.lease_expires_at
+            if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
+            if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
             config = result.config
         }
 

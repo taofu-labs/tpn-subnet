@@ -135,7 +135,11 @@ export async function wireguard_server_ready( { grace_window_ms=5_000, polling_s
  */
 export async function read_wireguard_peer_config( { peer_id } ) {
 
-    const peer_path = `${ wireguard_folder }/peer${ peer_id }/peer${ peer_id }.conf`
+    // Validate peer_id is a positive integer to prevent path traversal
+    const id = Number( peer_id )
+    if( !Number.isInteger( id ) || id < 1 ) throw new Error( `Invalid peer_id: must be a positive integer, got ${ peer_id }` )
+
+    const peer_path = `${ wireguard_folder }/peer${ id }/peer${ id }.conf`
     log.info( `Reading peer config at ${ peer_path }` )
     return fs.readFile( peer_path, `utf8` )
 
