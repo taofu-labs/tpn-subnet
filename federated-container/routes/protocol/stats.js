@@ -147,7 +147,13 @@ router.get( "/stats/workers", async ( req, res ) => {
         log.debug( `Workers example: `, workers[0] )
 
         // Generate worker stats
-        const { total, residential, datacenter, countries } = workers.reduce( ( acc, { connection_type, country } ) => {
+        const {
+            total,
+            residential,
+            datacenter,
+            countries_with_counts,
+            counts_with_countries
+        } = workers.reduce( ( acc, { connection_type, country } ) => {
 
             // Accumulate counts
             acc.total++
@@ -176,12 +182,15 @@ router.get( "/stats/workers", async ( req, res ) => {
 
         }, { total: 0, residential: 0, datacenter: 0, countries_with_counts: {}, counts_with_countries: { total: new Set(), residential: new Set(), datacenter: new Set(), unknown: new Set() } } )
 
-        // Convert Sets to arrays for JSON serialization
-        countries.counts_with_countries = {
-            total: [ ...countries.counts_with_countries.total ],
-            residential: [ ...countries.counts_with_countries.residential ],
-            datacenter: [ ...countries.counts_with_countries.datacenter ],
-            unknown: [ ...countries.counts_with_countries.unknown ]
+        // Build countries object and convert Sets to arrays for JSON serialization
+        const countries = {
+            countries_with_counts,
+            counts_with_countries: {
+                total: [ ...counts_with_countries.total ],
+                residential: [ ...counts_with_countries.residential ],
+                datacenter: [ ...counts_with_countries.datacenter ],
+                unknown: [ ...counts_with_countries.unknown ]
+            }
         }
 
         // Cache the worker stats
