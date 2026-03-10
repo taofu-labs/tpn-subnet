@@ -128,6 +128,20 @@ export async function wireguard_server_ready( { grace_window_ms=5_000, polling_s
 }
 
 /**
+ * Reads a wireguard peer config file from disk by peer ID.
+ * @param {Object} params
+ * @param {number} params.peer_id - The peer ID to read the config for
+ * @returns {Promise<string>} The raw wireguard config file contents
+ */
+export async function read_wireguard_peer_config( { peer_id } ) {
+
+    const peer_path = `${ wireguard_folder }/peer${ peer_id }/peer${ peer_id }.conf`
+    log.info( `Reading peer config at ${ peer_path }` )
+    return fs.readFile( peer_path, `utf8` )
+
+}
+
+/**
  * Counts the number of existing WireGuard configuration files.
  * @param {number} [max_count=255] - The maximum number of configuration files to check.
  * @returns {Promise<number>} - A promise that resolves to the count of existing WireGuard configuration files.

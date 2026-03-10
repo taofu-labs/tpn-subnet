@@ -28,6 +28,7 @@ export const MINING_POOL_URL = get_worker_mining_pool_url()
 
 /**
  * Fetches WireGuard configuration directly from a worker node.
+ * Returns config alongside lease metadata headers for the extension chain.
  * @param {Object} params - Request parameters.
  * @param {Object} params.worker - The worker object.
  * @param {string} params.worker.ip - Worker's IP address.
@@ -39,9 +40,11 @@ export const MINING_POOL_URL = get_worker_mining_pool_url()
  * @param {number} [params.timeout_ms=5000] - Request timeout in milliseconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot.
  * @param {string} [params.feedback_url] - URL for workers to check if they won the config race.
- * @returns {Promise<string|Object>} - WireGuard configuration.
+ * @param {string} [params.extend_ref] - Lease reference to extend (forwarded to worker).
+ * @param {string|number} [params.extend_expires_at] - Current expires_at of the lease being extended.
+ * @returns {Promise<{ config: string|Object, lease_ref: string|null, lease_expires_at: number|null }|null>} - Config with lease metadata.
  */
-export async function get_config_directly_from_worker( { worker, max_retries=2, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000, priority, feedback_url } ) {
+export async function get_config_directly_from_worker( { worker, max_retries=2, lease_seconds=120, type='wireguard', format='text', timeout_ms=5_000, priority, feedback_url, extend_ref, extend_expires_at } ) {
 
     const { ip, public_port=3000 } = worker
     const { CI_MOCK_WORKER_RESPONSES } = process.env
@@ -49,23 +52,42 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
     // Build query with optional feedback_url for config race resolution
     let query = `http://${ ip }:${ public_port }/api/lease/new?type=${ type }&lease_seconds=${ lease_seconds }&format=${ format }&priority=${ priority ? 'true' : 'false' }`
     if( feedback_url ) query += `&feedback_url=${ encodeURIComponent( feedback_url ) }`
+    if( extend_ref ) query += `&extend_ref=${ encodeURIComponent( extend_ref ) }`
+    if( extend_expires_at ) query += `&extend_expires_at=${ extend_expires_at }`
     log.info( `Fetching ${ type } config directly from worker at ${ query }` )
 
-    // Get config from workers
+    // Get config from workers, reading lease metadata headers alongside the body
     let config = null
+    let lease_ref = null
+    let lease_expires_at = null
     let attempts = 0
     while( !config && attempts < max_retries ) {
-    
-        // Fetch config
+
+        // Fetch config and extract lease headers from the response
         attempts++
         const { fetch_options } = abort_controller( { timeout_ms } )
         log.info( `Attempt ${ attempts }/${ max_retries } to get ${ query }` )
-        config = await fetch( query, fetch_options ).then( res => format === 'json' ? res.json() : res.text() ).catch( e => {
+        const result = await fetch( query, fetch_options ).then( async res => {
+
+            // Read lease metadata headers before parsing body
+            const ref = res.headers.get( `X-Lease-Ref` )
+            const expires = res.headers.get( `X-Lease-Expires` )
+            const body = format === `json` ? await res.json() : await res.text()
+            return { body, ref, expires }
+
+        } ).catch( e => {
             log.warn( `Error fetching config from worker ${ ip } on attempt ${ attempts }:`, e.message )
             return null
         } )
+
+        if( result ) {
+            config = result.body
+            lease_ref = result.ref || null
+            lease_expires_at = result.expires ? Number( result.expires ) : null
+        }
+
         log.info( `Received ${ type } config from worker ${ ip }` )
-    
+
     }
 
     // Warn on no config
@@ -73,6 +95,6 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
 
     // On mock success
     if( CI_MOCK_WORKER_RESPONSES ) config = config || format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : "Mock WireGuard config"
-    
-    return config
+
+    return { config, lease_ref, lease_expires_at }
 }

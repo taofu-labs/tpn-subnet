@@ -10,6 +10,7 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
 
 /**
  * Retrieves WireGuard configuration from a worker as a mining pool.
+ * Supports both new lease allocation and extending an existing lease via `extend_ref`.
  * @param {Object} params - Configuration parameters.
  * @param {string} params.geo - Geographic location code.
  * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
@@ -19,9 +20,11 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot from the worker.
  * @param {string} [params.feedback_url] - Upstream feedback URL (e.g. from validator) for cascade race resolution.
- * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
+ * @param {string} [params.extend_ref] - Lease reference to extend (forwarded through to worker).
+ * @param {string|number} [params.extend_expires_at] - Current expires_at of the lease being extended.
+ * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null, lease_ref: string|null, lease_expires_at: number|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
  */
-export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url } ) {
+export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url, extend_ref, extend_expires_at } ) {
 
     // Get relevant workers — push whitelist/blacklist filtering into the DB query
     const has_whitelist = whitelist?.length > 0
@@ -82,8 +85,8 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
                 const worker_nonce = uuidv4()
                 const feedback_url = `${ base_feedback_url }?nonce=${ worker_nonce }&trace=${ trace_id }`
 
-                const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url } )
-                if( !result ) throw new Error( `No config from ${ worker.ip }` )
+                const result = await get_config_directly_from_worker( { worker, type, format, lease_seconds, priority, feedback_url, extend_ref, extend_expires_at } )
+                if( !result?.config ) throw new Error( `No config from ${ worker.ip }` )
 
                 return { config: result, winner_nonce: worker_nonce, worker }
             } )
@@ -99,7 +102,12 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // Extract the race result (config wrapped with winner metadata from Promise.any)
     const winner_nonce = config?.winner_nonce ?? null
     const winning_worker = config?.worker ?? null
-    const resolved_config = config?.winner_nonce ? config.config : config
+    const worker_result = config?.winner_nonce ? config.config : config
+
+    // Unwrap the worker result — get_config_directly_from_worker returns { config, lease_ref, lease_expires_at }
+    const resolved_config = worker_result?.config ?? worker_result
+    const resolved_lease_ref = worker_result?.lease_ref ?? null
+    const resolved_lease_expires_at = worker_result?.lease_expires_at ?? null
 
     // Mark request complete with winner so losing workers can free their configs
     if( resolved_config ) {
@@ -113,6 +121,8 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         config: format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`,
         connection_type: null,
         country: null,
+        lease_ref: null,
+        lease_expires_at: null,
     }
 
     // Return config wrapped with resolved worker metadata (available for all formats)
@@ -122,6 +132,8 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         config: resolved_config,
         connection_type: winning_worker?.connection_type ?? null,
         country: winning_worker?.country_code ?? null,
+        lease_ref: resolved_lease_ref,
+        lease_expires_at: resolved_lease_expires_at,
     }
 
 }

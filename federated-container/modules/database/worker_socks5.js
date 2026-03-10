@@ -145,6 +145,49 @@ async function get_socks5_config_non_priority( { expires_at, offset, PASSWORD_DI
 }
 
 /**
+ * Reads a single SOCKS5 config from the database by username.
+ * @param {Object} params
+ * @param {string} params.username - The username to look up
+ * @returns {Promise<{ username: string, password: string, ip_address: string, port: number }|null>}
+ */
+export async function read_socks5_config_by_username( { username } ) {
+
+    const pool = await get_pg_pool()
+    const result = await pool.query(
+        `SELECT username, password, ip_address, port FROM worker_socks5_configs WHERE username = $1`,
+        [ username ]
+    )
+    return result.rows[ 0 ] || null
+
+}
+
+/**
+ * Extends an active SOCKS5 lease by updating its expiration timestamp.
+ * Uses the current expires_at as a guard to prevent extending a re-allocated slot.
+ * @param {Object} params
+ * @param {string} params.username - The SOCKS5 username identifying the lease
+ * @param {number} params.expected_expires_at - The current expires_at value (reallocation guard)
+ * @param {number} params.new_expires_at - The new expiration timestamp
+ * @returns {Promise<{ username: string, expires_at: number }>}
+ * @throws {Error} If the lease is not found, already expired, or was re-allocated
+ */
+export async function extend_socks5_lease( { username, expected_expires_at, new_expires_at } ) {
+
+    const pool = await get_pg_pool()
+    const result = await pool.query(
+        `UPDATE worker_socks5_configs SET expires_at = $1, updated = $2
+         WHERE username = $3 AND expires_at = $4`,
+        [ new_expires_at, Date.now(), username, expected_expires_at ]
+    )
+
+    if( !result.rowCount ) throw new Error( `Lease extension failed: config ${ username } not found or already expired/reallocated` )
+
+    log.info( `Extended SOCKS5 lease ${ username } to ${ new Date( new_expires_at ).toISOString() }` )
+    return { username, expires_at: new_expires_at }
+
+}
+
+/**
  * Writes SOCKS5 proxy configurations to the database
  * Uses upsert (ON CONFLICT) to update existing usernames and insert new ones, then deletes missing ones
  * @param {Object} params

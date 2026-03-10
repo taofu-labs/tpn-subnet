@@ -76,12 +76,12 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
 
         // Prepare validation props based on run mode
         const mandatory_props = [ 'lease_seconds' ]
-        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type', 'connection_type', 'feedback_url' ]
+        const optional_props = [ 'geo', 'whitelist', 'blacklist', 'priority', 'format', 'lease_minutes', 'type', 'connection_type', 'feedback_url', 'lease_token', 'extend_ref', 'extend_expires_at' ]
 
         // Get all relevant data
         log.insane( `Request query params:`, Object.keys( req.query ), Object.values( req.query ), req.query )
         allow_props( req.query, [ ...mandatory_props, ...optional_props ], true )
-        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard', connection_type='any', feedback_url } = req.query
+        let { lease_seconds, lease_minutes, format='json', geo='any', whitelist, blacklist, priority=false, type='wireguard', connection_type='any', feedback_url, lease_token, extend_ref, extend_expires_at } = req.query
 
         // Backwards compatibility
         if( !`${ lease_seconds }`.length && `${ lease_minutes }`.length ) {
@@ -105,7 +105,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         whitelist = whitelist && sanetise_string( whitelist ).split( ',' )
         blacklist = blacklist && sanetise_string( blacklist ).split( ',' )
         priority = priority === 'true'
-        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type, connection_type, feedback_url }
+        const config_meta = { lease_seconds, format, geo, whitelist, blacklist, priority, type, connection_type, feedback_url, lease_token, extend_ref, extend_expires_at }
 
         // Geo availability check in non-worker mode, workers do not need geo check as they are static and only called with 'any'
         let geo_available = true
@@ -131,11 +131,20 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( miner_mode ) result = await get_worker_config_as_miner( config_meta )
         if( worker_mode ) result = await get_worker_config_as_worker( config_meta )
 
-        // Unwrap lease result — mining pool and validator return { _lease_result, config, connection_type, country }
+        // Unwrap lease result — mining pool and validator return { _lease_result, config, ... }
+        // Worker now returns { config, lease_ref, lease_expires_at } directly
         let config = result
         if( result?._lease_result ) {
             if( result.connection_type ) resolved_meta.connection_type = result.connection_type
             if( result.country ) resolved_meta.country = result.country
+            if( result.lease_ref ) resolved_meta.lease_ref = result.lease_ref
+            if( result.lease_expires_at ) resolved_meta.lease_expires_at = result.lease_expires_at
+            if( result.lease_token ) resolved_meta.lease_token = result.lease_token
+            config = result.config
+        } else if( result?.lease_ref !== undefined ) {
+            // Worker-mode result: { config, lease_ref, lease_expires_at }
+            if( result.lease_ref ) resolved_meta.lease_ref = result.lease_ref
+            if( result.lease_expires_at ) resolved_meta.lease_expires_at = result.lease_expires_at
             config = result.config
         }
 
@@ -143,6 +152,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( config && typeof config === 'object' ) {
             if( resolved_meta.connection_type && !config.connection_type ) config.connection_type = resolved_meta.connection_type
             if( resolved_meta.country && !config.country ) config.country = resolved_meta.country
+            if( resolved_meta.lease_token ) config.lease_token = resolved_meta.lease_token
         }
 
         // Validate config
@@ -165,6 +175,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Set resolved metadata headers for all response formats (text consumers can read these)
         if( resolved_meta.country ) res.set( 'X-Country', resolved_meta.country )
         if( resolved_meta.connection_type ) res.set( 'X-Connection-Type', resolved_meta.connection_type )
+        if( resolved_meta.lease_ref ) res.set( 'X-Lease-Ref', `${ resolved_meta.lease_ref }` )
+        if( resolved_meta.lease_expires_at ) res.set( 'X-Lease-Expires', `${ resolved_meta.lease_expires_at }` )
 
         return format == 'text' ? res.send( response_data ) : res.json( response_data )
     } catch ( e ) {
