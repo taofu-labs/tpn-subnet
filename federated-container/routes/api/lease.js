@@ -27,6 +27,9 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Clear stale metadata from previous retry attempts
         delete resolved_meta.connection_type
         delete resolved_meta.country
+        delete resolved_meta.lease_ref
+        delete resolved_meta.lease_expires_at
+        delete resolved_meta.lease_token
 
         // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
