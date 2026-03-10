@@ -53,7 +53,7 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
     let query = `http://${ ip }:${ public_port }/api/lease/new?type=${ type }&lease_seconds=${ lease_seconds }&format=${ format }&priority=${ priority ? 'true' : 'false' }`
     if( feedback_url ) query += `&feedback_url=${ encodeURIComponent( feedback_url ) }`
     if( extend_ref ) query += `&extend_ref=${ encodeURIComponent( extend_ref ) }`
-    if( extend_expires_at ) query += `&extend_expires_at=${ extend_expires_at }`
+    if( extend_expires_at ) query += `&extend_expires_at=${ encodeURIComponent( extend_expires_at ) }`
     log.info( `Fetching ${ type } config directly from worker at ${ query }` )
 
     // Get config from workers, reading lease metadata headers alongside the body
@@ -72,6 +72,7 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
             // Read lease metadata headers before parsing body
             const ref = res.headers.get( `X-Lease-Ref` )
             const expires = res.headers.get( `X-Lease-Expires` )
+            if( !res.ok ) throw new Error( `Worker ${ ip } returned HTTP ${ res.status }` )
             const body = format === `json` ? await res.json() : await res.text()
             return { body, ref, expires }
 
@@ -93,7 +94,7 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
     if( !config ) log.warn( `Failed to get ${ type } config from worker ${ ip } after ${ max_retries } attempts` )
 
     // On mock success
-    if( CI_MOCK_WORKER_RESPONSES ) config = config || format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : "Mock WireGuard config"
+    if( CI_MOCK_WORKER_RESPONSES ) config = config || ( format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : "Mock WireGuard config" )
 
     return { config, lease_ref, lease_expires_at }
 }

@@ -41,29 +41,29 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
             // Worker generates configs from itself — unwrap .config from { config, lease_ref, lease_expires_at }
             log.info( `Fetching worker configs directly as worker for ${ worker.ip }` )
             const wg_result = await get_worker_config_as_worker( { lease_seconds } )
-            wireguard_config = wg_result && 'config' in wg_result ? wg_result.config : wg_result
+            wireguard_config = wg_result && typeof wg_result === 'object' && 'config' in wg_result ? wg_result.config : wg_result
             const s5_result = await get_worker_config_as_worker( { type: `socks5`, lease_seconds } )
-            socks5_config = s5_result && 'config' in s5_result ? s5_result.config : s5_result
+            socks5_config = s5_result && typeof s5_result === 'object' && 'config' in s5_result ? s5_result.config : s5_result
 
         } else if( miner_mode ) {
 
             // Miner fetches configs directly from worker — unwrap .config from { config, lease_ref, lease_expires_at }
             log.info( `Fetching worker configs directly from worker for ${ worker.ip }` )
             const wg_result = await get_config_directly_from_worker( { worker, lease_seconds, priority: true } )
-            wireguard_config = wg_result && 'config' in wg_result ? wg_result.config : wg_result
+            wireguard_config = wg_result && typeof wg_result === 'object' && 'config' in wg_result ? wg_result.config : wg_result
             const s5_result = await get_config_directly_from_worker( { worker, type: `socks5`, lease_seconds, priority: true } )
-            socks5_config = s5_result && 'config' in s5_result ? s5_result.config : s5_result
+            socks5_config = s5_result && typeof s5_result === 'object' && 'config' in s5_result ? s5_result.config : s5_result
 
         } else if( validator_mode ) {
 
             // Validator fetches configs through mining pool — unwrap .config from { config, lease_ref, lease_expires_at }
             log.info( `Fetching worker configs through mining pool for ${ worker.ip }` )
             const wg_result = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, lease_seconds } )
-            wireguard_config = wg_result && 'config' in wg_result ? wg_result.config : wg_result
+            wireguard_config = wg_result && typeof wg_result === 'object' && 'config' in wg_result ? wg_result.config : wg_result
             trace( `Fetched worker config for ${ worker.ip }` )
 
             const s5_result = await get_worker_config_through_mining_pool( { worker, mining_pool_uid, mining_pool_ip, type: `socks5`, lease_seconds } )
-            socks5_config = s5_result && 'config' in s5_result ? s5_result.config : s5_result
+            socks5_config = s5_result && typeof s5_result === 'object' && 'config' in s5_result ? s5_result.config : s5_result
             trace( `Fetched worker socks5 config for ${ worker.ip }` )
 
         }

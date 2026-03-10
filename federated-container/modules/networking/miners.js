@@ -128,7 +128,7 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
     let query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }`
     if( feedback_url ) query += `&feedback_url=${ encodeURIComponent( feedback_url ) }`
     if( extend_ref ) query += `&extend_ref=${ encodeURIComponent( extend_ref ) }`
-    if( extend_expires_at ) query += `&extend_expires_at=${ extend_expires_at }`
+    if( extend_expires_at ) query += `&extend_expires_at=${ encodeURIComponent( extend_expires_at ) }`
 
     // Mock response if needed
     const { CI_MOCK_MINING_POOL_RESPONSES } = process.env
@@ -152,6 +152,7 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
         const result = await fetch( `${ endpoint }${ query }`, fetch_options ).then( async res => {
 
             // Read lease metadata headers before parsing body
+            if( !res.ok ) throw new Error( `Mining pool ${ mining_pool_uid } returned HTTP ${ res.status }` )
             const ref = res.headers.get( `X-Lease-Ref` )
             const expires = res.headers.get( `X-Lease-Expires` )
             const body = format === `json` ? await res.json() : await res.text()
@@ -166,9 +167,8 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
             config = result.body
             lease_ref = result.ref || null
             lease_expires_at = result.expires ? Number( result.expires ) : null
+            log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.ip }` )
         }
-
-        log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.ip }` )
 
     }
 
