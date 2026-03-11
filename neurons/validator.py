@@ -169,7 +169,12 @@ class Validator(BaseValidatorNeuron):
                     if self.should_exit:
                         break
 
-                    time.sleep(TRANSIENT_RETRY_DELAY)
+                    # Poll should_exit each second so shutdown isn't blocked
+                    # for the full TRANSIENT_RETRY_DELAY
+                    for _ in range(TRANSIENT_RETRY_DELAY):
+                        if self.should_exit:
+                            break
+                        time.sleep(1)
 
         except KeyboardInterrupt:
             self.axon.stop()
