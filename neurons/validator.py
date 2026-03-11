@@ -21,9 +21,8 @@
 import os
 import time
 import datetime
-import requests
-import asyncio
 import logging
+import requests
 
 # Bittensor
 import bittensor as bt
@@ -35,25 +34,27 @@ from sybil.base.validator import BaseValidatorNeuron
 # Bittensor Validator Template:
 from sybil.validator import forward
 
+
 class UnknownSynapseFilter(logging.Filter):
-    """
-    Filter to mask 'UnknownSynapseError' logs from bittensor, which occur when
-    bots/scanners request unsupported synapses. We downgrade these to INFO/WARNING
-    to keep logs clean.
-    """
+    """Downgrades UnknownSynapseError logs from ERROR to WARNING."""
+
     def filter(self, record):
         msg = record.getMessage()
-        if "UnknownSynapseError" in msg:
-            record.levelno = logging.WARNING # Downgrade from ERROR
-            record.levelname = "WARNING"
-            # Extract the synapse name if possible for context
-            try:
-                synapse_name = msg.split("Synapse name '")[1].split("'")[0]
-                record.msg = f"🛡️ Ignored unsupported synapse request: '{synapse_name}'"
-            except:
-                record.msg = f"🛡️ Ignored unsupported synapse request"
+        if "UnknownSynapseError" not in msg:
             return True
+
+        record.levelno = logging.WARNING
+        record.levelname = "WARNING"
+
+        try:
+            synapse_name = msg.split("Synapse name '")[1].split("'")[0]
+            record.msg = f"Ignored unsupported synapse request: '{synapse_name}'"
+        except Exception:
+            record.msg = "Ignored unsupported synapse request"
+
+        record.args = None  # Prevent msg % args TypeError
         return True
+
 
 class Validator(BaseValidatorNeuron):
     """
@@ -66,12 +67,12 @@ class Validator(BaseValidatorNeuron):
 
     def __init__(self, config=None):
         super(Validator, self).__init__(config=config)
-        
-        # [Log Noise Filter] Attach filter to mask 'UnknownSynapseError'
+
+        # Downgrade noisy UnknownSynapseError logs to WARNING
         try:
             bt.logging.logger.addFilter(UnknownSynapseFilter())
         except Exception:
-            pass # Fail silently if logger structure differs
+            pass
 
         bt.logging.info(f"===> Validator initialized: {self.step}, {len(self.scores)}, {len(self.hotkeys)}")
 
@@ -88,19 +89,6 @@ class Validator(BaseValidatorNeuron):
             bt.logging.warning(
                 "Running with --wandb.off. It is strongly recommended to run with W&B enabled."
             )
-
-    def run(self):
-        # [ARCH FIX] Disable Background Thread completely.
-        # We handle everything in the main asyncio loop now to prevent zombie states.
-        bt.logging.info("Background thread disabled (Watching single-threaded mode).")
-        try:
-            while not self.should_exit:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            self.axon.stop()
-            exit()
-        except Exception as e:
-            bt.logging.error(f"Background thread error (ignored): {e}")
 
     def new_wandb_run(self):
         """Creates a new wandb run to save information to."""
@@ -137,6 +125,61 @@ class Validator(BaseValidatorNeuron):
         # TODO(developer): Rewrite this function based on your protocol definition.
         return await forward(self)
 
+    def run(self):
+        """Enhanced run() with transient network error recovery."""
+        from traceback import print_exception
+
+        self.sync()
+        bt.logging.info(f"Validator starting at block: {self.block}")
+
+        TRANSIENT_RETRY_DELAY = 30
+
+        try:
+            while True:
+                try:
+                    bt.logging.info(f"step({self.step}) block({self.block})")
+                    self.loop.run_until_complete(self.concurrent_forward())
+
+                    if self.should_exit:
+                        break
+
+                    self.sync()
+                    self.step += 1
+
+                except KeyboardInterrupt:
+                    raise
+
+                except Exception as err:
+                    err_str = str(err)
+                    is_transient = any(hint in err_str for hint in (
+                        "gaierror", "TimeoutError", "SSLError",
+                        "ConnectionError", "ConnectionRefused",
+                        "ConnectionReset", "BrokenPipeError",
+                    ))
+
+                    if is_transient:
+                        bt.logging.warning(
+                            f"Transient network error: {err}. "
+                            f"Retrying in {TRANSIENT_RETRY_DELAY}s..."
+                        )
+                    else:
+                        bt.logging.error(f"Error during validation step: {err}")
+                        bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
+
+                    if self.should_exit:
+                        break
+
+                    time.sleep(TRANSIENT_RETRY_DELAY)
+
+        except KeyboardInterrupt:
+            self.axon.stop()
+            bt.logging.success("Validator killed by keyboard interrupt.")
+            exit()
+
+        except Exception as err:
+            bt.logging.error(f"Fatal error during validation: {str(err)}")
+            bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
+
 # Health check timeout in seconds
 HEALTH_CHECK_TIMEOUT = 10
 
@@ -161,51 +204,24 @@ MAX_CONSECUTIVE_FAILURES = 3
 
 # The main function parses the configuration and runs the validator.
 if __name__ == "__main__":
-    # Robust Initialization Loop (Fixes gaierror/DNS startup issues)
+    # Retry initialization on transient network/subtensor failures
     validator = None
     while validator is None:
         try:
             validator = Validator()
         except Exception as e:
-            bt.logging.error(f"Startup Critical Failure (Network/Subtensor): {e}. Retrying in 10s...")
+            bt.logging.error(f"Validator initialization failed: {e}. Retrying in 10s...")
             time.sleep(10)
 
     consecutive_failures = 0
 
-    # Main Async Action Loop (Fixes zombie state & concurrency)
-    async def main_loop():
-        global consecutive_failures
-        
-        # [ARCH FIX] Single-Threaded Startup Sequence
-        try:
-            bt.logging.info(f"Validator initializing in foreground...")
-            validator.sync() # Initial Metagraph Sync
-        except Exception as e:
-            bt.logging.error(f"Initial Sync Failure: {e}")
-            # We don't exit here, we let the main loop handle the retry
+    # Wait for validator server to be ready on startup
+    while not check_validator_server( validator.validator_server_url ):
+        bt.logging.info( "Validator server is not running, waiting 10 seconds" )
+        time.sleep( 10 )
 
+    with validator:
         while True:
-            # 1. Validation Logic
-            try:
-                # Sync metagraph and potentially set weights
-                async with validator.lock:
-                    validator.sync()
-                
-                # Run Multiple Forwards
-                await validator.concurrent_forward()
-                
-                validator.step += 1
-                
-            except Exception as e:
-                bt.logging.error(f"Transient Error in validation loop: {e}")
-                # Log specific error types for easier debugging
-                if "gaierror" in str(e) or "TimeoutError" in str(e):
-                    bt.logging.warning("🛠️ Network transient detected. Sleeping 10s...")
-                
-                await asyncio.sleep(10)
-                continue
-
-            # 2. Health Monitoring (Original Logic)
             if not check_validator_server( validator.validator_server_url ):
                 consecutive_failures += 1
                 bt.logging.error(
@@ -224,16 +240,4 @@ if __name__ == "__main__":
                 consecutive_failures = 0
 
             bt.logging.info( f"Validator running... { time.time() }" )
-            
-            # Simple heartbeat sleep
-            await asyncio.sleep( 10 )
-
-    # Execute inside a managed context
-    with validator:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        loop.run_until_complete(main_loop())
+            time.sleep( 10 )
