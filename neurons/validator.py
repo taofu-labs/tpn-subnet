@@ -71,8 +71,8 @@ class Validator(BaseValidatorNeuron):
         # Downgrade noisy UnknownSynapseError logs to WARNING
         try:
             bt.logging.logger.addFilter(UnknownSynapseFilter())
-        except Exception:
-            pass
+        except Exception as e:
+            bt.logging.warning(f"Failed to install UnknownSynapseFilter: {e}")
 
         bt.logging.info(f"===> Validator initialized: {self.step}, {len(self.scores)}, {len(self.hotkeys)}")
 
@@ -127,7 +127,7 @@ class Validator(BaseValidatorNeuron):
 
     def run(self):
         """Enhanced run() with transient network error recovery."""
-        from traceback import print_exception
+        from traceback import format_exception
 
         self.sync()
         bt.logging.info(f"Validator starting at block: {self.block}")
@@ -164,7 +164,7 @@ class Validator(BaseValidatorNeuron):
                         )
                     else:
                         bt.logging.error(f"Error during validation step: {err}")
-                        bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
+                        bt.logging.debug("".join(format_exception(type(err), err, err.__traceback__)))
 
                     if self.should_exit:
                         break
@@ -183,7 +183,7 @@ class Validator(BaseValidatorNeuron):
 
         except Exception as err:
             bt.logging.error(f"Fatal error during validation: {str(err)}")
-            bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
+            bt.logging.debug("".join(format_exception(type(err), err, err.__traceback__)))
 
 # Health check timeout in seconds
 HEALTH_CHECK_TIMEOUT = 10
