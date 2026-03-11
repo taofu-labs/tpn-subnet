@@ -21,6 +21,7 @@
 import os
 import time
 import datetime
+import logging
 import requests
 
 # Bittensor
@@ -34,6 +35,27 @@ from sybil.base.validator import BaseValidatorNeuron
 from sybil.validator import forward
 
 
+class UnknownSynapseFilter(logging.Filter):
+    """Downgrades UnknownSynapseError logs from ERROR to WARNING."""
+
+    def filter(self, record):
+        msg = record.getMessage()
+        if "UnknownSynapseError" not in msg:
+            return True
+
+        record.levelno = logging.WARNING
+        record.levelname = "WARNING"
+
+        try:
+            synapse_name = msg.split("Synapse name '")[1].split("'")[0]
+            record.msg = f"Ignored unsupported synapse request: '{synapse_name}'"
+        except Exception:
+            record.msg = "Ignored unsupported synapse request"
+
+        record.args = None  # Prevent msg % args TypeError
+        return True
+
+
 class Validator(BaseValidatorNeuron):
     """
     Your validator neuron class. You should use this class to define your validator's behavior. In particular, you should replace the forward function with your own logic.
@@ -45,7 +67,13 @@ class Validator(BaseValidatorNeuron):
 
     def __init__(self, config=None):
         super(Validator, self).__init__(config=config)
-        
+
+        # Downgrade noisy UnknownSynapseError logs to WARNING
+        try:
+            bt.logging.logger.addFilter(UnknownSynapseFilter())
+        except Exception as e:
+            bt.logging.warning(f"Failed to install UnknownSynapseFilter: {e}")
+
         bt.logging.info(f"===> Validator initialized: {self.step}, {len(self.scores)}, {len(self.hotkeys)}")
 
         self.wandb_run_start = None
@@ -97,6 +125,66 @@ class Validator(BaseValidatorNeuron):
         # TODO(developer): Rewrite this function based on your protocol definition.
         return await forward(self)
 
+    def run(self):
+        """Enhanced run() with transient network error recovery."""
+        from traceback import format_exception
+
+        self.sync()
+        bt.logging.info(f"Validator starting at block: {self.block}")
+
+        TRANSIENT_RETRY_DELAY = 30
+
+        try:
+            while True:
+                try:
+                    bt.logging.info(f"step({self.step}) block({self.block})")
+                    self.loop.run_until_complete(self.concurrent_forward())
+
+                    if self.should_exit:
+                        break
+
+                    self.sync()
+                    self.step += 1
+
+                except KeyboardInterrupt:
+                    raise
+
+                except Exception as err:
+                    err_str = str(err)
+                    is_transient = any(hint in err_str for hint in (
+                        "gaierror", "TimeoutError", "SSLError",
+                        "ConnectionError", "ConnectionRefused",
+                        "ConnectionReset", "BrokenPipeError",
+                    ))
+
+                    if is_transient:
+                        bt.logging.warning(
+                            f"Transient network error: {err}. "
+                            f"Retrying in {TRANSIENT_RETRY_DELAY}s..."
+                        )
+                    else:
+                        bt.logging.error(f"Error during validation step: {err}")
+                        bt.logging.debug("".join(format_exception(type(err), err, err.__traceback__)))
+
+                    if self.should_exit:
+                        break
+
+                    # Poll should_exit each second so shutdown isn't blocked
+                    # for the full TRANSIENT_RETRY_DELAY
+                    for _ in range(TRANSIENT_RETRY_DELAY):
+                        if self.should_exit:
+                            break
+                        time.sleep(1)
+
+        except KeyboardInterrupt:
+            self.axon.stop()
+            bt.logging.success("Validator killed by keyboard interrupt.")
+            exit()
+
+        except Exception as err:
+            bt.logging.error(f"Fatal error during validation: {str(err)}")
+            bt.logging.debug("".join(format_exception(type(err), err, err.__traceback__)))
+
 # Health check timeout in seconds
 HEALTH_CHECK_TIMEOUT = 10
 
@@ -121,7 +209,15 @@ MAX_CONSECUTIVE_FAILURES = 3
 
 # The main function parses the configuration and runs the validator.
 if __name__ == "__main__":
-    validator = Validator()
+    # Retry initialization on transient network/subtensor failures
+    validator = None
+    while validator is None:
+        try:
+            validator = Validator()
+        except Exception as e:
+            bt.logging.error(f"Validator initialization failed: {e}. Retrying in 10s...")
+            time.sleep(10)
+
     consecutive_failures = 0
 
     # Wait for validator server to be ready on startup
