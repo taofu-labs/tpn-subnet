@@ -8,6 +8,7 @@ import { add_configs_to_workers } from "./query_workers.js"
 import { map_ips_to_geodata } from "../geolocation/ip_mapping.js"
 import { test_socks5_connection } from "../networking/socks5.js"
 import { score_node_version } from "./score_node.js"
+import { is_partnered_pool } from "../partnered_pools.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
 
 /**
@@ -177,7 +178,7 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  * @returns {Array} returns.successes - Array of successful worker tests
  * @returns {Array} returns.failures - Array of failed worker tests
  */
-export async function validate_and_annotate_workers( { workers_with_configs=[] } ) {
+export async function validate_and_annotate_workers( { workers_with_configs=[], mining_pool_uid, mining_pool_ip } ) {
 
     // If worker config list exceeds 250, warn this is close to ip subnet limit and might cause issues
     if( workers_with_configs.length > 250 ) {
@@ -214,9 +215,14 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             const { json_config, text_config, mining_pool_url } = worker
             if( CI_MODE === 'true' ) log.info( `Validating worker ${ worker.ip } with config:`, worker )
 
-            // Check that the worker is up to date
-            const { version_valid, version } = await score_node_version( worker )
-            if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
+            // Check that the worker is up to date (workers in partnered pools are exempt)
+            const skip_version_check = mining_pool_uid && mining_pool_ip && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
+            if( skip_version_check ) {
+                log.info( `Worker ${ worker.ip } belongs to partnered pool ${ mining_pool_uid }, skipping version check` )
+            } else {
+                const { version_valid, version } = await score_node_version( worker )
+                if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
+            }
 
             // Check that the worker broadcasts mining pool membership
             const { matches, worker_claimed_pool_url } = await match_worker_to_pool( { worker, mining_pool_url } )
