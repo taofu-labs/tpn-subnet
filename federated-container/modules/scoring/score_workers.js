@@ -166,7 +166,9 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
 }
 
 /**
- * Checks whether the worker objects are valid and work
+ * Checks whether the worker objects are valid and work.
+ * For partnered pools (matched via PARTNERED_NETWORK_MINING_POOLS), version and membership
+ * checks are skipped since those require direct worker calls. Wireguard and socks5 tests still run.
  * @param {Object} params
  * @param {Array} params.workers_with_configs
  * @param {string} params.workers_with_configs[].ip - IP address of the worker
@@ -174,6 +176,8 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  * @param {string} params.workers_with_configs[].country_code - Country code of the worker
  * @param {string} params.workers_with_configs[].public_port - Public port of the worker
  * @param {string} params.workers_with_configs[].mining_pool_url - URL of the mining pool
+ * @param {string} [params.mining_pool_uid] - UID of the mining pool (required for partnered pool detection)
+ * @param {string} [params.mining_pool_ip] - IP of the mining pool (required for partnered pool detection)
  * @returns {Promise<Object>} Object with successes and failures arrays
  * @returns {Array} returns.successes - Array of successful worker tests
  * @returns {Array} returns.failures - Array of failed worker tests

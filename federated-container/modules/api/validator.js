@@ -93,6 +93,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
             // Check worker consents to mining pool membership (partnered pool workers run custom code, skip direct call)
             const partnered = mining_pool_uid && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
+            if( partnered ) log.debug( `Worker ${ worker_ip } belongs to partnered pool ${ mining_pool_uid }, skipping membership check` )
             if( !partnered ) {
                 const { matches } = await match_worker_to_pool( { worker, mining_pool_url } )
                 if( !matches ) {
