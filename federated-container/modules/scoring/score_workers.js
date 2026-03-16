@@ -180,6 +180,10 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  */
 export async function validate_and_annotate_workers( { workers_with_configs=[], mining_pool_uid, mining_pool_ip } ) {
 
+    // Partnered pool workers run custom code — version and membership checks call workers directly and must be skipped
+    const is_partnered = mining_pool_uid && mining_pool_ip && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
+    if( is_partnered ) log.info( `Pool ${ mining_pool_uid } is a partnered network pool, skipping version and membership checks for ${ workers_with_configs.length } workers` )
+
     // If worker config list exceeds 250, warn this is close to ip subnet limit and might cause issues
     if( workers_with_configs.length > 250 ) {
         log.warn( `Worker config list exceeds 250, this may cause issues with IP subnet limits` )
@@ -215,18 +219,17 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
             const { json_config, text_config, mining_pool_url } = worker
             if( CI_MODE === 'true' ) log.info( `Validating worker ${ worker.ip } with config:`, worker )
 
-            // Check that the worker is up to date (workers in partnered pools are exempt)
-            const skip_version_check = mining_pool_uid && mining_pool_ip && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
-            if( skip_version_check ) {
-                log.info( `Worker ${ worker.ip } belongs to partnered pool ${ mining_pool_uid }, skipping version check` )
-            } else {
+            // Check that the worker is up to date (partnered pool workers run custom code, skip direct call)
+            if( !is_partnered ) {
                 const { version_valid, version } = await score_node_version( worker )
                 if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
             }
 
-            // Check that the worker broadcasts mining pool membership
-            const { matches, worker_claimed_pool_url } = await match_worker_to_pool( { worker, mining_pool_url } )
-            if( !matches ) throw new Error( `Worker does not claim expected mining pool ${ mining_pool_url } but claims ${ worker_claimed_pool_url }` )
+            // Check that the worker broadcasts mining pool membership (partnered pool workers skip, can't be called)
+            if( !is_partnered ) {
+                const { matches, worker_claimed_pool_url } = await match_worker_to_pool( { worker, mining_pool_url } )
+                if( !matches ) throw new Error( `Worker does not claim expected mining pool ${ mining_pool_url } but claims ${ worker_claimed_pool_url }` )
+            }
 
             // Validate that wireguard config works
             const { valid, message } = await test_wireguard_connection( { wireguard_config: text_config } )

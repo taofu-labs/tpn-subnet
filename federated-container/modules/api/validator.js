@@ -6,6 +6,7 @@ import { base_url } from "../networking/url.js"
 import { match_worker_to_pool } from "../scoring/score_workers.js"
 import { v4 as uuidv4 } from 'uuid'
 import { sign_lease_token, verify_lease_token } from "../crypto/lease_token.js"
+import { is_partnered_pool } from "../partnered_pools.js"
 
 /**
  * Retrieves worker VPN configuration as a validator by coordinating with mining pools.
@@ -84,18 +85,21 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
             const call_nonce = uuidv4()
             const feedback_url = `${ base_feedback_url }?nonce=${ call_nonce }&trace=${ request_id }`
 
-            // Check if worker matches
-            const { matches } = await match_worker_to_pool( { worker, mining_pool_url: worker.mining_pool_url } )
-            if( !matches ) {
-                log.info( `Worker ${ worker.ip } not confirmed to consent to be with the mining pool ${ worker.mining_pool_url }, skipping` )
-                throw new Error( `Worker ${ worker.ip } does not consent to mining pool ${ worker.mining_pool_url }` )
-            }
-
             // Validate worker data
             const { ip: worker_ip, mining_pool_url, mining_pool_uid } = worker || {}
             const { ip: mining_pool_ip } = await resolve_domain_to_ip( { domain: mining_pool_url } )
             if( !is_ipv4( worker_ip ) ) throw new Error( `Worker ${ worker_ip } has invalid IP` )
             if( !is_ipv4( mining_pool_ip ) ) throw new Error( `Mining pool ${ mining_pool_uid } has invalid IP` )
+
+            // Check worker consents to mining pool membership (partnered pool workers run custom code, skip direct call)
+            const partnered = mining_pool_uid && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
+            if( !partnered ) {
+                const { matches } = await match_worker_to_pool( { worker, mining_pool_url } )
+                if( !matches ) {
+                    log.info( `Worker ${ worker.ip } not confirmed to consent to be with the mining pool ${ mining_pool_url }, skipping` )
+                    throw new Error( `Worker ${ worker.ip } does not consent to mining pool ${ mining_pool_url }` )
+                }
+            }
 
             // Get config through mining pool — now returns { config, lease_ref, lease_expires_at }
             const pool_result = await get_worker_config_through_mining_pool( { worker, mining_pool_ip, mining_pool_uid, type, format, lease_seconds, feedback_url } )

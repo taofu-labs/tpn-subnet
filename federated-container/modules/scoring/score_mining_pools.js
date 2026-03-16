@@ -204,7 +204,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     }
     log.info( `Selected ${ selected_workers.length } workers for scoring from mining pool ${ pool_label }` )
 
-    // Annotate the selected workers with a wireguard and socks5 config
+    // Annotate the selected workers with a wireguard and socks5 config (fetched from the mining pool, not from workers directly)
     const workers_with_configs = await add_configs_to_workers( {
         workers: selected_workers,
         mining_pool_uid,
