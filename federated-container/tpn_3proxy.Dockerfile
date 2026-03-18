@@ -14,7 +14,7 @@ RUN mkdir -p /etc/3proxy /var/run/3proxy && chown 65535:65535 /etc/3proxy /var/r
 EXPOSE 3128
 
 # Drop back to the original unprivileged user
-USER 65535
+USER 65535:65535
 
 ENTRYPOINT ["/usr/local/bin/gen_config_and_start.sh"]
 
