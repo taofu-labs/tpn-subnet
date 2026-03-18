@@ -251,6 +251,40 @@ services:
       - tpn-external
     profiles:
       - worker
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "1080"]
+      interval: 10s
+      timeout: 5s
+      start_period: 600s
+      retries: 3
+
+  # HTTP Proxy — bridges HTTP CONNECT to Dante SOCKS5 with the same credentials
+  tpn-3proxy:
+    image: "taofuprotocol/tpn-3proxy:${TPN_IMAGE_TAG:-latest}"
+    build:
+      context: .
+      dockerfile: tpn_3proxy.Dockerfile
+    container_name: tpn-3proxy
+    restart: unless-stopped
+    environment:
+      - PROXY_PORT=${HTTP_PROXY_PORT:-3128}
+      - DANTE_HOST=dante
+      - DANTE_PORT=${DANTE_PORT:-1080}
+    volumes:
+      - ./dante_passwords:/passwords:ro
+    ports:
+      - "${HTTP_PROXY_PORT:-3128}:${HTTP_PROXY_PORT:-3128}"
+    sysctls:
+      - net.ipv4.tcp_keepalive_time=7200
+      - net.ipv4.tcp_keepalive_intvl=75
+      - net.ipv4.tcp_keepalive_probes=9
+    networks:
+      - tpn-external
+    profiles:
+      - worker
+    depends_on:
+      dante:
+        condition: service_healthy
 
 networks:
   # Internal network - has internal connectivity only, cannot reach internet or be reached from it
