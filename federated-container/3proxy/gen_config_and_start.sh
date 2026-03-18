@@ -20,7 +20,7 @@ shutdown() {
 trap shutdown SIGTERM SIGINT
 
 CONFIG="/etc/3proxy/3proxy.cfg"
-PIDFILE="/var/run/3proxy.pid"
+PIDFILE="/var/run/3proxy/3proxy.pid"
 PROXY_PORT=${PROXY_PORT:-3128}
 DANTE_HOST=${DANTE_HOST:-dante}
 DANTE_PORT=${DANTE_PORT:-1080}
@@ -106,7 +106,7 @@ config_watcher() {
 
     echo "Config watcher: watching ${PASSWORD_DIR} for credential changes..."
 
-    inotifywait -m -e create -e modify -e delete "$PASSWORD_DIR" |
+    inotifywait -m -e create -e modify -e delete -e moved_to "$PASSWORD_DIR" |
     while read -r dir event filename; do
 
         # Only react to .password files

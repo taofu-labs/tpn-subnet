@@ -9,7 +9,7 @@ RUN apk add --no-cache bash inotify-tools netcat-openbsd
 COPY --chmod=755 3proxy/gen_config_and_start.sh /usr/local/bin/gen_config_and_start.sh
 
 # Prepare writable dirs for the unprivileged user
-RUN mkdir -p /etc/3proxy /var/run && chown 65535:65535 /etc/3proxy /var/run
+RUN mkdir -p /etc/3proxy /var/run/3proxy && chown 65535:65535 /etc/3proxy /var/run/3proxy
 
 EXPOSE 3128
 
