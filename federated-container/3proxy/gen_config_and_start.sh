@@ -26,10 +26,12 @@ echo "Password dir: ${PASSWORD_DIR}"
 
 generate_config() {
 
+    local tmpfile
     mkdir -p "$(dirname "$CONFIG")"
+    tmpfile=$(mktemp "${CONFIG}.XXXXXX")
 
     # Header: DNS, timeouts, logging, connection limits
-    cat > "$CONFIG" <<EOF
+    cat > "$tmpfile" <<EOF
 nscache 65536
 nserver 8.8.8.8
 nserver 8.8.4.4
@@ -44,7 +46,7 @@ EOF
         [ -f "$f" ] || continue
         user=$(basename "$f" .password)
         pass=$(cat "$f")
-        echo "users ${user}:CL:${pass}" >> "$CONFIG"
+        echo "users ${user}:CL:${pass}" >> "$tmpfile"
     done
 
     # Per-user ACL + SOCKS5 parent chain
@@ -54,12 +56,16 @@ EOF
         [ -f "$f" ] || continue
         user=$(basename "$f" .password)
         pass=$(cat "$f")
-        echo "allow ${user}" >> "$CONFIG"
-        echo "parent 1000 socks5+ ${DANTE_HOST} ${DANTE_PORT} ${user} ${pass}" >> "$CONFIG"
+        echo "allow ${user}" >> "$tmpfile"
+        echo "parent 1000 socks5+ ${DANTE_HOST} ${DANTE_PORT} ${user} ${pass}" >> "$tmpfile"
     done
 
     # Start the HTTP CONNECT listener
-    echo "proxy -p${PROXY_PORT}" >> "$CONFIG"
+    echo "proxy -p${PROXY_PORT}" >> "$tmpfile"
+
+    # Atomic swap — prevents 3proxy from reading a half-written config
+    chmod 600 "$tmpfile"
+    mv "$tmpfile" "$CONFIG"
 
     user_count=$(grep -c '^users ' "$CONFIG" 2>/dev/null || echo 0)
     echo "Generated 3proxy config with ${user_count} users"
