@@ -253,7 +253,7 @@ services:
     profiles:
       - worker
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost ${PORT:-1080}"]
+      test: ["CMD-SHELL", "nc -z localhost ${DANTE_PORT:-1080}"]
       interval: 10s
       timeout: 5s
       start_period: 600s
