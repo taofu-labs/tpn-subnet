@@ -54,24 +54,22 @@ maxconn 512
 auth strong
 EOF
 
-    # Collect users first — 3proxy wants all `users` lines before ACL/parent rules
+    # Single pass — collect users and ACL/parent rules together
+    # 3proxy wants all `users` lines before ACL/parent rules, so we buffer both sections
+    local users="" rules=""
     for f in "$PASSWORD_DIR"/*.password; do
         [ -f "$f" ] || continue
         user=$(basename "$f" .password)
         pass=$(cat "$f")
-        echo "users ${user}:CL:${pass}" >> "$tmpfile"
+        users+="users ${user}:CL:${pass}"$'\n'
+        # Each user gets their own `allow` + `parent` pair so 3proxy authenticates
+        # to Dante with the matching credentials
+        rules+="allow ${user}"$'\n'
+        rules+="parent 1000 socks5+ ${DANTE_HOST} ${DANTE_PORT} ${user} ${pass}"$'\n'
     done
 
-    # Per-user ACL + SOCKS5 parent chain
-    # Each user gets their own `allow` + `parent` pair so 3proxy authenticates
-    # to Dante with the matching credentials
-    for f in "$PASSWORD_DIR"/*.password; do
-        [ -f "$f" ] || continue
-        user=$(basename "$f" .password)
-        pass=$(cat "$f")
-        echo "allow ${user}" >> "$tmpfile"
-        echo "parent 1000 socks5+ ${DANTE_HOST} ${DANTE_PORT} ${user} ${pass}" >> "$tmpfile"
-    done
+    printf '%s' "$users" >> "$tmpfile"
+    printf '%s' "$rules" >> "$tmpfile"
 
     # Start the HTTP CONNECT listener
     echo "proxy -p${PROXY_PORT}" >> "$tmpfile"
@@ -106,7 +104,7 @@ config_watcher() {
 
     echo "Config watcher: watching ${PASSWORD_DIR} for credential changes..."
 
-    inotifywait -m -e create -e modify -e delete -e moved_to "$PASSWORD_DIR" |
+    local pid
     while read -r dir event filename; do
 
         # Only react to .password files
@@ -121,15 +119,13 @@ config_watcher() {
         generate_config
 
         # Gracefully restart 3proxy by killing the current process
-        # PID is read from file since the watcher runs in a separate subprocess
-        local pid
         pid=$(cat "$PIDFILE" 2>/dev/null || true)
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             echo "Config watcher: restarting 3proxy (pid ${pid})..."
             kill "$pid" 2>/dev/null || true
         fi
 
-    done
+    done < <(inotifywait -m -e create -e modify -e delete -e moved_to "$PASSWORD_DIR")
 
 }
 
