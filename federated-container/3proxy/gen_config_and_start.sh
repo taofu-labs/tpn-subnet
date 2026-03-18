@@ -43,11 +43,10 @@ generate_config() {
     mkdir -p "$(dirname "$CONFIG")"
     tmpfile=$(mktemp "${CONFIG}.XXXXXX")
 
-    # Header: DNS, timeouts, logging, connection limits
+    # Header: timeouts, logging, connection limits
+    # DNS: uses container's /etc/resolv.conf (no explicit nserver directives)
     cat > "$tmpfile" <<EOF
 nscache 65536
-nserver 8.8.8.8
-nserver 8.8.4.4
 timeouts 1 5 30 60 180 1800 15 60
 log /dev/stdout
 maxconn 512

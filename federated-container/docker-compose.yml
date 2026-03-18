@@ -235,6 +235,7 @@ services:
     restart: unless-stopped
     environment:
       - USER_COUNT=${DANTE_USER_COUNT:-256}
+      - PORT=${DANTE_PORT:-1080}
     volumes:
       - ./dante_passwords:/passwords
       - ./dante_regen_requests:/dante_regen_requests
@@ -252,7 +253,7 @@ services:
     profiles:
       - worker
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "1080"]
+      test: ["CMD-SHELL", "nc -z localhost ${PORT:-1080}"]
       interval: 10s
       timeout: 5s
       start_period: 600s
