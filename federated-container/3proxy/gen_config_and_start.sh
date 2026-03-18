@@ -6,12 +6,25 @@
 set -e
 trap 'echo "Error occurred at line $LINENO. Exiting."; exit 1;' ERR
 
+# Graceful shutdown — forward SIGTERM/SIGINT to the 3proxy child process
+shutdown() {
+    echo "Received shutdown signal, stopping 3proxy..."
+    local pid
+    pid=$(cat "$PIDFILE" 2>/dev/null || true)
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+    exit 0
+}
+trap shutdown SIGTERM SIGINT
+
 CONFIG="/etc/3proxy/3proxy.cfg"
 PIDFILE="/var/run/3proxy.pid"
 PROXY_PORT=${PROXY_PORT:-3128}
 DANTE_HOST=${DANTE_HOST:-dante}
 DANTE_PORT=${DANTE_PORT:-1080}
-PASSWORD_DIR="/passwords"
+PASSWORD_DIR=${PASSWORD_DIR:-/passwords}
 
 echo -e "\n======================================"
 echo "3proxy HTTP Proxy Initialization"
@@ -136,6 +149,7 @@ start_proxy() {
         echo "$pid" > "$PIDFILE"
 
         # Wait for 3proxy to exit (either crash or watcher-triggered kill)
+        # wait returns 143 (128+15) on SIGTERM — the shutdown trap handles cleanup
         wait "$pid" || true
         echo "3proxy exited, restarting in 1s..."
         sleep 1
