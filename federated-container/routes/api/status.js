@@ -54,9 +54,10 @@ router.get( '/worker_performance', async ( req, res ) => {
             log.warn( `No ADMIN_API_KEY set in environment, denying access to /worker_performance` )
             return res.status( 403 ).json( { error: `ADMIN_API_KEY not configured` } )
         }
-        // Constant-time comparison to prevent timing attacks
+        // Constant-time comparison to prevent timing attacks (reject non-string input to avoid createHash throwing)
+        const safe_api_key = typeof api_key === 'string' ? api_key : ''
         const hash = val => createHash( 'sha256' ).update( val ).digest()
-        if( !api_key || !timingSafeEqual( hash( api_key ), hash( ADMIN_API_KEY ) ) ) return res.status( 403 ).json( { error: `Invalid API key` } )
+        if( !safe_api_key || !timingSafeEqual( hash( safe_api_key ), hash( ADMIN_API_KEY ) ) ) return res.status( 403 ).json( { error: `Invalid API key` } )
 
         // Check for response cache
         const cached_response = cache( `worker_performance_${ group_by }_${ from }_${ to }_${ format }` )

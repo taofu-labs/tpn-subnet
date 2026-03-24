@@ -17,10 +17,14 @@ const { CI_MOCK_WORKER_RESPONSES } = process.env
 // Constant-time key comparison to prevent timing attacks (H6)
 // SHA-256 normalizes lengths so timingSafeEqual always compares 32 bytes
 const constant_time_includes = ( keys, candidate ) => {
-    if( !candidate ) return false
+    if( Array.isArray( candidate ) ) candidate = candidate[0]
+    if( typeof candidate !== 'string' || !candidate ) return false
     const hash = val => createHash( 'sha256' ).update( val ).digest()
     const candidate_hash = hash( candidate )
-    return keys.some( key => timingSafeEqual( hash( key ), candidate_hash ) )
+    return keys.some( key => {
+        if( typeof key !== 'string' || !key ) return false
+        return timingSafeEqual( hash( key ), candidate_hash )
+    } )
 }
 
 export const router = Router()
