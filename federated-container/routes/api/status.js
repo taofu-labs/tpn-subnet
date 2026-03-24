@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { createHash, timingSafeEqual } from "crypto"
 import { abort_controller, cache, log, round_number_to_decimals } from "mentie"
 import { parse_url } from "../../modules/networking/url.js"
 import { get_tpn_cache } from "../../modules/caching.js"
@@ -57,11 +58,16 @@ router.get( '/worker_performance', async ( req, res ) => {
         // Check request validity
         const { miner_mode } = run_mode()
         if( !miner_mode ) return res.status( 403 ).json( { error: `Performance data is only available in miner mode` } )
+        // Deny access when ADMIN_API_KEY is not configured (C3: prevents auth bypass when env var is unset)
         const { ADMIN_API_KEY } = process.env
-        if( ADMIN_API_KEY && api_key !== ADMIN_API_KEY ) return res.status( 403 ).json( { error: `Invalid API key` } )
-
-        // If no admin API key was set, warn
-        log.warn( `No ADMIN_API_KEY set in environment, this is a security risk and should be set in production` )
+        if( !ADMIN_API_KEY ) {
+            log.warn( `No ADMIN_API_KEY set in environment, denying access to /worker_performance` )
+            return res.status( 403 ).json( { error: `ADMIN_API_KEY not configured` } )
+        }
+        // Constant-time comparison to prevent timing attacks (reject non-string input to avoid createHash throwing)
+        const safe_api_key = typeof api_key === 'string' ? api_key : ''
+        const hash = val => createHash( 'sha256' ).update( val ).digest()
+        if( !safe_api_key || !timingSafeEqual( hash( safe_api_key ), hash( ADMIN_API_KEY ) ) ) return res.status( 403 ).json( { error: `Invalid API key` } )
 
         // Check for response cache
         const cached_response = cache( `worker_performance_${ group_by }_${ from }_${ to }_${ format }` )
@@ -111,16 +117,16 @@ router.get( '/worker_performance', async ( req, res ) => {
         const totals = workers.reduce( ( acc, { status } ) => {
             acc[ status ] = ( acc[ status ] || 0 ) + 1
             return acc
-        }, { up: 0, down: 0, unknown: 0 } )
+        }, { up: 0, down: 0, unknown: 0, cheat: 0 } )
         workers = workers.reduce( ( acc, { ip, status, ...worker } ) => {
 
             // Increment status scores
-            const history = acc[ ip ] || { up: 0, down: 0, unknown: 0, uptime: 0 }
-            acc[ ip ] = { ...defaults, ...history, ...metadata, ...worker, [ status ]: history[ status ] + 1 }
+            const history = acc[ ip ] || { up: 0, down: 0, unknown: 0, cheat: 0, uptime: 0 }
+            acc[ ip ] = { ...defaults, ...history, ...metadata, ...worker, [ status ]: ( history[ status ] || 0 ) + 1 }
 
             // Increment worker uptime
-            const { up, down, unknown } = acc[ ip ]
-            const uptime = Math.round(  up / ( up + down + unknown )  * 10000 ) / 100
+            const { up, down, unknown, cheat } = acc[ ip ]
+            const uptime = Math.round(  up / ( up + down + unknown + cheat )  * 10000 ) / 100
             acc[ ip ].uptime = isNaN( uptime ) ? 0 : uptime
 
             return acc

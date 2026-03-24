@@ -175,8 +175,8 @@ for arg in "$@"; do
   esac
 done
 
-# Expand TPN_DIR to absolute path (handles ~)
-TPN_DIR=$(eval echo "$TPN_DIR")
+# Expand TPN_DIR to absolute path (handles ~, avoids eval for safety)
+TPN_DIR="${TPN_DIR/#\~/$HOME}"
 TPN_DIR=$(cd "$TPN_DIR" 2>/dev/null && pwd || echo "$TPN_DIR")
 
 # Check for TPN repository
