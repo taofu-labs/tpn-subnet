@@ -375,7 +375,7 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
     const network_setup_command = `
 
         # Check current ip
-        curl -m 5 -s icanhazip.com
+        curl -m 5 -s ipv4.icanhazip.com
 
         # Add namespace
         ip netns add ${ namespace_id }
@@ -435,7 +435,7 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         # ip netns exec ${ namespace_id } dig +time=1 +short google.com
 
         # Check ip address
-        curl -m 5 -s icanhazip.com && ip netns exec ${ namespace_id } curl -m 5 -s icanhazip.com
+        curl -m 5 -s ipv4.icanhazip.com && ip netns exec ${ namespace_id } curl -m 5 -s ipv4.icanhazip.com
 
     `
 
