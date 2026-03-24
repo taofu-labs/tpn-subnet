@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TPN Network Federated API
-  version: 1.0.15
+  version: 1.2.0
   description: |
     Public HTTP API exposed by the TPN Network federated container. The routes
     documented here are mounted under `/api` and cover live lease negotiation and
@@ -24,6 +24,28 @@ paths:
       description: |
         Returns a WireGuard or SOCKS5 configuration for the next available worker. Responses can be
         a structured JSON object or a ready-to-use profile string, based on the requested `format` and `type`.
+
+        ### Lease extension
+
+        An existing lease can be extended instead of allocating a fresh worker. Two
+        extension modes are supported:
+
+        - **Validator mode** — pass `lease_token` (a signed opaque token returned in
+          the original lease response). Requires the `X-Api-Key` header.
+        - **Miner / worker mode** — pass `extend_ref` (the peer ID or username from
+          the original lease) together with `extend_expires_at` (the current
+          `expires_at` timestamp, used as a reallocation guard).
+
+        `lease_token` and `extend_ref` are **mutually exclusive**; supplying both
+        results in a 500 error.
+
+        #### Access control per mode
+
+        | Run mode   | Who may call                        | Auth required |
+        |------------|-------------------------------------|---------------|
+        | Validator  | Any client with a valid API key     | `X-Api-Key`   |
+        | Miner      | Validators only (IP allow-list)     | No            |
+        | Worker     | Mining pool only (upstream miner)   | No            |
       parameters:
         - name: lease_seconds
           in: query
@@ -95,9 +117,58 @@ paths:
             type: boolean
             default: false
           description: Request a high-priority lease when supported by the current run mode.
+        - name: X-Api-Key
+          in: header
+          schema:
+            type: string
+          description: API key required when running in validator mode. Validated against the `VALIDATOR_LEASE_API_KEYS` environment variable.
+        - name: lease_token
+          in: query
+          schema:
+            type: string
+          description: Signed opaque token from a previous lease response; triggers lease extension in validator mode. Mutually exclusive with `extend_ref`.
+        - name: extend_ref
+          in: query
+          schema:
+            type: string
+          description: Lease reference (peer ID or username) from the original lease; triggers extension in miner/worker mode. Mutually exclusive with `lease_token`. Requires `extend_expires_at`.
+        - name: extend_expires_at
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: number
+          description: Current `expires_at` timestamp of the lease being extended (Unix ms). Acts as a reallocation guard. Required when `extend_ref` is provided.
+        - name: feedback_url
+          in: query
+          schema:
+            type: string
+            format: uri
+          description: Callback URL for cascade race resolution. The server may POST status updates to this URL during multi-hop lease negotiation.
+      security:
+        - apiKeyAuth: []
+        - {}
       responses:
         "200":
           description: Successfully allocated worker configuration.
+          headers:
+            X-Country:
+              schema:
+                type: string
+              description: ISO 3166-1 alpha-2 country code of the assigned worker. Present when resolved from the worker pool.
+            X-Connection-Type:
+              schema:
+                type: string
+                enum: [datacenter, residential, unknown]
+              description: Connection type of the assigned worker. Present when resolved from the worker pool.
+            X-Lease-Ref:
+              schema:
+                type: string
+              description: Lease reference identifier (peer ID or username). Use this value as `extend_ref` when extending the lease.
+            X-Lease-Expires:
+              schema:
+                type: string
+              description: Lease expiration timestamp (Unix ms, string-encoded). Use this value as `extend_expires_at` when extending the lease.
           content:
             application/json:
               schema:
@@ -108,6 +179,8 @@ paths:
                 wireguardJson:
                   summary: WireGuard config as JSON
                   value:
+                    connection_type: datacenter
+                    country: NL
                     interface:
                       Address: 10.13.13.160/32
                       PrivateKey: EXAMPLEcL1qN8Qy0HPc9z1u5BhkgxP+0IV7PP85AvK=
@@ -121,10 +194,28 @@ paths:
                 socks5Json:
                   summary: SOCKS5 lease as JSON
                   value:
+                    connection_type: residential
+                    country: US
                     username: u_demo
                     password: p_secret
                     ip_address: 203.0.113.42
                     port: 1080
+                wireguardJsonWithToken:
+                  summary: WireGuard config with lease_token (validator mode)
+                  value:
+                    connection_type: datacenter
+                    country: NL
+                    lease_token: eyJhbGciOiJIUzI1NiJ9.EXAMPLE_OPAQUE_TOKEN
+                    interface:
+                      Address: 10.13.13.160/32
+                      PrivateKey: EXAMPLEcL1qN8Qy0HPc9z1u5BhkgxP+0IV7PP85AvK=
+                      ListenPort: 51820
+                      DNS: 10.13.13.1
+                    peer:
+                      PublicKey: EXAMPLE8YlYOqEacern4rjTrS89yJAe89z5i+VyOC9hS9fc=
+                      PresharedKey: EXAMPLEStc9UjIPjcOVSA5iB8cANSv+ZxZKf2OLP71gkikc=
+                      AllowedIPs: 0.0.0.0/0
+                      Endpoint: 198.51.100.42:51820
             text/plain:
               schema:
                 type: string
@@ -153,6 +244,7 @@ paths:
       tags: [Lease]
       summary: List available worker countries
       description: Returns supported worker geographies as ISO codes or human readable names.
+      security: [{}]
       parameters:
         - name: format
           in: query
@@ -216,6 +308,7 @@ paths:
       tags: [Lease]
       summary: List available worker countries (alias)
       description: Alias for `/api/lease/countries`. Returns supported worker geographies as ISO codes or human readable names.
+      security: [{}]
       parameters:
         - name: format
           in: query
@@ -252,11 +345,163 @@ paths:
                 type: string
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/config/new:
+    get:
+      tags: [Lease]
+      summary: Request a new worker lease (alias)
+      description: |
+        Alias for `/api/lease/new`. Accepts all the same parameters and returns
+        identical responses. See `/api/lease/new` for full documentation including
+        lease extension modes and access control.
+      parameters:
+        - name: lease_seconds
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Requested lease duration in seconds.
+        - name: lease_minutes
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: Deprecated. When supplied, it is converted to `lease_seconds`.
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [json, text]
+            default: json
+          description:
+            Response format. `text` returns a ready-to-use profile string; `json`
+            returns structured metadata for the chosen transport.
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [wireguard, socks5]
+            default: wireguard
+          description: Worker transport to lease. Defaults to WireGuard.
+        - name: connection_type
+          in: query
+          schema:
+            type: string
+            enum: [any, datacenter, residential]
+            default: any
+          description: Request workers that match a specific connection class when supported.
+        - name: geo
+          in: query
+          schema:
+            type: string
+            description:
+              ISO 3166-1 alpha-2 code (case-insensitive) or `ANY` for the next
+              available region.
+          description: Preferred worker geography. Falls back to `ANY` when omitted.
+        - name: whitelist
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              format: ipv4
+          description: Comma separated IPv4 addresses that should always be allowed.
+        - name: blacklist
+          in: query
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              format: ipv4
+          description: Comma separated IPv4 addresses that must be blocked.
+        - name: priority
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Request a high-priority lease when supported by the current run mode.
+        - name: X-Api-Key
+          in: header
+          schema:
+            type: string
+          description: API key required when running in validator mode. Validated against the `VALIDATOR_LEASE_API_KEYS` environment variable.
+        - name: lease_token
+          in: query
+          schema:
+            type: string
+          description: Signed opaque token from a previous lease response; triggers lease extension in validator mode. Mutually exclusive with `extend_ref`.
+        - name: extend_ref
+          in: query
+          schema:
+            type: string
+          description: Lease reference (peer ID or username) from the original lease; triggers extension in miner/worker mode. Mutually exclusive with `lease_token`. Requires `extend_expires_at`.
+        - name: extend_expires_at
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: number
+          description: Current `expires_at` timestamp of the lease being extended (Unix ms). Acts as a reallocation guard. Required when `extend_ref` is provided.
+        - name: feedback_url
+          in: query
+          schema:
+            type: string
+            format: uri
+          description: Callback URL for cascade race resolution. The server may POST status updates to this URL during multi-hop lease negotiation.
+      security:
+        - apiKeyAuth: []
+        - {}
+      responses:
+        "200":
+          description: Successfully allocated worker configuration.
+          headers:
+            X-Country:
+              schema:
+                type: string
+              description: ISO 3166-1 alpha-2 country code of the assigned worker.
+            X-Connection-Type:
+              schema:
+                type: string
+                enum: [datacenter, residential, unknown]
+              description: Connection type of the assigned worker.
+            X-Lease-Ref:
+              schema:
+                type: string
+              description: Lease reference identifier (peer ID or username).
+            X-Lease-Expires:
+              schema:
+                type: string
+              description: Lease expiration timestamp (Unix ms, string-encoded).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/LeaseConfig"
+                  - $ref: "#/components/schemas/Socks5LeaseConfig"
+            text/plain:
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/stats:
     get:
       tags: [Stats]
       summary: Fetch cached network statistics
-      description: Returns the cached run mode, country distribution, and worker IP mappings.
+      security: [{}]
+      description: |
+        Returns the cached run mode and aggregated country distribution.
+        IP-level data (`country_code_to_ips`, `miner_uid_to_ip`) is only included
+        when a valid `api_key` matching the server's `ADMIN_API_KEY` is provided.
+      parameters:
+        - name: api_key
+          in: query
+          schema:
+            type: string
+          description: Admin API key. When provided and valid, the response includes IP-level worker data.
       responses:
         "200":
           description: Statistics snapshot of the currently running node.
@@ -264,27 +509,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatsResponse"
-              example:
-                mode: validator
-                country_count:
-                  US: 7
-                  NL: 6
-                  FR: 5
-                country_code_to_ips:
-                  US:
-                    - 178.128.6.96
-                    - 138.197.37.170
-                  NL:
-                    - 64.227.71.160
-                miner_uid_to_ip:
-                  "1": 185.237.185.222
-                  "2": 38.165.233.70
+              examples:
+                unauthenticated:
+                  summary: Public response (no api_key)
+                  value:
+                    mode: validator
+                    country_count:
+                      US: 7
+                      NL: 6
+                      FR: 5
+                authenticated:
+                  summary: Authenticated response (valid api_key)
+                  value:
+                    mode: validator
+                    country_count:
+                      US: 7
+                      NL: 6
+                      FR: 5
+                    country_code_to_ips:
+                      US:
+                        - 178.128.6.96
+                        - 138.197.37.170
+                      NL:
+                        - 64.227.71.160
+                    miner_uid_to_ip:
+                      "1": 185.237.185.222
+                      "2": 38.165.233.70
         "500":
           $ref: "#/components/responses/InternalError"
   /api/worker_performance:
     get:
       tags: [Workers]
       summary: Retrieve worker performance metrics
+      security: [{}]
       description: |
         Provides uptime and reward share data for workers observed by the miner. Access is
         restricted to miner mode and may require an administrator API key. Results can be
@@ -399,12 +656,62 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/request/{id}:
+    get:
+      tags: [Lease]
+      summary: Check lease request status
+      security: [{}]
+      description: |
+        Polls the outcome of a lease allocation request. Returns the current
+        status and, when resolved, indicates which candidate won the lease.
+        Useful for tracking cascade race resolution across multi-hop lease
+        negotiation.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Request tracking ID returned during lease negotiation.
+      responses:
+        "200":
+          description: Current status of the lease request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestStatus"
+              examples:
+                pending:
+                  summary: Request still in progress
+                  value: {}
+                won:
+                  summary: This candidate won the lease
+                  value:
+                    status: complete
+                    winner: self
+                lost:
+                  summary: Another candidate won the lease
+                  value:
+                    status: complete
+                    winner: other
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   schemas:
     LeaseConfig:
       type: object
       required: [interface, peer]
       properties:
+        connection_type:
+          type: string
+          enum: [datacenter, residential, unknown]
+          description: Resolved connection type of the assigned worker. Especially useful when `connection_type=any` was requested.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code of the assigned worker. Especially useful when `geo=any` was requested.
+        lease_token:
+          type: string
+          description: Signed opaque token for extending this lease. Only present in validator-mode responses.
         interface:
           type: object
           required: [Address, PrivateKey, ListenPort, DNS]
@@ -441,6 +748,16 @@ components:
       type: object
       required: [username, password, ip_address, port]
       properties:
+        connection_type:
+          type: string
+          enum: [datacenter, residential, unknown]
+          description: Resolved connection type of the assigned worker. Especially useful when `connection_type=any` was requested.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code of the assigned worker. Especially useful when `geo=any` was requested.
+        lease_token:
+          type: string
+          description: Signed opaque token for extending this lease. Only present in validator-mode responses.
         username:
           type: string
           description: SOCKS5 username allocated for this lease.
@@ -463,7 +780,7 @@ components:
       description: Ordered list of supported worker geographies.
     StatsResponse:
       type: object
-      required: [mode, country_count, country_code_to_ips]
+      required: [mode, country_count]
       properties:
         mode:
           type: string
@@ -481,14 +798,14 @@ components:
               type: string
               format: ipv4
               description: Public ingress IP address for a worker registered under the keyed country.
-          description: Map of ISO country codes to worker ingress IPs.
+          description: Map of ISO country codes to worker ingress IPs. Only included when a valid `api_key` is provided.
         miner_uid_to_ip:
           type: object
           nullable: true
           additionalProperties:
             type: string
             format: ipv4
-          description: Present in validator mode, maps miner UIDs to their public IPs.
+          description: Maps miner UIDs to their public IPs. Only included in validator mode with a valid `api_key`.
     WorkerPerformanceEntry:
       type: object
       required:
@@ -580,6 +897,17 @@ components:
       type: array
       items:
         $ref: "#/components/schemas/WorkerPerformancePaymentByBittensor"
+    RequestStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [complete]
+          description: Present once the request has been resolved.
+        winner:
+          type: ['string', 'null']
+          description: Identifier of the winning candidate, or `null` if no winner. Only present when `status` is `complete`.
+      description: Tracks the outcome of a lease allocation request. An empty object indicates the request is still pending.
     ErrorResponse:
       type: object
       required: [error]
@@ -611,3 +939,9 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
           example:
             error: Invalid 'from' date
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: API key for validator-mode lease requests. Validated against the `VALIDATOR_LEASE_API_KEYS` environment variable on the server.

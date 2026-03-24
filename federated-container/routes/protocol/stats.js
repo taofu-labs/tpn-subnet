@@ -81,6 +81,15 @@ router.get( "/stats/pools", async ( req, res ) => {
             // Get pool metadata
             const [ { last_known_worker_pool_size }={} ] = await read_worker_broadcast_metadata( { mining_pool_uid } )
 
+            // Get last known up worker count (cached per pool for 5 minutes)
+            const up_cache_key = `up_worker_count_${ mining_pool_uid }`
+            let last_known_up_worker_count = cache( up_cache_key )
+            if( last_known_up_worker_count === undefined ) {
+                const { workers: up_workers } = await get_workers( { mining_pool_uid, status: 'up', limit: null } )
+                last_known_up_worker_count = up_workers?.length || 0
+                cache( up_cache_key, last_known_up_worker_count, 5 * 60_000 )
+            }
+
             // Get pool broadcast data
             const { fetch_options } = abort_controller( { timeout_ms: 1_000 } )
             const { version, MINING_POOL_REWARDS, MINING_POOL_WEBSITE_URL } = await fetch( url, fetch_options ).then( res => res.json() ).catch( e => ( { error: e.message } ) )
@@ -97,7 +106,8 @@ router.get( "/stats/pools", async ( req, res ) => {
                 MINING_POOL_REWARDS,
                 MINING_POOL_WEBSITE_URL,
                 countries,
-                last_known_worker_pool_size
+                last_known_worker_pool_size,
+                last_known_up_worker_count
             }
 
             // Return data for this pool
@@ -137,7 +147,13 @@ router.get( "/stats/workers", async ( req, res ) => {
         log.debug( `Workers example: `, workers[0] )
 
         // Generate worker stats
-        const { total, residential, datacenter, countries } = workers.reduce( ( acc, { connection_type, country } ) => {
+        const {
+            total,
+            residential,
+            datacenter,
+            countries_with_counts,
+            counts_with_countries
+        } = workers.reduce( ( acc, { connection_type, country } ) => {
 
             // Accumulate counts
             acc.total++
@@ -166,12 +182,15 @@ router.get( "/stats/workers", async ( req, res ) => {
 
         }, { total: 0, residential: 0, datacenter: 0, countries_with_counts: {}, counts_with_countries: { total: new Set(), residential: new Set(), datacenter: new Set(), unknown: new Set() } } )
 
-        // Convert Sets to arrays for JSON serialization
-        countries.counts_with_countries = {
-            total: [ ...countries.counts_with_countries.total ],
-            residential: [ ...countries.counts_with_countries.residential ],
-            datacenter: [ ...countries.counts_with_countries.datacenter ],
-            unknown: [ ...countries.counts_with_countries.unknown ]
+        // Build countries object and convert Sets to arrays for JSON serialization
+        const countries = {
+            countries_with_counts,
+            counts_with_countries: {
+                total: [ ...counts_with_countries.total ],
+                residential: [ ...counts_with_countries.residential ],
+                datacenter: [ ...counts_with_countries.datacenter ],
+                unknown: [ ...counts_with_countries.unknown ]
+            }
         }
 
         // Cache the worker stats

@@ -2,14 +2,37 @@
 
 set -euo pipefail
 
+# --- Concurrency lock ---
+# Prevent overlapping cron runs from racing against each other.
+# Uses a lock file with flock — if another instance is running, exit silently.
+LOCKFILE="/tmp/update_node.lock"
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+    echo "Another update_node.sh is already running, exiting."
+    exit 0
+fi
+
+# --- Safety net: ensure containers come back up ---
+# Once we've built the DOCKER_CMD, the EXIT trap will always try to bring
+# containers up. This covers: set -e exits, crashes, signals, OOM kills, etc.
+containers_downed=false
+
 cleanup() {
+
+    # If we downed containers but never brought them back, do it now
+    if [ "$containers_downed" = true ] && [ ${#DOCKER_CMD[@]} -gt 0 ]; then
+        red "⚠️ Script exiting after containers were stopped — bringing them back up as safety net..."
+        "${DOCKER_CMD[@]}" up -d || red "CRITICAL: Failed to bring containers back up! Manual intervention required."
+    fi
+
     if [ "${stash_created:-false}" = true ] && [ "${stash_popped:-false}" != true ]; then
         echo "Cleanup: attempting to pop temporary stash."
         git -C "${TPN_DIR:-.}" stash pop >/dev/null 2>&1 || echo "Cleanup: no stash to pop or pop failed."
     fi
 }
 
-trap cleanup EXIT
+DOCKER_CMD=()
+trap cleanup EXIT INT TERM HUP
 
 # Default values for flags
 TPN_DIR=~/tpn-subnet
@@ -77,26 +100,28 @@ docker_pull_with_fallback() {
 
     grey "Attempting docker pull..."
 
+    local pull_timeout=180  # 3 minutes per attempt
+
     # Attempt 1: Standard pull
-    if "${docker_cmd[@]}" pull -q; then
+    if timeout "$pull_timeout" "${docker_cmd[@]}" pull -q; then
         return 0
     fi
     grey "Standard pull failed, trying with sequential DNS resolution..."
 
     # Attempt 2: RES_OPTIONS for sequential DNS (helps with IPv6 race conditions)
-    if RES_OPTIONS="single-request" "${docker_cmd[@]}" pull -q; then
+    if timeout "$pull_timeout" env RES_OPTIONS="single-request" "${docker_cmd[@]}" pull -q; then
         return 0
     fi
     grey "Sequential DNS pull failed, trying without parallel downloads..."
 
     # Attempt 3: No parallel pulls (reduces connection load)
-    if "${docker_cmd[@]}" pull --no-parallel; then
+    if timeout "$pull_timeout" "${docker_cmd[@]}" pull --no-parallel; then
         return 0
     fi
     grey "Non-parallel pull failed, combining approaches..."
 
     # Attempt 4: Combined approach
-    if RES_OPTIONS="single-request" "${docker_cmd[@]}" pull --no-parallel; then
+    if timeout "$pull_timeout" env RES_OPTIONS="single-request" "${docker_cmd[@]}" pull --no-parallel; then
         return 0
     fi
 
@@ -105,7 +130,7 @@ docker_pull_with_fallback() {
         grey "Non-sudo approaches exhausted, disabling IPv6 temporarily..."
         sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
 
-        if "${docker_cmd[@]}" pull -q; then
+        if timeout "$pull_timeout" "${docker_cmd[@]}" pull -q; then
             # Re-enable IPv6 on success
             sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null 2>&1
             return 0
@@ -254,7 +279,10 @@ will_hard_reset=false
 
 if [ "$CURRENT_BRANCH" = "development" ]; then
     echo "Checking for divergent branches on development..."
-    git fetch origin development >/dev/null 2>&1
+    if ! timeout 60 git fetch origin development >/dev/null 2>&1; then
+        red "Error: Failed to fetch origin/development within timeout; cannot reliably check for branch divergence."
+        exit 1
+    fi
 
     # Check if branches have diverged
     LOCAL_COMMIT=$(git rev-parse development)
@@ -308,7 +336,7 @@ else
     fi
 
     # Update the TPN repository
-    pull_output=$(git pull 2>&1)
+    pull_output=$(timeout 60 git pull 2>&1)
     printf "%s\n" "$pull_output"
     if printf "%s\n" "$pull_output" | grep -q "Already up to date."; then
         grey "Repository is already up to date. No need to restart daemons."
@@ -341,18 +369,28 @@ grey "Latest docker images pulled."
 
 # Restart the node docker container if needed
 if [ "$REPO_UP_TO_DATE" -eq 0 ]; then
-    echo "Repository has changes, force restarting docker process..."
-    "${DOCKER_CMD[@]}" down
+    echo "Repository has changes, recreating containers..."
+
+    # Mark containers as downed so the safety-net trap can recover if we crash
+    containers_downed=true
+
+    # Use --force-recreate + --remove-orphans instead of down+up.
+    # This sequentially recreates containers (one service at a time, with brief
+    # downtime per service) AND cleans up orphaned containers from renamed/removed services.
+    "${DOCKER_CMD[@]}" up -d --force-recreate --remove-orphans
+
+    # Containers are back — disarm the safety net
+    containers_downed=false
+
+    # Prune old images/networks after containers are running (non-critical)
     echo "Pruning unused images..."
     docker image prune -f || echo "Failed to prune unused images."
     echo "Pruning unused networks..."
     docker network prune -f || echo "Failed to prune unused networks."
 else
-    grey "No changes in the repository, no need to force restart docker."
+    grey "No changes in the repository, ensuring containers are running..."
+    "${DOCKER_CMD[@]}" up -d
 fi
-
-# Bring node back up
-"${DOCKER_CMD[@]}" up -d
 
 # Function to check and install Python 3.10+
 ensure_python_310() {
@@ -448,7 +486,7 @@ if [ -n "$NETCAT_AVAILABLE" ]; then
     else 
         echo "Note: Public port $USER@$SERVER_PUBLIC_HOST:$SERVER_PUBLIC_PORT/tcp is not open. While not strictly required due to docker's port forwarding, it is recommended to open it in your firewall."
     fi
-    if nc -zvu localhost "$WIREGUARD_SERVERPORT" >/dev/null 2>&1; then
+    if timeout 5 nc -zvu localhost "$WIREGUARD_SERVERPORT" >/dev/null 2>&1; then
         green "✅ Wireguard port $WIREGUARD_SERVERPORT/udp is open."
     else 
         echo "Note: Wireguard port $USER@$SERVER_PUBLIC_HOST:$WIREGUARD_SERVERPORT/udp is not open. While not strictly required due to docker's port forwarding, it is recommended to open it in your firewall."

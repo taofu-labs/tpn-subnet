@@ -94,7 +94,8 @@ export function get_miner_by_ip( ip ) {
 }
 
 /**
- * Validator function to get worker config through mining pool
+ * Validator function to get worker config through mining pool.
+ * Returns config alongside lease metadata headers for the extension chain.
  * @param {Object} params
  * @param {Object} params.worker - The worker object
  * @param {number} [params.max_retries=2] - The maximum number of retry attempts
@@ -105,42 +106,73 @@ export function get_miner_by_ip( ip ) {
  * @param {string} params.mining_pool_uid - UID of the mining pool
  * @param {string} params.mining_pool_ip - IP address of the mining pool
  * @param {string} [params.feedback_url] - URL for feedback on the request status
- * @returns {Promise<Object|String>} - Promise resolving to the worker config
+ * @param {string} [params.extend_ref] - Lease reference to extend (forwarded through the mining pool to the worker)
+ * @param {string|number} [params.extend_expires_at] - Current expires_at of the lease being extended
+ * @param {string} [params.endpoint_url] - Pre-resolved mining pool base URL (skips DB metadata lookup when provided)
+ * @returns {Promise<{ config: Object|String, lease_ref: string|null, lease_expires_at: number|null }|null>} - Config with lease metadata
  */
-export async function get_worker_config_through_mining_pool( { worker, max_retries=2, timeout_ms=5_000, mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120, feedback_url } ) {
+export async function get_worker_config_through_mining_pool( { worker, max_retries=2, timeout_ms=5_000, mining_pool_uid, mining_pool_ip, type='wireguard', format='text', lease_seconds=120, feedback_url, extend_ref, extend_expires_at, endpoint_url } ) {
 
-    // Get mining pool data
-    const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
-    if( !url ) throw new Error( `No URL found in metadata for mining pool ${ mining_pool_uid } at IP ${ mining_pool_ip }` )
-    if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
-    const endpoint = `${ url }/api/lease/new`
-    const query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }${ feedback_url ? `&feedback_url=${ encodeURIComponent( feedback_url ) }` : '' }`
+    // Resolve endpoint — use pre-resolved URL when provided (e.g. extension flow), otherwise look up from DB
+    let endpoint
+    if( endpoint_url ) {
+        endpoint = `${ endpoint_url }/api/lease/new`
+    } else {
+        const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
+        if( !url ) throw new Error( `No URL found in metadata for mining pool ${ mining_pool_uid } at IP ${ mining_pool_ip }` )
+        if( !url?.includes( port ) || !url?.includes( protocol ) ) log.warn( `Mining pool URL ${ url } does not include port ${ port } or protocol ${ protocol }, this suggests misconfiguration of the miner` )
+        endpoint = `${ url }/api/lease/new`
+    }
+
+    // Build query string with optional extension and feedback params
+    let query = `?lease_seconds=${ lease_seconds }&format=${ format }&whitelist=${ worker.ip }&type=${ type }`
+    if( feedback_url ) query += `&feedback_url=${ encodeURIComponent( feedback_url ) }`
+    if( extend_ref ) query += `&extend_ref=${ encodeURIComponent( extend_ref ) }`
+    if( extend_expires_at ) query += `&extend_expires_at=${ encodeURIComponent( extend_expires_at ) }`
 
     // Mock response if needed
     const { CI_MOCK_MINING_POOL_RESPONSES } = process.env
     if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) {
         log.info( `CI_MOCK_MINING_POOL_RESPONSES is enabled, returning mock response for ${ endpoint }/${ query }` )
-        return format === 'json' ? { json_config: { endpoint_ipv4: 'mock.mock.mock.mock' }, text_config: "" } : "Mock WireGuard config"
+        const mock_config = format === 'json' ? { json_config: { endpoint_ipv4: 'mock.mock.mock.mock' }, text_config: "" } : "Mock WireGuard config"
+        return { config: mock_config, lease_ref: null, lease_expires_at: null }
     }
 
-    // Get config through mining pool
+    // Get config through mining pool, reading lease metadata headers alongside the body
     let config = null
+    let lease_ref = null
+    let lease_expires_at = null
     let attempts = 0
     while( !config && attempts < max_retries ) {
 
-        // Fetch config
+        // Fetch config and extract lease headers from the mining pool response
         attempts++
         const { fetch_options } = abort_controller( { timeout_ms } )
         log.info( `Attempt ${ attempts }/${ max_retries } to get worker config through mining pool at ${ endpoint }${ query }` )
-        config = await fetch( `${ endpoint }${ query }`, fetch_options ).then( res => format === 'json' ? res.json() : res.text() ).catch( e => {
+        const result = await fetch( `${ endpoint }${ query }`, fetch_options ).then( async res => {
+
+            // Read lease metadata headers before parsing body
+            if( !res.ok ) throw new Error( `Mining pool ${ mining_pool_uid } returned HTTP ${ res.status }` )
+            const ref = res.headers.get( `X-Lease-Ref` )
+            const expires = res.headers.get( `X-Lease-Expires` )
+            const body = format === `json` ? await res.json() : await res.text()
+            return { body, ref, expires }
+
+        } ).catch( e => {
             log.warn( `Error fetching worker config from mining pool ${ mining_pool_uid } on attempt ${ attempts }:`, e.message )
             return null
         } )
-        log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.ip }` )
+
+        if( result ) {
+            config = result.body
+            lease_ref = result.ref || null
+            lease_expires_at = result.expires ? Number( result.expires ) : null
+            log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.ip }` )
+        }
 
     }
 
-    return config
-
+    if( !config ) return null
+    return { config, lease_ref, lease_expires_at }
 
 }

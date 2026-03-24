@@ -8,6 +8,7 @@ import { add_configs_to_workers } from "./query_workers.js"
 import { read_mining_pool_metadata, write_pool_score } from "../database/mining_pools.js"
 import { get_miners } from "../networking/miners.js"
 import { score_node_version } from "./score_node.js"
+import { is_partnered_pool } from "../partnered_pools.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES, CI_MOCK_WORKER_RESPONSES, CI_MINER_IP_OVERRIDES } = process.env
 
 /**
@@ -170,10 +171,14 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     log.info( `Scoring mining pool ${ pool_label }` )
     cache.merge( cache_key, [ `${ elapsed_s() }s - Starting scoring for mining pool ${ pool_label }` ] )
 
-    // Test pool version
+    // Test pool version (partnered pools are exempt)
     const { protocol, url, port } = await read_mining_pool_metadata( { mining_pool_ip, mining_pool_uid } )
-    const { version_valid, version } = await score_node_version( { public_url: url, ip: mining_pool_ip, port } )
-    if( !version_valid ) throw new Error( `Mining pool ${ pool_label } is running an outdated version: ${ version }` )
+    if( is_partnered_pool( { mining_pool_uid, mining_pool_ip } ) ) {
+        log.info( `Mining pool ${ pool_label } is a partnered network pool, skipping version check` )
+    } else {
+        const { version_valid, version } = await score_node_version( { public_url: url, ip: mining_pool_ip, port } )
+        if( !version_valid ) throw new Error( `Mining pool ${ pool_label } is running an outdated version: ${ version }` )
+    }
 
     // Get the latest broadcast metadata of the worker data
     const [ { last_known_worker_pool_size, updated }={} ]= await read_worker_broadcast_metadata( { mining_pool_uid, mining_pool_ip, limit: 1 } )
@@ -199,7 +204,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     }
     log.info( `Selected ${ selected_workers.length } workers for scoring from mining pool ${ pool_label }` )
 
-    // Annotate the selected workers with a wireguard and socks5 config
+    // Annotate the selected workers with a wireguard and socks5 config (fetched from the mining pool, not from workers directly)
     const workers_with_configs = await add_configs_to_workers( {
         workers: selected_workers,
         mining_pool_uid,
@@ -211,7 +216,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Score the selected workers
     cache.merge( cache_key, [ `${ elapsed_s() }s - Validating and annotating ${ workers_with_configs.length } workers for mining pool ${ pool_label }` ] )
-    const { successes, failures, workers_with_status } = await validate_and_annotate_workers( { workers_with_configs } )
+    const { successes, failures, workers_with_status } = await validate_and_annotate_workers( { workers_with_configs, mining_pool_uid, mining_pool_ip } )
     cache.merge( cache_key, [ `${ elapsed_s() }s - Completed validating and annotating workers for mining pool ${ pool_label }` ] )
     log.info( `Scored workers for mining pool ${ pool_label }, successes: ${ successes?.length }, failures: ${ failures?.length }. Status annotated: ${ workers_with_status?.length }` )
     log.debug( `Failure exerpt: `, failures?.slice( 0, 3 ) )

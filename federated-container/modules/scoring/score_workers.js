@@ -1,13 +1,14 @@
 import { abort_controller, log } from "mentie"
 import { try_acquire_lock } from "../locks.js"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
-import { default_mining_pool, is_valid_worker, run_mode } from "../validations.js"
+import { is_valid_worker, run_mode } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
 import { get_workers, write_workers, write_worker_performance } from "../database/workers.js"
 import { add_configs_to_workers } from "./query_workers.js"
 import { map_ips_to_geodata } from "../geolocation/ip_mapping.js"
 import { test_socks5_connection } from "../networking/socks5.js"
 import { score_node_version } from "./score_node.js"
+import { is_partnered_pool } from "../partnered_pools.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
 
 const status_from_failure_code = failure_code => failure_code === 'egress_ip_mismatch' ? 'cheat' : 'down'
@@ -71,38 +72,105 @@ export async function score_all_known_workers( max_duration_minutes=15 ) {
 }
 
 /**
- * Verifies that a worker is associated with the expected mining pool.
- * @param {Object} params - Verification parameters.
- * @param {Object} params.worker - Worker object.
+ * Gets up to date cleimed metadata from a worker
+ * @param {Object} params - Parameters for fetching worker metadata.
+ * @param {Object} params.worker - Worker object containing at least the IP and public port.
  * @param {string} params.worker.ip - IP address of the worker.
  * @param {number} params.worker.public_port - Public port of the worker.
- * @param {string} params.mining_pool_url - Expected URL of the mining pool.
- * @param {boolean} [params.throw_on_mismatch=false] - Whether to throw an error on mismatch.
- * @param {number} [params.timeout_ms=5_000] - Timeout in ms for the worker membership check.
- * @returns {Promise<boolean>} - True if worker matches miner, false otherwise.
+ * @param {number} [params.timeout_ms=5_000] - Timeout in milliseconds for the fetch request.
+ * @returns {Promise<Object>} - An object containing the worker's claimed metadata or an error message.
  */
-export async function worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch=false, timeout_ms=5_000 } ) {
+export async function get_worker_metadata( { worker, timeout_ms=5_000 } ) {
 
     try {
 
         // Check that the worker broadcasts mining pool membership
         const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true'
         const { fetch_options } = abort_controller( { timeout_ms } )
-        const { MINING_POOL_URL } = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
-        if( !mock_pool_check && !MINING_POOL_URL ) throw new Error( `Worker does not broadcast mining pool membership` )
-        if( CI_MODE !== 'true' && MINING_POOL_URL !== mining_pool_url && MINING_POOL_URL !== default_mining_pool ) throw new Error( `Worker broadcast ${ MINING_POOL_URL } which does not correspond to our expectation of ${ mining_pool_url }` )
+        const worker_metadata = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
+        const { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL } = worker_metadata || {}
+        const url = `${ SERVER_PUBLIC_PROTOCOL }://${ SERVER_PUBLIC_HOST }:${ SERVER_PUBLIC_PORT }`
 
-        return true
+        return { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL, url }
+
+    } catch ( e ) {
+        log.info( `Error fetching worker metadata from ${ worker.ip }: ${ e.message }:`, e )
+        return { error: e.message }
+
+    }
+
+}
+/**
+ * Takes in worker objects where some may have the same ip, for those with same ip, checks the pool meta, first match wins
+ * @param {Object} params - Parameters for finding valid workers by IP.
+ * @param {Array} params.workers - Array of worker objects to check, each must have an 'ip' property.
+ * @returns {Promise<Array>} - An array of valid worker objects, with at most one worker per unique IP address.
+ */
+export async function find_first_valid_workers_by_ip( { workers } ) {
+
+    try {
+
+        const ips = [ ...new Set( workers.map( worker => worker.ip ) ) ]
+        const winning_workers = []
+        await Promise.all( ips.map( async ( ip ) => {
+
+            const workers_with_ip = workers.filter( worker => worker.ip === ip )
+            const worker_results = await Promise.all( workers_with_ip.map( async ( worker ) => {
+                const { matches } = await match_worker_to_pool( { worker, mining_pool_url: worker.mining_pool_url } )
+                return { worker, matches }
+            } ) )
+
+            const valid_worker_result = worker_results.find( result => result.matches === true )
+            if( valid_worker_result ) winning_workers.push( valid_worker_result.worker )
+
+        } ) )
+
+        return winning_workers
+
+    } catch ( e ) {
+        log.info( `Error finding first valid worker by IP: ${ e.message }:`, e )
+        throw new Error( `Error finding first valid worker by IP: ${ e.message }` )
+    }
+
+}
+
+/**
+ * Verifies that a worker is associated with the expected mining pool.
+ * @param {Object} params - Verification parameters.
+ * @param {Object} params.worker - Worker object.
+ * @param {string} params.worker.ip - IP address of the worker.
+ * @param {number} params.worker.public_port - Public port of the worker.
+ * @param {string} params.mining_pool_url - Expected URL of the mining pool.
+ * @param {number} [params.timeout_ms=5_000] - Timeout in ms for the worker membership check.
+ * @returns {Promise<Object>} Result of the verification with claimed pool URL and match status.
+ * @returns {string} returns.worker_claimed_pool_url - The mining pool URL claimed by the worker.
+ * @returns {boolean} returns.matches - Whether the worker's claimed mining pool matches the expected URL.
+ */
+export async function match_worker_to_pool( { worker, mining_pool_url, timeout_ms=5_000 } ) {
+
+    try {
+
+        // Check that the worker broadcasts mining pool membership
+        const { MINING_POOL_URL: worker_claimed_pool_url } = await get_worker_metadata( { worker, timeout_ms } )
+        if( !worker_claimed_pool_url ) throw new Error( `Worker does not broadcast mining pool membership` )
+        const ci_mode = CI_MODE === 'true'
+        const pool_match = worker_claimed_pool_url === mining_pool_url
+        const matches = ci_mode ? true : pool_match
+        if( ci_mode && !pool_match ) log.warn( `In CI mode, ignoring worker pool mismatch. Worker claims ${ worker_claimed_pool_url }, expected ${ mining_pool_url }` )
+
+        if( !matches ) log.debug( `Worker at ${ worker.ip } claims mining pool ${ worker_claimed_pool_url }, expected ${ mining_pool_url }` )
+        return { worker_claimed_pool_url , matches }
     
     } catch ( e ) {
         log.info( `Error checking worker ${ worker.ip } matches miner at ${ mining_pool_url }: ${ e.message }:`, e )
-        if( throw_on_mismatch ) throw e
-        return false
+        return { error: e.message, matches: false }
     }
 }
 
 /**
- * Checks whether the worker objects are valid and work
+ * Checks whether the worker objects are valid and work.
+ * For partnered pools (matched via PARTNERED_NETWORK_MINING_POOLS), version and membership
+ * checks are skipped since those require direct worker calls. Wireguard and socks5 tests still run.
  * @param {Object} params
  * @param {Array} params.workers_with_configs
  * @param {string} params.workers_with_configs[].ip - IP address of the worker
@@ -110,11 +178,17 @@ export async function worker_matches_miner( { worker, mining_pool_url, throw_on_
  * @param {string} params.workers_with_configs[].country_code - Country code of the worker
  * @param {string} params.workers_with_configs[].public_port - Public port of the worker
  * @param {string} params.workers_with_configs[].mining_pool_url - URL of the mining pool
+ * @param {string} [params.mining_pool_uid] - UID of the mining pool (required for partnered pool detection)
+ * @param {string} [params.mining_pool_ip] - IP of the mining pool (required for partnered pool detection)
  * @returns {Promise<Object>} Object with successes and failures arrays
  * @returns {Array} returns.successes - Array of successful worker tests
  * @returns {Array} returns.failures - Array of failed worker tests
  */
-export async function validate_and_annotate_workers( { workers_with_configs=[] } ) {
+export async function validate_and_annotate_workers( { workers_with_configs=[], mining_pool_uid, mining_pool_ip } ) {
+
+    // Partnered pool workers run custom code — version and membership checks call workers directly and must be skipped
+    const is_partnered = mining_pool_uid && mining_pool_ip && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
+    if( is_partnered ) log.info( `Pool ${ mining_pool_uid } is a partnered network pool, skipping version and membership checks for ${ workers_with_configs.length } workers` )
 
     // If worker config list exceeds 250, warn this is close to ip subnet limit and might cause issues
     if( workers_with_configs.length > 250 ) {
@@ -151,12 +225,17 @@ export async function validate_and_annotate_workers( { workers_with_configs=[] }
             const { text_config, mining_pool_url } = worker
             if( CI_MODE === 'true' ) log.info( `Validating worker ${ worker.ip } with config:`, worker )
 
-            // Check that the worker is up to date
-            const { version_valid, version } = await score_node_version( worker )
-            if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
+            // Check that the worker is up to date (partnered pool workers run custom code, skip direct call)
+            if( !is_partnered ) {
+                const { version_valid, version } = await score_node_version( worker )
+                if( !version_valid ) throw new Error( `Worker is running an outdated version: ${ version }` )
+            }
 
-            // Check that the worker broadcasts mining pool membership
-            await worker_matches_miner( { worker, mining_pool_url, throw_on_mismatch: true } )
+            // Check that the worker broadcasts mining pool membership (partnered pool workers skip, can't be called)
+            if( !is_partnered ) {
+                const { matches, worker_claimed_pool_url } = await match_worker_to_pool( { worker, mining_pool_url } )
+                if( !matches ) throw new Error( `Worker does not claim expected mining pool ${ mining_pool_url } but claims ${ worker_claimed_pool_url }` )
+            }
 
             // Validate that wireguard config works
             const wireguard_validation = await test_wireguard_connection( { wireguard_config: text_config, claimed_worker_ip: worker.ip } )
