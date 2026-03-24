@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { createHash, timingSafeEqual } from "crypto"
 import { allow_props, is_ipv4, log, make_retryable, sanetise_ipv4, sanetise_string } from "mentie"
 import { cooldown_in_s, retry_times } from "../../modules/networking/routing.js"
 import { run_mode } from "../../modules/validations.js"
@@ -12,6 +13,15 @@ import { country_name_from_code } from "../../modules/geolocation/helpers.js"
 import { get_worker_countries_for_pool } from "../../modules/database/workers.js"
 import { test_socks5_connection } from "../../modules/networking/socks5.js"
 const { CI_MOCK_WORKER_RESPONSES } = process.env
+
+// Constant-time key comparison to prevent timing attacks (H6)
+// SHA-256 normalizes lengths so timingSafeEqual always compares 32 bytes
+const constant_time_includes = ( keys, candidate ) => {
+    if( !candidate ) return false
+    const hash = val => createHash( 'sha256' ).update( val ).digest()
+    const candidate_hash = hash( candidate )
+    return keys.some( key => timingSafeEqual( hash( key ), candidate_hash ) )
+}
 
 export const router = Router()
 
@@ -58,8 +68,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
                 // log.info( `🤡 Not blocking access yet until dev portal is live` )
                 throw new Error( `This validator does not serve leases publicly due to it's configuration` )
             }
-            if( valid_keys.length && ( !api_key || !valid_keys.includes( api_key ) ) ) {
-                log.warn( `Attempted access with invalid API key: ${ api_key }` )
+            if( valid_keys.length && ( !api_key || !constant_time_includes( valid_keys, api_key ) ) ) {
+                log.warn( `Attempted access with invalid API key` )
                 // log.info( `🤡 Not blocking access yet until dev portal is live` )
                 throw new Error( `Invalid or missing API key` )
             }
@@ -129,7 +139,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( type == 'socks5' ) {
             const sock = format == 'text' ? config : `socks5://${ config.username }:${ config.password }@${ config.ip_address }:${ config.port }`
             const { valid } = await test_socks5_connection( { sock } )
-            log.info( `Socks5 config validation result: ${ valid } for config: ${ sock }` )
+            log.info( `Socks5 config validation result: ${ valid } for ${ config?.ip_address || 'socks5 endpoint' }` )
         }
 
         log.info( `Successfully obtained config as ${ mode } for geo ${ geo } with priority ${ priority }` )

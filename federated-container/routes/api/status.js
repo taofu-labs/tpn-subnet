@@ -1,4 +1,5 @@
 import { Router } from "express"
+import { createHash, timingSafeEqual } from "crypto"
 import { abort_controller, cache, log, round_number_to_decimals } from "mentie"
 import { parse_url } from "../../modules/networking/url.js"
 import { get_tpn_cache } from "../../modules/caching.js"
@@ -47,11 +48,15 @@ router.get( '/worker_performance', async ( req, res ) => {
         // Check request validity
         const { miner_mode } = run_mode()
         if( !miner_mode ) return res.status( 403 ).json( { error: `Performance data is only available in miner mode` } )
+        // Deny access when ADMIN_API_KEY is not configured (C3: prevents auth bypass when env var is unset)
         const { ADMIN_API_KEY } = process.env
-        if( ADMIN_API_KEY && api_key !== ADMIN_API_KEY ) return res.status( 403 ).json( { error: `Invalid API key` } )
-
-        // If no admin API key was set, warn
-        log.warn( `No ADMIN_API_KEY set in environment, this is a security risk and should be set in production` )
+        if( !ADMIN_API_KEY ) {
+            log.warn( `No ADMIN_API_KEY set in environment, denying access to /worker_performance` )
+            return res.status( 403 ).json( { error: `ADMIN_API_KEY not configured` } )
+        }
+        // Constant-time comparison to prevent timing attacks
+        const hash = val => createHash( 'sha256' ).update( val ).digest()
+        if( !api_key || !timingSafeEqual( hash( api_key ), hash( ADMIN_API_KEY ) ) ) return res.status( 403 ).json( { error: `Invalid API key` } )
 
         // Check for response cache
         const cached_response = cache( `worker_performance_${ group_by }_${ from }_${ to }_${ format }` )

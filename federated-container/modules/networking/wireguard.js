@@ -1,5 +1,6 @@
 import { cache, is_ipv4, log, multiline_trim, random_number_between, sanetise_ipv4, wait } from "mentie"
-import { run } from "../system/shell.js"
+import { writeFile } from "fs/promises"
+import { run, run_safe } from "../system/shell.js"
 import { generate_challenge } from "../scoring/challenge_response.js"
 import { evaluate_egress_identity } from "./egress_identity.js"
 import { get_free_interfaces } from "./network.js"
@@ -27,9 +28,11 @@ async function verify_worker_egress_identity( { namespace_id, claimed_worker_ip,
 
     try {
 
-        // Check observed egress through the wireguard namespace
-        const egress_check_command = `ip netns exec ${ namespace_id } curl -m ${ timeout_s } -s https://ipv4.icanhazip.com`
-        const { stdout, error } = await run( egress_check_command, { silent: true, log_tag } )
+        // Check observed egress through the wireguard namespace (uses run_safe to prevent shell injection)
+        const { stdout, error } = await run_safe( 'ip', [
+            'netns', 'exec', namespace_id,
+            'curl', '-m', String( timeout_s ), '-s', 'https://ipv4.icanhazip.com'
+        ], { silent: true, log_tag } )
         if( error ) {
             return {
                 ok: false,
@@ -366,20 +369,7 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
     const tmp_config_path = `${ tmp_folder }/${ server_id }.conf`
     const wg_config_path = `${ tmp_folder }/wg_${ server_id }.conf`
 
-    // Write the config file and set permissions.
-    const write_config_command = `
-        # Write the WireGuard config to a temporary file
-        echo "Writing WireGuard config to ${ tmp_config_path } and ${ wg_config_path }" && \
-        printf "%s" "${ text_config }" > ${ tmp_config_path } && \
-        chmod 644 ${ tmp_config_path } && \
-        ls -lah ${ tmp_config_path } && \
-        wg-quick strip ${ tmp_config_path } > ${ wg_config_path } && \
-        chmod 644 ${ wg_config_path }
-        # Log the config files
-        ls -lah ${ tmp_folder }/ && \
-        tail -n +1 -v ${ tmp_config_path } && \
-        tail -n +1 -v ${ wg_config_path }
-    `
+    // Config writing is handled via filesystem API below (avoids shell interpolation of config content)
 
     // Set up network namespace and WireGuard interface.
     const network_setup_command = `
@@ -494,9 +484,12 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         cache( `ip_being_processed_${ Address }`, true, timeout_s * 1000 )
         log.debug( `${ log_tag } Marking ip address ${ Address } as in processing` )
 
-        // Write the wireguard config to a file
-        const config_cmd = await run( write_config_command, { silent: !verbose, log_tag, verbose } )
-        if( config_cmd.error || config_cmd.stderr ) throw new Error( `Error writing wireguard config: err ${ config_cmd.error } stderr ${ config_cmd.stderr } stdout ${ config_cmd.stdout }` )
+        // Write config files using filesystem API (prevents shell injection of config content)
+        await writeFile( tmp_config_path, text_config, { mode: 0o644 } )
+        const { stdout: stripped_config, error: strip_error } = await run_safe( 'wg-quick', [ 'strip', tmp_config_path ], { silent: !verbose, log_tag } )
+        if( strip_error || !stripped_config ) throw new Error( `Error stripping wireguard config: ${ strip_error?.message || 'no output' }` )
+        await writeFile( wg_config_path, stripped_config, { mode: 0o644 } )
+        if( verbose ) log.info( log_tag, `Written wireguard configs to ${ tmp_config_path } and ${ wg_config_path }` )
 
         // loop over network commands
         const network_setup_commands = split_ml_commands( network_setup_command )
