@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.52] - 2026-03-25
+
+### Fixed
+- raise Express JSON body parser limit from 100KB to 5MB to prevent silent rejection of large worker broadcasts
+- set nginx `client_max_body_size` to 10MB in SWAG reverse proxy config
+
 ## [1.2.48] - 2026-02-18
 
 ### Changed
