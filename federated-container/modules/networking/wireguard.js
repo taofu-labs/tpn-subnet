@@ -1,4 +1,4 @@
-import { cache, is_ipv4, log, multiline_trim, random_number_between, sanetise_ipv4, wait } from "mentie"
+import { cache, is_ipv4, log, multiline_trim, random_string_of_length, sanetise_ipv4, wait } from "mentie"
 import { writeFile } from "fs/promises"
 import { run, run_safe } from "../system/shell.js"
 import { generate_challenge } from "../scoring/challenge_response.js"
@@ -352,9 +352,12 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         return { valid: true, message: "Mock response" }
     }
 
-    // Get text config from wireguard config
+    // Get text config from wireguard config, note that server_id must adhere to wg-config name constraints (max 15 char, alphanumeric, IFNAMSIZ limit). ipv4 minus dots is max 12. max prefix length is 3
     const { text_config, json_config, endpoint_ipv4 } = parse_wireguard_config( { wireguard_config } )
-    const server_id = `${ random_number_between( 10, 20 ) }${ endpoint_ipv4.replaceAll( '.', '' ) }`
+    const ip_postfix = endpoint_ipv4.replaceAll( '.', '' )
+    const collision_prefix_max_length = 15 - ip_postfix.length
+    const collision_prefix = random_string_of_length( collision_prefix_max_length )
+    const server_id = `${ collision_prefix }${ ip_postfix }`
     const log_tag = server_id
 
     // Generate a challenge for the wireguard server to solve
