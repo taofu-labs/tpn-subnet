@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.0] - 2026-03-31
+
+### Added
+- expose lease extension token as `X-Lease-Extension-Token` response header on `/lease/new`
+
 ## [1.2.52] - 2026-03-25
 
 ### Fixed

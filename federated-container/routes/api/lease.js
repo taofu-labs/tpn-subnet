@@ -196,6 +196,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( resolved_meta.connection_type ) res.set( 'X-Connection-Type', resolved_meta.connection_type )
         if( resolved_meta.lease_ref ) res.set( 'X-Lease-Ref', `${ resolved_meta.lease_ref }` )
         if( resolved_meta.lease_expires_at ) res.set( 'X-Lease-Expires', `${ resolved_meta.lease_expires_at }` )
+        if( resolved_meta.lease_token ) res.set( 'X-Lease-Extension-Token', resolved_meta.lease_token )
 
         return format == 'text' ? res.send( response_data ) : res.json( response_data )
     } catch ( e ) {
