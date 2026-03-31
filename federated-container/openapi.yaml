@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TPN Network Federated API
-  version: 1.2.0
+  version: 1.3.1
   description: |
     Public HTTP API exposed by the TPN Network federated container. The routes
     documented here are mounted under `/api` and cover live lease negotiation and
@@ -169,6 +169,10 @@ paths:
               schema:
                 type: string
               description: Lease expiration timestamp (Unix ms, string-encoded). Use this value as `extend_expires_at` when extending the lease.
+            X-Lease-Extension-Token:
+              schema:
+                type: string
+              description: Opaque token that can be used to extend the lease. Present only when a lease token is issued (e.g. validator mode). Useful for `format=text` consumers that cannot read `lease_token` from the JSON body.
           content:
             application/json:
               schema:

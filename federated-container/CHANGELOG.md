@@ -1,9 +1,13 @@
 # Changelog
 
-## [1.3.0] - 2026-03-31
+## [1.3.1] - 2026-03-31
 
 ### Added
 - expose lease extension token as `X-Lease-Extension-Token` response header on `/lease/new`
+- document `X-Lease-Extension-Token` response header in OpenAPI spec
+
+### Fixed
+- fix traceback logging in validator recording `None` instead of the actual stack trace
 
 ## [1.2.52] - 2026-03-25
 

@@ -127,7 +127,7 @@ class Validator(BaseValidatorNeuron):
 
     def run(self):
         """Enhanced run() with transient network error recovery."""
-        from traceback import print_exception
+        from traceback import format_exception
 
         self.sync()
         bt.logging.info(f"Validator starting at block: {self.block}")
@@ -164,7 +164,7 @@ class Validator(BaseValidatorNeuron):
                         )
                     else:
                         bt.logging.error(f"Error during validation step: {err}")
-                        bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
+                        bt.logging.debug("".join(format_exception(type(err), err, err.__traceback__)))
 
                     if self.should_exit:
                         break
