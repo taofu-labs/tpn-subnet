@@ -202,7 +202,7 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
             selected_workers.push( random_worker )
         }
     }
-    log.info( `Selected ${ selected_workers.length } workers for scoring from mining pool ${ pool_label }` )
+    log.info( `Selected ${ selected_workers.length } workers for scoring from mining pool ${ pool_label } based on sample size ${ sample_size }` )
 
     // Annotate the selected workers with a wireguard and socks5 config (fetched from the mining pool, not from workers directly)
     const workers_with_configs = await add_configs_to_workers( {
@@ -234,9 +234,8 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     if( selected_workers.length ) stability_fraction = successes.length / selected_workers.length 
     const stability_score = stability_fraction * 100
 
-    // Calculate size score, defined as the ranking of the size against the last_known_worker_pool_size 
-    const { length: active_worker_count=0 } = workers_with_configs || {}
-    const size_score = active_worker_count * stability_fraction
+    // Calculate size score, defined as workers that are up, penalised by stability fraction (which is also applied again below to be heavy on unstable pools)
+    const size_score = workers.length * stability_fraction
 
     // Calculate performance score
     const no_response_penalty_s = 60
