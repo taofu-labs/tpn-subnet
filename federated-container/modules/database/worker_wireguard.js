@@ -146,6 +146,33 @@ export async function register_wireguard_lease( { start_id=1, end_id=get_wiregua
 }
 
 /**
+ * Extends an active WireGuard lease by updating its expiration timestamp.
+ * Uses the current expires_at as a guard to prevent extending a re-allocated slot.
+ * @param {Object} params
+ * @param {number} params.peer_id - The WireGuard peer ID to extend
+ * @param {number} params.expected_expires_at - The current expires_at value (reallocation guard)
+ * @param {number} params.new_expires_at - The new expiration timestamp
+ * @returns {Promise<{ peer_id: number, expires_at: number }>}
+ * @throws {Error} If the lease is not found, already expired, or was re-allocated
+ */
+export async function extend_wireguard_lease( { peer_id, expected_expires_at, new_expires_at } ) {
+
+    const pool = await get_pg_pool()
+    // Guard: only extend if the lease exists, matches expected expiry, and hasn't expired yet
+    const result = await pool.query(
+        `UPDATE worker_wireguard_configs SET expires_at = $1, updated_at = NOW()
+         WHERE id = $2 AND expires_at = $3 AND expires_at > $4`,
+        [ new_expires_at, peer_id, expected_expires_at, Date.now() ]
+    )
+
+    if( !result.rowCount ) throw new Error( `Lease extension failed: config ${ peer_id } not found or already expired/reallocated` )
+
+    log.info( `Extended WireGuard lease ${ peer_id } to ${ new Date( new_expires_at ).toISOString() }` )
+    return { peer_id, expires_at: new_expires_at }
+
+}
+
+/**
  * Checks for open WireGuard leases in the database.
  * @returns {Promise<Array>} A promise that resolves to an array of open lease objects.
  */

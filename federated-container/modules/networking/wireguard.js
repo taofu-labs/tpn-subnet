@@ -1,6 +1,8 @@
-import { cache, is_ipv4, log, multiline_trim, random_number_between, sanetise_ipv4, wait } from "mentie"
-import { run } from "../system/shell.js"
+import { cache, is_ipv4, log, multiline_trim, random_string_of_length, sanetise_ipv4, wait } from "mentie"
+import { writeFile } from "fs/promises"
+import { run, run_safe } from "../system/shell.js"
 import { generate_challenge } from "../scoring/challenge_response.js"
+import { evaluate_egress_identity } from "./egress_identity.js"
 import { get_free_interfaces } from "./network.js"
 
 // Global path config
@@ -12,6 +14,54 @@ const test_timeout_seconds = CI_MODE ? 10 : 30
 
 // Split multi-line commands into an array of commands
 const split_ml_commands = commands => commands.split( '\n' ).map( c => c.replace( /#.*$/gm, '' ) ).filter( c => c.trim() ).map( c => c.trim() )
+
+/**
+ * Verifies that the public egress IP seen through a WireGuard namespace matches a worker's claimed IP.
+ * @param {Object} params
+ * @param {string} params.namespace_id - Network namespace id where the WireGuard interface is active.
+ * @param {string} params.claimed_worker_ip - Claimed worker IP from worker registration record.
+ * @param {string|number} [params.log_tag] - Log tag used for command tracing.
+ * @param {number} [params.timeout_s=test_timeout_seconds] - Curl timeout in seconds.
+ * @returns {Promise<{ ok: boolean, observed_egress_ip?: string, claimed_worker_ip: string, failure_code?: string, message?: string }>}
+ */
+async function verify_worker_egress_identity( { namespace_id, claimed_worker_ip, log_tag, timeout_s=test_timeout_seconds } ) {
+
+    try {
+
+        // Check observed egress through the wireguard namespace (uses run_safe to prevent shell injection)
+        const { stdout, error } = await run_safe( 'ip', [
+            'netns', 'exec', namespace_id,
+            'curl', '-m', String( timeout_s ), '-s', 'https://ipv4.icanhazip.com'
+        ], { silent: true, log_tag } )
+        if( error ) {
+            return {
+                ok: false,
+                claimed_worker_ip,
+                failure_code: 'wireguard_connectivity_failure',
+                message: `Failed to query egress ip through namespace ${ namespace_id }: ${ error.message }`
+            }
+        }
+
+        // Use shared identity evaluator for consistency across transports
+        const identity = evaluate_egress_identity( { observed_egress_ip: stdout, claimed_worker_ip, transport: 'wireguard' } )
+        if( !identity.valid ) return { ok: false, ...identity }
+
+        return {
+            ok: true,
+            observed_egress_ip: identity.observed_egress_ip,
+            claimed_worker_ip: identity.claimed_worker_ip
+        }
+
+    } catch ( e ) {
+        return {
+            ok: false,
+            claimed_worker_ip,
+            failure_code: 'wireguard_connectivity_failure',
+            message: `Error verifying worker egress identity: ${ e.message }`
+        }
+    }
+
+}
 
 /**
  * Waits for a given IP address to become free (not in use) within a specified timeout period.
@@ -285,10 +335,11 @@ export function parse_wireguard_config( { wireguard_config, expected_endpoint_ip
  * 
  * @param {Object} params
  * @param {string} params.wireguard_config - The wireguard configuration to test.
+ * @param {string} [params.claimed_worker_ip] - Claimed worker IP to verify against observed egress over the tunnel.
  * @param {boolean} params.verbose - Whether to log verbosely.
- * @returns {Promise<{ valid: boolean, message: string }>} - The result of the wireguard connection test.
+ * @returns {Promise<{ valid: boolean, message: string, observed_egress_ip?: string, claimed_worker_ip?: string, failure_code?: string }>} - The result of the wireguard connection test.
  */
-export async function test_wireguard_connection( { wireguard_config, verbose } ) {
+export async function test_wireguard_connection( { wireguard_config, claimed_worker_ip, verbose } ) {
 
     // Verbosity triggers
     if( CI_MODE === 'true' ) verbose = true 
@@ -301,9 +352,12 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
         return { valid: true, message: "Mock response" }
     }
 
-    // Get text config from wireguard config
+    // Get text config from wireguard config, note that server_id must adhere to wg-config name constraints (max 15 char, alphanumeric, IFNAMSIZ limit). ipv4 minus dots is max 12. max prefix length is 3
     const { text_config, json_config, endpoint_ipv4 } = parse_wireguard_config( { wireguard_config } )
-    const server_id = `${ random_number_between( 10, 20 ) }${ endpoint_ipv4.replaceAll( '.', '' ) }`
+    const ip_postfix = endpoint_ipv4.replaceAll( '.', '' )
+    const collision_prefix_max_length = 15 - ip_postfix.length
+    const collision_prefix = random_string_of_length( collision_prefix_max_length )
+    const server_id = `${ collision_prefix }${ ip_postfix }`
     const log_tag = server_id
 
     // Generate a challenge for the wireguard server to solve
@@ -312,32 +366,19 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
 
     // Get relevant interfaces
     const { interface_id, veth_id, namespace_id, veth_subnet_prefix, uplink_interface, clear_interfaces } = await get_free_interfaces( { log_tag } )
-    const { Address, Endpoint } = json_config.interface
+    const { Address } = json_config.interface
 
     // Path for the WireGuard configuration file.
     const tmp_config_path = `${ tmp_folder }/${ server_id }.conf`
     const wg_config_path = `${ tmp_folder }/wg_${ server_id }.conf`
 
-    // Write the config file and set permissions.
-    const write_config_command = `
-        # Write the WireGuard config to a temporary file
-        echo "Writing WireGuard config to ${ tmp_config_path } and ${ wg_config_path }" && \
-        printf "%s" "${ text_config }" > ${ tmp_config_path } && \
-        chmod 644 ${ tmp_config_path } && \
-        ls -lah ${ tmp_config_path } && \
-        wg-quick strip ${ tmp_config_path } > ${ wg_config_path } && \
-        chmod 644 ${ wg_config_path }
-        # Log the config files
-        ls -lah ${ tmp_folder }/ && \
-        tail -n +1 -v ${ tmp_config_path } && \
-        tail -n +1 -v ${ wg_config_path }
-    `
+    // Config writing is handled via filesystem API below (avoids shell interpolation of config content)
 
     // Set up network namespace and WireGuard interface.
     const network_setup_command = `
 
         # Check current ip
-        curl -m 5 -s icanhazip.com
+        curl -m 5 -s ipv4.icanhazip.com
 
         # Add namespace
         ip netns add ${ namespace_id }
@@ -397,7 +438,7 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
         # ip netns exec ${ namespace_id } dig +time=1 +short google.com
 
         # Check ip address
-        curl -m 5 -s icanhazip.com && ip netns exec ${ namespace_id } curl -m 5 -s icanhazip.com
+        curl -m 5 -s ipv4.icanhazip.com && ip netns exec ${ namespace_id } curl -m 5 -s ipv4.icanhazip.com
 
     `
 
@@ -431,9 +472,11 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
     }
     const run_test = async () => {
 
+        let observed_egress_ip = null
+
         // Check for ip address conflicts
-        const timeout = test_timeout_seconds * 5 // How many ip addresses to assume in the worst of circumstances to take their max timeout
-        const ip_free = await wait_for_ip_free( { ip_address: Address, timeout, log_tag } )
+        const timeout_s = test_timeout_seconds * 5 // How many ip addresses to assume in the worst of circumstances to take their max timeout
+        const ip_free = await wait_for_ip_free( { ip_address: Address, timeout_s, log_tag } )
         if( !ip_free ) {
             const ip_cleared = await clean_up_tpn_interfaces( { ip_addresses: [ Address ] } )
             if( !ip_cleared ) throw new Error( `IP address ${ Address } is still in use after cleanup` )
@@ -441,12 +484,15 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
         }
 
         // Mark the ip address as in processing
-        cache( `ip_being_processed_${ Address }`, true, timeout * 1000 )
+        cache( `ip_being_processed_${ Address }`, true, timeout_s * 1000 )
         log.debug( `${ log_tag } Marking ip address ${ Address } as in processing` )
 
-        // Write the wireguard config to a file
-        const config_cmd = await run( write_config_command, { silent: !verbose, log_tag, verbose } )
-        if( config_cmd.error || config_cmd.stderr ) throw new Error( `Error writing wireguard config: err ${ config_cmd.error } stderr ${ config_cmd.stderr } stdout ${ config_cmd.stdout }` )
+        // Write config files using filesystem API (prevents shell injection of config content)
+        await writeFile( tmp_config_path, text_config, { mode: 0o644 } )
+        const { stdout: stripped_config, error: strip_error } = await run_safe( 'wg-quick', [ 'strip', tmp_config_path ], { silent: !verbose, log_tag } )
+        if( strip_error || !stripped_config ) throw new Error( `Error stripping wireguard config: ${ strip_error?.message || 'no output' }` )
+        await writeFile( wg_config_path, stripped_config, { mode: 0o644 } )
+        if( verbose ) log.info( log_tag, `Written wireguard configs to ${ tmp_config_path } and ${ wg_config_path }` )
 
         // loop over network commands
         const network_setup_commands = split_ml_commands( network_setup_command )
@@ -454,24 +500,51 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
         for( const command of network_setup_commands ) {
             await run( command, { silent: !verbose, verbose: false, log_tag } )
         }
+
+        // Verify wireguard egress identity against claimed worker ip unless explicitly disabled
+        const { EGRESS_IDENTITY_ENFORCEMENT='true' } = process.env
+        const enforce_egress_identity = `${ EGRESS_IDENTITY_ENFORCEMENT }` !== 'false'
+        if( enforce_egress_identity && claimed_worker_ip ) {
+            const identity_check = await verify_worker_egress_identity( { namespace_id, claimed_worker_ip, log_tag } )
+            if( !identity_check.ok ) {
+                return {
+                    success: false,
+                    ...identity_check
+                }
+            }
+            const { observed_egress_ip: verified_egress_ip } = identity_check
+            observed_egress_ip = verified_egress_ip
+        }
     
         // Run the curl command
         const { error, stderr, stdout } = await run( curl_command, { silent: !verbose, verbose, log_tag } )
         if( error || stderr ) {
             log.debug( `${ log_tag } Error running curl command:`, error, stderr )
-            return false
+            return {
+                success: false,
+                failure_code: 'wireguard_connectivity_failure',
+                message: `Failed to run challenge request over wireguard for endpoint ${ endpoint_ipv4 }`
+            }
         }
         
         // Isolate the json
         const [ json ] = stdout?.match( /{.*}/s ) || []
         if( !json ) {
             log.warn( `${ log_tag } No JSON response found in stdout:`, stdout )
-            return false
+            return {
+                success: false,
+                failure_code: 'challenge_failure',
+                message: `No JSON response found in stdout`
+            }
         }
 
         // Return the json response
         log.debug( `${ log_tag } Wireguard config for server ${ server_id } responded with:`, json )
-        return json
+        return {
+            success: true,
+            json_response: json,
+            observed_egress_ip
+        }
 
     } 
 
@@ -484,20 +557,38 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
 
         // Solve the challenge from the miner ip
         log.debug( `\n ${ log_tag } 🔎 Running test commands for server ${ server_id }` )
-        const stdout = await run_test()
+        const test_result = await run_test()
 
         // Run cleanup command
         log.debug( `\n ${ log_tag } 🧹  Running cleanup commands for server ${ server_id }` )
         await run_cleanup( { silent: !verbose, log_tag } )
 
-        // On failure to get response, error out to catch block
-        if( !stdout ) throw new Error( `No response from wireguard server at ${ endpoint_ipv4 }` )
+        // On test failure, return structured details
+        if( !test_result?.success ) {
+            const { message='Wireguard test failed', failure_code='wireguard_connectivity_failure', observed_egress_ip } = test_result || {}
+            log.info( `${ log_tag } Wireguard test failed with ${ failure_code } for endpoint ${ endpoint_ipv4 }: ${ message }` )
+            return {
+                valid: false,
+                message,
+                failure_code,
+                observed_egress_ip,
+                claimed_worker_ip
+            }
+        }
 
         // Extract the challenge and response from the stdout
-        let [ json_response ] = stdout?.match( /{.*}/s ) || []
+        let { json_response } = test_result || {}
+        const json_match = `${ json_response }`.match( /{.*}/s ) || []
+        const [ parsed_json_response ] = json_match
+        json_response = parsed_json_response
         if( !json_response ) {
-            log.warn( `${ log_tag } No JSON response found in stdout:`, stdout )
-            return { valid: false, message: `No JSON response found in stdout` }
+            log.warn( `${ log_tag } No JSON response found in challenge response:`, test_result )
+            return {
+                valid: false,
+                message: `No JSON response found in stdout`,
+                failure_code: 'challenge_failure',
+                claimed_worker_ip
+            }
         }
         const { solution: responded_solution } = JSON.parse( json_response )
 
@@ -505,17 +596,34 @@ export async function test_wireguard_connection( { wireguard_config, verbose } )
         const correct = correct_solution == responded_solution
 
         // Check that the response is valid
-        if( !correct ) throw new Error( `Incorrect solution from wireguard server at ${ endpoint_ipv4 }, expected ${ correct_solution }, got ${ responded_solution }` )
+        if( !correct ) {
+            return {
+                valid: false,
+                message: `Incorrect solution from wireguard server at ${ endpoint_ipv4 }, expected ${ correct_solution }, got ${ responded_solution }`,
+                failure_code: 'challenge_failure',
+                claimed_worker_ip
+            }
+        }
 
         // If the response is valid, return true
         log.info( `${ log_tag } Wireguard config passed for endpoint ${ endpoint_ipv4 }` )
-        return { valid: true, message: `Wireguard config passed for endpoint ${ endpoint_ipv4 } with response ${ responded_solution }` }
+        return {
+            valid: true,
+            message: `Wireguard config passed for endpoint ${ endpoint_ipv4 } with response ${ responded_solution }`,
+            claimed_worker_ip,
+            observed_egress_ip: test_result?.observed_egress_ip
+        }
 
     } catch ( e ) {
 
         log.debug( `${ log_tag } Error validating wireguard config for endpoint ${ endpoint_ipv4 }:`, e )
         await run_cleanup( { silent: true, log_tag } )
-        return { valid: false, message: `Error validating wireguard config for endpoint ${ endpoint_ipv4 }: ${ e.message }` }
+        return {
+            valid: false,
+            message: `Error validating wireguard config for endpoint ${ endpoint_ipv4 }: ${ e.message }`,
+            failure_code: 'wireguard_connectivity_failure',
+            claimed_worker_ip
+        }
 
     } finally {
 

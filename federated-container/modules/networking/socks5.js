@@ -1,15 +1,17 @@
 import { log, sanetise_ipv4 } from "mentie"
 import { run_safe } from "../system/shell.js"
 import { run_mode } from "../validations.js"
+import { evaluate_egress_identity } from "./egress_identity.js"
 
 
 /**
  *
  * @param {Object} params
  * @param {string} params.sock - SOCKS5 proxy string (e.g., socks5://user:pass@ip:port)
- * @returns {Promise<boolean>} - True if the SOCKS5 connection is working, false otherwise.
+ * @param {string} [params.claimed_worker_ip] - Claimed worker IP to verify against observed SOCKS5 egress.
+ * @returns {Promise<{ valid: boolean, failure_code?: string, observed_socks5_ip?: string, claimed_worker_ip?: string, message?: string }>} - Structured SOCKS5 validation result.
  */
-export async function test_socks5_connection( { sock } ) {
+export async function test_socks5_connection( { sock, claimed_worker_ip } ) {
 
     try {
 
@@ -35,7 +37,28 @@ export async function test_socks5_connection( { sock } ) {
         socks5_ip = socks5_ip && sanetise_ipv4( { ip: socks5_ip } )
         log.debug( `Direct IP: ${ direct_ip }, SOCKS5 IP: ${ socks5_ip }. Errors: direct_err=${ direct_err }, socks5_err=${ socks5_err }` )
 
-        // Compare
+        // If a claimed worker ip is provided, enforce identity against observed SOCKS5 egress
+        const has_claimed_worker_ip = !!`${ claimed_worker_ip || '' }`.trim()
+        if( has_claimed_worker_ip ) {
+            const identity = evaluate_egress_identity( { observed_egress_ip: socks5_ip, claimed_worker_ip, transport: 'socks5' } )
+            if( !identity.valid ) {
+                return {
+                    valid: false,
+                    failure_code: identity.failure_code,
+                    observed_socks5_ip: identity.observed_egress_ip,
+                    claimed_worker_ip: identity.claimed_worker_ip,
+                    message: identity.message
+                }
+            }
+            return {
+                valid: true,
+                observed_socks5_ip: identity.observed_egress_ip,
+                claimed_worker_ip: identity.claimed_worker_ip,
+                message: `SOCKS5 egress identity verified`
+            }
+        }
+
+        // Legacy comparison path for callers that do not provide claimed worker identity
         const { worker_mode } = run_mode()
         let is_working = direct_ip && socks5_ip
 
@@ -47,12 +70,26 @@ export async function test_socks5_connection( { sock } ) {
         if( !is_working ) {
             log.info( `SOCKS5 proxy test failed: direct IP (${ direct_ip }) vs SOCKS5 IP (${ socks5_ip })` )
             log.debug( `SOCKS5 proxy test details:`, { curl_direct_args, curl_socks5_args, direct_err, socks5_err } )
+            return {
+                valid: false,
+                failure_code: 'socks5_connectivity_failure',
+                observed_socks5_ip: socks5_ip,
+                message: `SOCKS5 connectivity validation failed`
+            }
         }
-        return is_working
+        return {
+            valid: true,
+            observed_socks5_ip: socks5_ip,
+            message: `SOCKS5 connectivity validation passed`
+        }
 
     } catch ( e ) {
         log.error( `Error testing SOCKS5 connection:`, e )
-        return false
+        return {
+            valid: false,
+            failure_code: 'socks5_connectivity_failure',
+            message: `Error testing SOCKS5 connection: ${ e.message }`
+        }
     }
 
 }

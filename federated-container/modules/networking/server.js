@@ -6,7 +6,7 @@ export const app = express()
 const { CI_MODE } = process.env
 
 // Add body parser for post requests
-app.use( express.json() )
+app.use( express.json( { limit: '5mb' } ) )
 
 // Allow all cors
 app.use( cors() )

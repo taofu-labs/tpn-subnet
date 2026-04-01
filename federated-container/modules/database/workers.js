@@ -495,18 +495,19 @@ export async function read_worker_broadcast_metadata( { mining_pool_uid, limit }
 /**
  * Retrieves worker rows for a specific mining pool from the database.
  * @param {Object} params - Query parameters.
- * @param {string} params.ip? - IP address of the worker.
+ * @param {string[]} params.ips? - Array of IP addresses to include (SQL IN filter).
+ * @param {string[]} params.exclude_ips? - Array of IP addresses to exclude (SQL NOT IN filter).
  * @param {string} params.mining_pool_uid? - Unique identifier of the mining pool.
  * @param {string} params.mining_pool_url? - URL of the mining pool.
  * @param {string} params.country_code? - Country code of the worker; use 'any' to ignore this filter.
- * @param {string} params.status? - Status of the worker; defaults to null. Valid values are 'up', 'down', or 'unknown'.
+ * @param {string} params.status? - Status of the worker; defaults to null. Valid values are 'up', 'down', 'unknown', or 'cheat'.
  * @param {boolean} params.randomize? - If true, sample using tsm_system_rows extension to get random rows
  * @param {number} params.limit? - Maximum number of worker records to return.
  * @param {string} params.connection_type? - Connection type of the worker; use 'any' to ignore this filter. Valid values are 'datacenter' or 'residential'.
  * @returns {Promise<{success: true, workers: any[]} | {success: false, message: string}>} Result indicating success with workers or a not-found message.
  * @throws {Error} If the Postgres pool is unavailable or if the database query fails.
  */
-export async function get_workers( { ip, mining_pool_uid, mining_pool_url, country_code, status, randomize, limit, connection_type } ) {
+export async function get_workers( { ips, exclude_ips, mining_pool_uid, mining_pool_url, country_code, status, randomize, limit, connection_type } ) {
 
     // Get the postgres pool
     const pool = await get_pg_pool()
@@ -520,8 +521,8 @@ export async function get_workers( { ip, mining_pool_uid, mining_pool_url, count
     // Force country code to capitals
     if( country_code ) country_code = `${ country_code }`.toUpperCase()
 
-    // Status must be up, down, or unknown
-    if( status && ![ 'up', 'down', 'unknown' ].includes( sanetise_string( status ) ) ) {
+    // Status must be up, down, unknown, or cheat
+    if( status && ![ 'up', 'down', 'unknown', 'cheat' ].includes( sanetise_string( status ) ) ) {
         log.warn( `Invalid status filter provided: ${ status }, THIS SHOULD NEVER HAPPEN, defaulting to 'up'` )
         status = 'up'
     }
@@ -535,9 +536,13 @@ export async function get_workers( { ip, mining_pool_uid, mining_pool_url, count
     // Formulate the query
     const wheres = []
     const values = []
-    if( ip ) {
-        values.push( ip )
-        wheres.push( `ip = $${ values.length }` )
+    if( ips?.length ) {
+        values.push( ips )
+        wheres.push( `ip = ANY($${ values.length }::text[])` )
+    }
+    if( exclude_ips?.length ) {
+        values.push( exclude_ips )
+        wheres.push( `NOT (ip = ANY($${ values.length }::text[]))` )
     }
     if( mining_pool_uid ) {
         values.push( mining_pool_uid )
