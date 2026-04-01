@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.3] - 2026-04-01
+
+### Fixed
+- fix 3proxy Dockerfile build: use multi-stage build (busybox:glibc base has no `apk`)
+
 ## [1.3.2] - 2026-04-01
 
 ### Fixed
