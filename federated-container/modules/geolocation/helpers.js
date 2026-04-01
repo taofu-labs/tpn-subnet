@@ -232,8 +232,10 @@ async function ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save = false
         await save_db_cached_geodata( ip, data )
     }
 
-    // Warm in-memory cache with a shorter TTL for the lite path
-    cache( cache_key, data, GEODATA_CACHE_EXPIRY_MS )
+    // Use a short in-memory TTL on fallback so MaxMind is retried after recovery,
+    // otherwise align with the DB cache TTL
+    const in_memory_ttl_ms = skip_db_save ? 5 * 60 * 1000 : GEODATA_CACHE_EXPIRY_MS
+    cache( cache_key, data, in_memory_ttl_ms )
 
     return data
 

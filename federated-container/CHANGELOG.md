@@ -7,6 +7,12 @@
 - add `ip_geodata_cache` table for persistent geodata caching with 30-day expiry
 - store extra MaxMind traits (userType, connectionType, userCount) in cache table
 
+### Fixed
+- fix package-lock.json version mismatch (1.3.3 → 1.4.0)
+- fix in-memory cache TTL on MaxMind fallback suppressing retries for 30 days (now 5 min)
+- add `ip_geodata_cache` to periodic database cleanup to prevent unbounded table growth
+- fix cleanup guard skipping tables with `max_stale_minutes: 0`
+
 ### Changed
 - `ip_geodata` now checks postgres cache before falling back to geoip-lite
 - graceful fallback to geoip-lite when MaxMind API is unavailable or errors
