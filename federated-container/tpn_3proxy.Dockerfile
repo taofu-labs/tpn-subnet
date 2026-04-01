@@ -1,12 +1,14 @@
 # HTTP proxy layer — bridges HTTP CONNECT to Dante's SOCKS5
 # 3proxy official image is busybox:glibc (no package manager),
-# so we copy the binary into Alpine for bash/inotify/nc support.
+# so we copy the glibc-linked binary into Debian slim for bash/inotify/nc support.
 FROM 3proxy/3proxy:latest AS upstream
-FROM alpine:3.21
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache bash inotify-tools netcat-openbsd
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash inotify-tools netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
 
-# Grab the 3proxy binary from the official image
+# Grab the glibc-linked 3proxy binary from the official image
 COPY --from=upstream /bin/3proxy /usr/local/bin/3proxy
 
 # Entrypoint script reads /passwords/*.password and generates 3proxy.cfg
