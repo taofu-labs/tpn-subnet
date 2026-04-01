@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.0] - 2026-04-01
+
+### Added
+- add MaxMind Insights web API support to `ip_geodata` with multi-layer caching (in-memory → postgres → API)
+- add `ip_geodata_cache` table for persistent geodata caching with 30-day expiry
+- store extra MaxMind traits (userType, connectionType, userCount) in cache table
+
+### Changed
+- `ip_geodata` now checks postgres cache before falling back to geoip-lite
+- graceful fallback to geoip-lite when MaxMind API is unavailable or errors
+
 ## [1.3.3] - 2026-04-01
 
 ### Fixed

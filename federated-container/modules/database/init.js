@@ -24,6 +24,7 @@ export async function init_database() {
         await pool.query( `DROP TABLE IF EXISTS challenge_solution` )
         await pool.query( `DROP TABLE IF EXISTS scores` )
         await pool.query( `DROP TABLE IF EXISTS worker_wireguard_configs` )
+        await pool.query( `DROP TABLE IF EXISTS ip_geodata_cache` )
     }
 
     // Enable extension that can sample rows randomly
@@ -215,6 +216,27 @@ export async function init_database() {
 
         // Speed up expired lease lookups and cleanup deletes
         await pool.query( `CREATE INDEX IF NOT EXISTS idx_socks5_expires_at ON worker_socks5_configs ( expires_at )` )
+    }
+
+    // Create the IP_GEODATA_CACHE table for caching MaxMind / geoip results
+    if( miner_mode || validator_mode ) {
+        await pool.query( `
+            CREATE TABLE IF NOT EXISTS ip_geodata_cache (
+                ip TEXT PRIMARY KEY,
+                country TEXT,
+                datacenter BOOLEAN NOT NULL DEFAULT FALSE,
+                connection_type TEXT NOT NULL DEFAULT 'unknown',
+                user_type TEXT,
+                connection_type_raw TEXT,
+                user_count INTEGER,
+                updated_at BIGINT NOT NULL,
+                expires_at BIGINT NOT NULL
+            )
+        ` )
+        log.info( `✅ IP geodata cache table initialized` )
+
+        // Speed up expired entry lookups and cleanup
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_ip_geodata_cache_expires_at ON ip_geodata_cache ( expires_at )` )
     }
 
     // Create the TIMESTAMPS table if it doesn't exist
