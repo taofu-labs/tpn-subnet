@@ -178,7 +178,7 @@ class Validator(BaseValidatorNeuron):
 
         except Exception as err:
             bt.logging.error(f"Fatal error during validation: {str(err)}")
-            bt.logging.debug(str(print_exception(type(err), err, err.__traceback__)))
+            bt.logging.debug("".join(format_exception(type(err), err, err.__traceback__)))
 
 # Health check timeout in seconds
 HEALTH_CHECK_TIMEOUT = 10

@@ -235,6 +235,8 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
         connection_type: null,
         country: null,
         lease_token: new_token,
+        lease_ref: pool_result.lease_ref ?? config_ref,
+        lease_expires_at: new_expires_at,
     }
 
 }

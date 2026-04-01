@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TPN Network Federated API
-  version: 1.3.1
+  version: 1.3.2
   description: |
     Public HTTP API exposed by the TPN Network federated container. The routes
     documented here are mounted under `/api` and cover live lease negotiation and

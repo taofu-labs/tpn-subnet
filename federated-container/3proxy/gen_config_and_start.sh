@@ -59,7 +59,7 @@ EOF
     for f in "$PASSWORD_DIR"/*.password; do
         [ -f "$f" ] || continue
         user=$(basename "$f" .password)
-        pass=$(cat "$f")
+        pass=$(tr -d '[:space:]' < "$f")
         users+="users ${user}:CL:${pass}"$'\n'
         # Each user gets their own `allow` + `parent` pair so 3proxy authenticates
         # to Dante with the matching credentials

@@ -127,7 +127,7 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
         await Promise.allSettled( workers_to_validate.map( async ( worker, index ) => {
             log.debug( `Fetching audit configs for worker ${ worker.ip }` )
             // Pin selection to this specific worker by geo and whitelist
-            const audit_params = { geo: worker.country_code, whitelist: [ worker.ip ] }
+            const audit_params = { geo: worker.country_code, whitelist: [ worker.ip ], lease_seconds: 60 }
 
             const wireguard_result = await get_worker_config_as_validator( audit_params )
             const wireguard_config = wireguard_result?._lease_result ? wireguard_result.config : wireguard_result

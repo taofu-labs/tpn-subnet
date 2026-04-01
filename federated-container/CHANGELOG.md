@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2] - 2026-04-01
+
+### Fixed
+- fix `NameError` in validator fatal error handler (`print_exception` → `format_exception`)
+- add missing `lease_seconds` to audit config requests preventing audit failures
+- return `lease_ref` and `lease_expires_at` from lease extension for re-extension support
+- trim whitespace from password files in 3proxy config generation to prevent config corruption
+
 ## [1.3.1] - 2026-03-31
 
 ### Added
