@@ -144,58 +144,46 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
 export async function ip_geodata( ip ) {
 
     const cache_key = `geoip:${ ip }`
+    let geodata = null
+    let maxmind_extras = null
 
     // --- Layer 1: in-memory cache ---
-    const cached_value = cache( cache_key )
-    if( cached_value ) return cached_value
-
+    geodata = cache( cache_key )
 
     // --- Layer 2: database cache ---
-    const db_cached = await get_db_cached_geodata( ip )
-
-    if( db_cached ) {
-        cache( cache_key, db_cached, GEODATA_CACHE_EXPIRY_MS )
-        return db_cached
-    }
-
+    if( !geodata ) geodata = await get_db_cached_geodata( ip )
 
     // --- Layer 3: MaxMind Insights API ---
-    if( maxmind_insights_enabled ) {
+    if( !geodata && maxmind_insights_enabled ) {
         const result = await ip_geodata_from_maxmind( ip )
         if( result ) {
-            await save_db_cached_geodata( ip, result.data, result.extras )
-            cache( cache_key, result.data, GEODATA_CACHE_EXPIRY_MS )
-            return result.data
+            geodata = result.data
+            maxmind_extras = result.extras
         }
     }
-
 
     // --- Layer 4: peer validators ---
-    // Short TTL so MaxMind is retried after recovery
-    try {
-        const validator_data = await ip_geodata_from_validators( ip )
-        if( validator_data ) {
-            cache( cache_key, validator_data, 5 * 60 * 1000 )
-            return validator_data
-        }
-    } catch ( e ) {
-        log.warn( `Validator geodata fallback failed for ${ ip }: ${ e.message }` )
+    if( !geodata ) {
+        try { geodata = await ip_geodata_from_validators( ip ) }
+        catch ( e ) { log.warn( `Validator geodata fallback failed for ${ ip }: ${ e.message }` ) }
     }
-
 
     // --- Layer 5: geoip-lite (final fallback) ---
-    const geoip_data = await ip_geodata_from_geoip_lite( ip )
+    if( !geodata ) geodata = await ip_geodata_from_geoip_lite( ip )
 
-    // When geoip-lite is the primary source (no MaxMind), persist to DB with full TTL.
-    // When it's a fallback from a failed MaxMind call, use a short TTL so MaxMind is retried.
-    if( !maxmind_insights_enabled ) {
-        await save_db_cached_geodata( ip, geoip_data )
-        cache( cache_key, geoip_data, GEODATA_CACHE_EXPIRY_MS )
-    } else {
-        cache( cache_key, geoip_data, 5 * 60 * 1000 )
-    }
 
-    return geoip_data
+    // --- Persist and cache the result ---
+    // MaxMind results get full DB persistence and 30-day TTL.
+    // geoip-lite as primary source (no MaxMind configured) also gets full persistence.
+    // Fallback results (validators, geoip-lite when MaxMind failed) get a short 5-minute
+    // in-memory TTL so MaxMind is retried after recovery.
+    const is_authoritative = !!maxmind_extras || !maxmind_insights_enabled
+    const ttl = is_authoritative ? GEODATA_CACHE_EXPIRY_MS : 5 * 60 * 1000
+
+    if( is_authoritative ) await save_db_cached_geodata( ip, geodata, maxmind_extras )
+    cache( cache_key, geodata, ttl )
+
+    return geodata
 
 }
 
