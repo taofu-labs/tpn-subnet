@@ -54,7 +54,7 @@ const maxmind_insights_enabled = !!MAXMIND_ACCOUNT_ID && !!MAXMIND_LICENSE_KEY
  * @param {string} ip - The IP address to look up.
  * @returns {Promise<object|null>} - Cached row or null if not found / expired.
  */
-async function get_db_cached_geodata( ip ) {
+export async function get_db_cached_geodata( ip ) {
 
     try {
 
@@ -204,11 +204,84 @@ async function ip_geodata_from_maxmind( ip, cache_key ) {
 
     } catch ( e ) {
 
-        // Log the error and fall back to geoip-lite (no db save on fallback)
+        // Log the error and try peer validators before falling back to geoip-lite
         log.error( `MaxMind Insights API error for ${ ip }: ${ e.message }` )
+
+        // Try to get geodata from peer validators
+        try {
+            const validator_data = await ip_geodata_from_validators( ip, cache_key )
+            if( validator_data ) return validator_data
+        } catch ( validator_err ) {
+            log.warn( `Validator geodata fallback failed for ${ ip }: ${ validator_err.message }` )
+        }
+
+        // Final fallback: geoip-lite (no db save, short TTL)
         return ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save: true } )
 
     }
+
+}
+
+
+/**
+ * Resolve geodata by querying peer validators for their cached data.
+ * Tries validator 0 first (highest priority), then remaining peers concurrently.
+ * Returns null if no peer has cached data for the IP.
+ */
+async function ip_geodata_from_validators( ip, cache_key ) {
+
+    // Dynamic imports to avoid circular dependency (validations.js → helpers.js)
+    const { abort_controller } = await import( 'mentie' )
+    const { get_validators } = await import( '../networking/validators.js' )
+
+    // Get peer validators, excluding self
+    const { SERVER_PUBLIC_HOST } = process.env
+    const all_validators = await get_validators()
+    const peers = all_validators.filter( v => v.ip !== SERVER_PUBLIC_HOST && v.ip !== '0.0.0.0' )
+
+    if( !peers.length ) {
+        log.info( `No validator peers available for geodata fallback` )
+        return null
+    }
+
+    // Helper: query a single peer with a 5-second timeout
+    const query_peer = async ( peer ) => {
+        const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+        const res = await fetch( `http://${ peer.ip }:3000/validator/broadcast/geodata/${ ip }`, fetch_options )
+        if( !res.ok ) throw new Error( `Peer ${ peer.ip } returned ${ res.status }` )
+        const body = await res.json()
+        if( !body?.success || !body?.data ) throw new Error( `Peer ${ peer.ip } has no data` )
+        return body.data
+    }
+
+    // Try validator 0 first (highest priority fallback)
+    const validator_zero = peers.find( v => v.uid == 0 || v.uid === '0' )
+    if( validator_zero ) {
+        try {
+            const data = await query_peer( validator_zero )
+            log.info( `Got geodata for ${ ip } from validator 0 (${ validator_zero.ip })` )
+            cache( cache_key, data, 5 * 60 * 1000 )
+            return data
+        } catch ( e ) {
+            log.info( `Validator 0 geodata fallback failed for ${ ip }: ${ e.message }` )
+        }
+    }
+
+    // Try remaining peers concurrently
+    const remaining = peers.filter( v => v !== validator_zero )
+    if( !remaining.length ) return null
+
+    const results = await Promise.allSettled( remaining.map( query_peer ) )
+    const valid = results.find( r => r.status === 'fulfilled' )
+
+    if( valid ) {
+        log.info( `Got geodata for ${ ip } from validator peer` )
+        cache( cache_key, valid.value, 5 * 60 * 1000 )
+        return valid.value
+    }
+
+    log.info( `No validator peers had cached geodata for ${ ip }` )
+    return null
 
 }
 
