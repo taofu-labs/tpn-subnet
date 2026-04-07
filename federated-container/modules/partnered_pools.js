@@ -12,8 +12,8 @@ if( PARTNERED_NETWORK_MINING_POOLS ) {
 
     const partnered_pool_array = `${ PARTNERED_NETWORK_MINING_POOLS }`.split( ',' )
     log.info( `Loading partnered ${ partnered_pool_array?.length } mining pools from environment variable: `, partnered_pool_array )
-    if( !PARTNERS_ENABLED ) return log.warn( `Partnered network mining pools are currently disabled. This will be enabled once all validators have accepted the partnered network.` )
-    partnered_pool_array.forEach( entry => {
+    if( !PARTNERS_ENABLED ) log.warn( `Partnered network mining pools are currently disabled. This will be enabled once all validators have accepted the partnered network.` )
+    else partnered_pool_array.forEach( entry => {
         const [ uid, ip ] = entry.trim().split( ':' )
         if( uid && ip ) partnered_pools.set( uid.trim(), ip.trim() )
     } )
