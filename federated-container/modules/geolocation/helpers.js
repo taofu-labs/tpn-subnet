@@ -154,7 +154,6 @@ export async function ip_geodata( ip ) {
     const db_cached = await get_db_cached_geodata( ip )
 
     if( db_cached ) {
-        // Warm the in-memory cache from the db hit
         cache( cache_key, db_cached, GEODATA_CACHE_EXPIRY_MS )
         return db_cached
     }
@@ -162,33 +161,50 @@ export async function ip_geodata( ip ) {
 
     // --- Layer 3: MaxMind Insights API ---
     if( maxmind_insights_enabled ) {
-        const maxmind_data = await ip_geodata_from_maxmind( ip, cache_key )
-        if( maxmind_data ) return maxmind_data
+        const result = await ip_geodata_from_maxmind( ip )
+        if( result ) {
+            await save_db_cached_geodata( ip, result.data, result.extras )
+            cache( cache_key, result.data, GEODATA_CACHE_EXPIRY_MS )
+            return result.data
+        }
     }
 
 
     // --- Layer 4: peer validators ---
+    // Short TTL so MaxMind is retried after recovery
     try {
-        const validator_data = await ip_geodata_from_validators( ip, cache_key )
-        if( validator_data ) return validator_data
+        const validator_data = await ip_geodata_from_validators( ip )
+        if( validator_data ) {
+            cache( cache_key, validator_data, 5 * 60 * 1000 )
+            return validator_data
+        }
     } catch ( e ) {
         log.warn( `Validator geodata fallback failed for ${ ip }: ${ e.message }` )
     }
 
 
     // --- Layer 5: geoip-lite (final fallback) ---
-    // When MaxMind is enabled but failed, skip DB save and use a short TTL so MaxMind is retried.
-    // When MaxMind is not configured, geoip-lite is the primary source and should persist normally.
-    return ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save: maxmind_insights_enabled } )
+    const geoip_data = await ip_geodata_from_geoip_lite( ip )
+
+    // When geoip-lite is the primary source (no MaxMind), persist to DB with full TTL.
+    // When it's a fallback from a failed MaxMind call, use a short TTL so MaxMind is retried.
+    if( !maxmind_insights_enabled ) {
+        await save_db_cached_geodata( ip, geoip_data )
+        cache( cache_key, geoip_data, GEODATA_CACHE_EXPIRY_MS )
+    } else {
+        cache( cache_key, geoip_data, 5 * 60 * 1000 )
+    }
+
+    return geoip_data
 
 }
 
 
 /**
  * Resolve geodata via the MaxMind Insights web API.
- * Returns null on failure so the caller can proceed to the next layer.
+ * Returns { data, extras } on success, null on failure.
  */
-async function ip_geodata_from_maxmind( ip, cache_key ) {
+async function ip_geodata_from_maxmind( ip ) {
 
     try {
 
@@ -205,19 +221,13 @@ async function ip_geodata_from_maxmind( ip, cache_key ) {
         const connection_type = datacenter ? 'datacenter' : 'residential'
 
         const data = { country_code, datacenter, connection_type }
-
-        // Extra fields stored in db but not returned
         const extras = {
             userType: response.traits?.userType,
             connectionType: response.traits?.connectionType,
             userCount: response.traits?.userCount,
         }
 
-        // Persist to db and warm in-memory cache
-        await save_db_cached_geodata( ip, data, extras )
-        cache( cache_key, data, GEODATA_CACHE_EXPIRY_MS )
-
-        return data
+        return { data, extras }
 
     } catch ( e ) {
 
@@ -234,7 +244,7 @@ async function ip_geodata_from_maxmind( ip, cache_key ) {
  * Tries validator 0 first (highest priority), then remaining peers concurrently.
  * Returns null if no peer has cached data for the IP.
  */
-async function ip_geodata_from_validators( ip, cache_key ) {
+async function ip_geodata_from_validators( ip ) {
 
     // Dynamic imports to avoid circular dependency (validations.js → helpers.js)
     const { abort_controller } = await import( 'mentie' )
@@ -266,7 +276,6 @@ async function ip_geodata_from_validators( ip, cache_key ) {
         try {
             const data = await query_peer( validator_zero )
             log.info( `Got geodata for ${ ip } from validator 0 (${ validator_zero.ip })` )
-            cache( cache_key, data, 5 * 60 * 1000 )
             return data
         } catch ( e ) {
             log.info( `Validator 0 geodata fallback failed for ${ ip }: ${ e.message }` )
@@ -282,7 +291,6 @@ async function ip_geodata_from_validators( ip, cache_key ) {
 
     if( valid ) {
         log.info( `Got geodata for ${ ip } from validator peer` )
-        cache( cache_key, valid.value, 5 * 60 * 1000 )
         return valid.value
     }
 
@@ -294,9 +302,8 @@ async function ip_geodata_from_validators( ip, cache_key ) {
 
 /**
  * Resolve geodata via geoip-lite + ip2location (the original path).
- * By default saves to the database cache; set skip_db_save when falling back from an API error.
  */
-async function ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save = false } = {} ) {
+async function ip_geodata_from_geoip_lite( ip ) {
 
     const { default: geoip } = await import( 'geoip-lite' )
 
@@ -304,18 +311,6 @@ async function ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save = false
     const datacenter = !!ip && await is_data_center( ip )
     const connection_type = datacenter ? 'datacenter' : 'residential'
 
-    const data = { country_code: country, datacenter, connection_type }
-
-    // Persist to db (unless this is a fallback from a failed API call)
-    if( !skip_db_save ) {
-        await save_db_cached_geodata( ip, data )
-    }
-
-    // Use a short in-memory TTL on fallback so MaxMind is retried after recovery,
-    // otherwise align with the DB cache TTL
-    const in_memory_ttl_ms = skip_db_save ? 5 * 60 * 1000 : GEODATA_CACHE_EXPIRY_MS
-    cache( cache_key, data, in_memory_ttl_ms )
-
-    return data
+    return { country_code: country, datacenter, connection_type }
 
 }
