@@ -131,17 +131,21 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
 /**
  * Get geolocation data for an IP address.
  *
- * When MAXMIND_ACCOUNT_ID and MAXMIND_LICENSE_KEY are set, uses the MaxMind
- * Insights web API with multi-layer caching (in-memory → postgres → API).
- * Otherwise falls back to geoip-lite + ip2location with postgres caching.
+ * Resolution layers (first hit wins):
+ *   1. In-memory cache
+ *   2. PostgreSQL cache
+ *   3. MaxMind Insights API (when credentials are configured)
+ *   4. Peer validators (ask other validators for their cached MaxMind data)
+ *   5. geoip-lite + ip2location (local fallback)
  *
  * @param {string} ip - The IP address to lookup.
  * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string }>}
  */
 export async function ip_geodata( ip ) {
 
-    // --- Layer 1: in-memory cache (both paths) ---
     const cache_key = `geoip:${ ip }`
+
+    // --- Layer 1: in-memory cache ---
     const cached_value = cache( cache_key )
     if( cached_value ) return cached_value
 
@@ -156,20 +160,33 @@ export async function ip_geodata( ip ) {
     }
 
 
-    // --- Layer 3: resolve fresh data ---
-
+    // --- Layer 3: MaxMind Insights API ---
     if( maxmind_insights_enabled ) {
-        return ip_geodata_from_maxmind( ip, cache_key )
+        const maxmind_data = await ip_geodata_from_maxmind( ip, cache_key )
+        if( maxmind_data ) return maxmind_data
     }
 
-    return ip_geodata_from_geoip_lite( ip, cache_key )
+
+    // --- Layer 4: peer validators ---
+    try {
+        const validator_data = await ip_geodata_from_validators( ip, cache_key )
+        if( validator_data ) return validator_data
+    } catch ( e ) {
+        log.warn( `Validator geodata fallback failed for ${ ip }: ${ e.message }` )
+    }
+
+
+    // --- Layer 5: geoip-lite (final fallback) ---
+    // When MaxMind is enabled but failed, skip DB save and use a short TTL so MaxMind is retried.
+    // When MaxMind is not configured, geoip-lite is the primary source and should persist normally.
+    return ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save: maxmind_insights_enabled } )
 
 }
 
 
 /**
  * Resolve geodata via the MaxMind Insights web API.
- * On failure, falls back to geoip-lite without caching to the database.
+ * Returns null on failure so the caller can proceed to the next layer.
  */
 async function ip_geodata_from_maxmind( ip, cache_key ) {
 
@@ -204,19 +221,8 @@ async function ip_geodata_from_maxmind( ip, cache_key ) {
 
     } catch ( e ) {
 
-        // Log the error and try peer validators before falling back to geoip-lite
         log.error( `MaxMind Insights API error for ${ ip }: ${ e.message }` )
-
-        // Try to get geodata from peer validators
-        try {
-            const validator_data = await ip_geodata_from_validators( ip, cache_key )
-            if( validator_data ) return validator_data
-        } catch ( validator_err ) {
-            log.warn( `Validator geodata fallback failed for ${ ip }: ${ validator_err.message }` )
-        }
-
-        // Final fallback: geoip-lite (no db save, short TTL)
-        return ip_geodata_from_geoip_lite( ip, cache_key, { skip_db_save: true } )
+        return null
 
     }
 
