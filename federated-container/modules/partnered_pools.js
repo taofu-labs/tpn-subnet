@@ -10,7 +10,7 @@ const partnered_pools = new Map()
 
 if( PARTNERED_NETWORK_MINING_POOLS ) {
 
-    const partnered_pools = PARTNERED_NETWORK_MINING_POOLS.split( ',' )
+    const partnered_pools = `${ PARTNERED_NETWORK_MINING_POOLS }`.split( ',' )
     log.info( `Loading partnered ${ partnered_pools.length } mining pools from environment variable: `, partnered_pools )
     if( !PARTNERS_ENABLED ) return log.warn( `Partnered network mining pools are currently disabled. This will be enabled once all validators have accepted the partnered network.` )
     partnered_pools.forEach( entry => {
