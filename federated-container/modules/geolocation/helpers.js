@@ -138,10 +138,15 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
  *   4. Peer validators (ask other validators for their cached MaxMind data)
  *   5. geoip-lite + ip2location (local fallback)
  *
+ * When `authoritative_only` is true, only layers 1-3 are used — this prevents
+ * recursive validator-to-validator calls and avoids low-fidelity geoip-lite data.
+ *
  * @param {string} ip - The IP address to lookup.
- * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string }>}
+ * @param {Object} [options] - Options object.
+ * @param {boolean} [options.authoritative_only=false] - Skip peer validators and geoip-lite fallback.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string }|null>}
  */
-export async function ip_geodata( ip ) {
+export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
 
     const cache_key = `geoip:${ ip }`
     let geodata = null
@@ -159,6 +164,9 @@ export async function ip_geodata( ip ) {
         geodata = result?.data
         maxmind_extras = result?.extras
     }
+
+    // In authoritative-only mode, return null if layers 1-3 had no data
+    if( authoritative_only && !geodata ) return null
 
     // --- Layer 4: peer validators ---
     if( !geodata ) geodata = await ip_geodata_from_validators( ip )

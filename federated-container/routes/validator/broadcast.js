@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { cache, log, make_retryable, sanetise_ipv4, sanetise_string } from 'mentie'
+import { log, make_retryable, sanetise_ipv4, sanetise_string } from 'mentie'
 import { cooldown_in_s, retry_times } from "../../modules/networking/routing.js"
 import { annotate_worker_with_defaults, is_valid_worker } from '../../modules/validations.js'
 import { find_clashing_workers, write_workers } from '../../modules/database/workers.js'
@@ -8,7 +8,7 @@ import { is_validator_request } from '../../modules/networking/validators.js'
 import { write_mining_pool_metadata } from '../../modules/database/mining_pools.js'
 import { map_ips_to_geodata } from '../../modules/geolocation/ip_mapping.js'
 import { resolve_domain_to_ip } from '../../modules/networking/network.js'
-import { ip_geodata, get_db_cached_geodata } from '../../modules/geolocation/helpers.js'
+import { ip_geodata } from '../../modules/geolocation/helpers.js'
 import { find_first_valid_workers_by_ip } from '../../modules/scoring/score_workers.js'
 const { CI_MODE } = process.env
 
@@ -191,8 +191,8 @@ router.post( '/mining_pool', async ( req, res ) => {
 
 
 /**
- * Serve cached geodata to peer validators.
- * Only returns data already in cache (in-memory or DB) — never triggers fresh resolution.
+ * Serve geodata to peer validators.
+ * Uses layers 1-3 only (cache + DB + MaxMind) to avoid recursive validator calls.
  */
 router.get( '/geodata/:ip', async ( req, res ) => {
 
@@ -201,17 +201,10 @@ router.get( '/geodata/:ip', async ( req, res ) => {
     if( !validator?.uid ) return res.status( 403 ).json( { error: `Requester not a known validator` } )
 
     const { ip } = req.params
+    const data = await ip_geodata( ip, { authoritative_only: true } )
 
-    // Check in-memory cache first
-    const cached_value = cache( `geoip:${ ip }` )
-    if( cached_value ) return res.json( { success: true, data: cached_value } )
-
-    // Check database cache
-    const db_cached = await get_db_cached_geodata( ip )
-    if( db_cached ) return res.json( { success: true, data: db_cached } )
-
-    // No cached data available
-    return res.status( 404 ).json( { success: false, error: `No cached geodata for this IP` } )
+    if( data ) return res.json( { success: true, data } )
+    return res.status( 404 ).json( { success: false, error: `No geodata available for this IP` } )
 
 } )
 
