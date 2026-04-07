@@ -2,12 +2,18 @@ import { log } from "mentie"
 
 const { PARTNERED_NETWORK_MINING_POOLS } = process.env
 
+// Hard coded boundary, will be removed when all validators accepted the partnered network
+const PARTNERS_ENABLED = false
+
 // Parse "5:1.1.1.1,10:6.4.4.1" into a Map { "5" => "1.1.1.1", "10" => "6.4.4.1" }
 const partnered_pools = new Map()
 
 if( PARTNERED_NETWORK_MINING_POOLS ) {
 
-    PARTNERED_NETWORK_MINING_POOLS.split( ',' ).forEach( entry => {
+    const partnered_pools = PARTNERED_NETWORK_MINING_POOLS.split( ',' )
+    log.info( `Loading partnered ${ partnered_pools.length } mining pools from environment variable: `, partnered_pools )
+    if( !PARTNERS_ENABLED ) return log.warn( `Partnered network mining pools are currently disabled. This will be enabled once all validators have accepted the partnered network.` )
+    partnered_pools.forEach( entry => {
         const [ uid, ip ] = entry.trim().split( ':' )
         if( uid && ip ) partnered_pools.set( uid.trim(), ip.trim() )
     } )
