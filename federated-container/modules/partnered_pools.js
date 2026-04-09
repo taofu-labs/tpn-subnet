@@ -3,7 +3,7 @@ import { log } from "mentie"
 const { PARTNERED_NETWORK_MINING_POOLS } = process.env
 
 // Hard coded boundary, will be removed when all validators accepted the partnered network
-const PARTNERS_ENABLED = false
+const PARTNERS_ENABLED = true
 
 // Parse "5:1.1.1.1,10:6.4.4.1" into a Map { "5" => "1.1.1.1", "10" => "6.4.4.1" }
 const partnered_pools = new Map()
