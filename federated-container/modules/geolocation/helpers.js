@@ -141,6 +141,7 @@ function save_memory_cached_geodata( { ip, geodata, source, ttl } ) {
 
     cache( `geoip:${ ip }`, geodata, ttl )
     cache( `geoip_source:${ ip }`, source, ttl )
+    log.insane( `Cached geodata for ${ ip } from source "${ source }" with TTL ${ ttl / 1000 }s` )
 
 }
 
@@ -200,6 +201,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     if( !geodata ) {
         geodata = await get_db_cached_geodata( ip )
         if( geodata ) geodata_source = `db`
+        log.debug( `DB cache ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
     }
 
     // --- Layer 3: MaxMind Insights API ---
@@ -208,6 +210,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
         geodata = result?.data
         maxmind_extras = result?.extras
         if( geodata ) geodata_source = `maxmind`
+        log.debug( `MaxMind Insights API ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
     }
 
     // In authoritative-only mode, return null if layers 1-3 had no data
@@ -217,12 +220,14 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     if( !geodata ) {
         geodata = await ip_geodata_from_validators( ip )
         if( geodata ) geodata_source = `validator`
+        log.debug( `Validator peer ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
     }
 
     // --- Layer 5: geoip-lite (final fallback) ---
     if( !geodata ) {
         geodata = await ip_geodata_from_geoip_lite( ip )
         if( geodata ) geodata_source = `geoip_lite`
+        log.debug( `geoip-lite ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
     }
 
 
@@ -239,6 +244,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     }
 
     save_memory_cached_geodata( { ip, geodata, source: geodata_source, ttl } )
+    log.info( `Resolved geodata for ${ ip } from source "${ geodata_source }"` )
 
     return geodata
 
@@ -349,6 +355,7 @@ async function ip_geodata_from_validators( ip ) {
             if( !res.ok ) throw new Error( `Peer ${ peer.ip } returned ${ res.status }` )
             const body = await res.json()
             if( !body?.success || !body?.data ) throw new Error( `Peer ${ peer.ip } has no data` )
+            log.info( `Peer ${ peer.ip } has cached geodata for ${ ip }` )
             return body.data
         }
 
