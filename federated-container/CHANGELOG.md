@@ -5,7 +5,7 @@
 ### Added
 - validator-to-validator geodata fallback when MaxMind fails
 - `GET /validator/broadcast/geodata/:ip` endpoint for peer cache lookups
-- validator 0 prioritised as first fallback peer
+- race all validator peers concurrently for fastest geodata response
 
 ## [1.4.0] - 2026-04-01
 

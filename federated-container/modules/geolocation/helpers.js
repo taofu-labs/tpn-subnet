@@ -135,7 +135,7 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
  *   1. In-memory cache
  *   2. PostgreSQL cache
  *   3. MaxMind Insights API (when credentials are configured)
- *   4. Peer validators (ask other validators for their cached MaxMind data)
+ *   4. Peer validators (ask other validators for their cached geodata)
  *   5. geoip-lite + ip2location (local fallback)
  *
  * When `authoritative_only` is true, only layers 1-3 are used — this prevents
@@ -234,14 +234,14 @@ async function ip_geodata_from_maxmind( ip ) {
 
 /**
  * Resolve geodata by querying peer validators for their cached data.
- * Tries validator 0 first (highest priority), then remaining peers concurrently.
+ * Races all peers concurrently via Promise.any — first successful response wins.
  * Returns null if no peer has cached data for the IP.
  */
 async function ip_geodata_from_validators( ip ) {
 
     try {
 
-        // Dynamic imports to avoid circular dependency (validations.js → helpers.js)
+        // Dynamic imports to avoid circular dependency (validators.js → helpers.js)
         const { abort_controller } = await import( 'mentie' )
         const { get_validators } = await import( '../networking/validators.js' )
 
