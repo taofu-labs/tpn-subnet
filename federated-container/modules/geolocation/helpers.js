@@ -199,11 +199,13 @@ async function ip_geodata_from_maxmind( ip ) {
 
     try {
 
-        const { WebServiceClient } = await import( '@maxmind/geoip2-node' )
-
-        const client = new WebServiceClient( MAXMIND_ACCOUNT_ID, MAXMIND_LICENSE_KEY, {
-            timeout: 5000,
-        } )
+        // Reuse a single WebServiceClient instance across calls
+        let client = cache( `maxmind:client` )
+        if( !client ) {
+            const { WebServiceClient } = await import( '@maxmind/geoip2-node' )
+            client = new WebServiceClient( MAXMIND_ACCOUNT_ID, MAXMIND_LICENSE_KEY, { timeout: 5000 } )
+            cache( `maxmind:client`, client )
+        }
 
         const response = await client.insights( ip )
 
