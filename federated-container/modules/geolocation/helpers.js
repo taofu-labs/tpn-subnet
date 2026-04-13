@@ -240,7 +240,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     const ttl = is_fallback_source( geodata_source ) ? GEODATA_FALLBACK_CACHE_EXPIRY_MS : GEODATA_CACHE_EXPIRY_MS
 
     if( geodata_source === `maxmind` ||  geodata_source === `geoip_lite` && !maxmind_insights_enabled  ) {
-        await save_db_cached_geodata( ip, geodata, maxmind_extras )
+        await save_db_cached_geodata( ip, geodata, maxmind_extras ?? undefined )
     }
 
     save_memory_cached_geodata( { ip, geodata, source: geodata_source, ttl } )
