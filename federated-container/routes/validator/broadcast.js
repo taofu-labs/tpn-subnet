@@ -196,15 +196,27 @@ router.post( '/mining_pool', async ( req, res ) => {
  */
 router.get( '/geodata/:ip', async ( req, res ) => {
 
-    // This endpoint is only for validators
-    const validator = await is_validator_request( req )
-    if( !validator?.uid ) return res.status( 403 ).json( { error: `Requester not a known validator` } )
+    try {
 
-    const { ip } = req.params
-    const data = await ip_geodata( ip, { authoritative_only: true } )
+        // This endpoint is only for validators
+        const validator = await is_validator_request( req )
+        if( !validator?.uid ) return res.status( 403 ).json( { error: `Requester not a known validator` } )
 
-    if( data ) return res.json( { success: true, data } )
-    return res.status( 404 ).json( { success: false, error: `No geodata available for this IP` } )
+        // Sanetise and validate the IP parameter
+        const sanitised_ip = sanetise_ipv4( { ip: req.params.ip, validate: true } )
+        if( !sanitised_ip ) return res.status( 400 ).json( { error: `Invalid IP address` } )
+
+        const data = await ip_geodata( sanitised_ip, { authoritative_only: true } )
+
+        if( data ) return res.json( { success: true, data } )
+        return res.status( 404 ).json( { success: false, error: `No geodata available for this IP` } )
+
+    } catch ( e ) {
+
+        log.warn( `Error handling geodata request for ${ req.params?.ip }:`, e )
+        return res.status( 400 ).json( { error: e.message } )
+
+    }
 
 } )
 
