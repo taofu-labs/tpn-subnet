@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.5.3] - 2026-04-13
+
+### Fixed
+- drop malformed worker entries before validator broadcast preprocessing
+- skip mining pool URL resolution for empty worker URL values
+
+## [1.5.2] - 2026-04-13
+
+### Fixed
+- keep authoritative geodata cache hits on long TTL when MaxMind is enabled
+- track geodata cache source so validator fallback stays on short retry TTL
+
+## [1.5.1] - 2026-04-13
+
+### Fixed
+- resolve peer geodata requests through advertised validator public endpoints
+- sanitise worker IPs before geodata lookups use miner-supplied values
+
+## [1.5.0] - 2026-04-07
+
+### Added
+- validator-to-validator geodata fallback when MaxMind fails
+- `GET /validator/broadcast/geodata/:ip` endpoint for peer cache lookups
+- race all validator peers concurrently for fastest geodata response
+
+## [1.4.0] - 2026-04-01
+
+### Added
+- add MaxMind Insights web API support to `ip_geodata` with multi-layer caching (in-memory → postgres → API)
+- add `ip_geodata_cache` table for persistent geodata caching with 30-day expiry
+- store extra MaxMind traits (userType, connectionType, userCount) in cache table
+
+### Fixed
+- fix package-lock.json version mismatch (1.3.3 → 1.4.0)
+- fix in-memory cache TTL on MaxMind fallback suppressing retries for 30 days (now 5 min)
+- add `ip_geodata_cache` to periodic database cleanup to prevent unbounded table growth
+- fix cleanup guard skipping tables with `max_stale_minutes: 0`
+
+### Changed
+- `ip_geodata` now checks postgres cache before falling back to geoip-lite
+- graceful fallback to geoip-lite when MaxMind API is unavailable or errors
+
 ## [1.3.3] - 2026-04-01
 
 ### Fixed
