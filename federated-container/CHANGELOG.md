@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.2] - 2026-04-13
+
+### Fixed
+- keep authoritative geodata cache hits on long TTL when MaxMind is enabled
+- track geodata cache source so validator fallback stays on short retry TTL
+
 ## [1.5.1] - 2026-04-13
 
 ### Fixed
