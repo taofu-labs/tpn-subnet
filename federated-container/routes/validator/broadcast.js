@@ -15,6 +15,19 @@ const { CI_MODE } = process.env
 export const router = Router()
 
 /**
+ * Returns true when the payload looks like a worker object.
+ * @param {unknown} worker - Worker payload from the miner.
+ * @returns {boolean} Whether the payload is an object-like worker entry.
+ */
+const is_worker_object = worker => {
+
+    if( !worker || typeof worker !== `object` ) return false
+    if( Array.isArray( worker ) ) return false
+    return true
+
+}
+
+/**
  * Sanitises a worker IP without rejecting the full worker object.
  * Invalid or missing IPs are left untouched so later validation can drop them.
  * @param {Object} worker - Worker payload from the miner.
@@ -53,13 +66,16 @@ router.post( '/workers', async ( req, res ) => {
         if( !Array.isArray( workers ) ) throw new Error( `Invalid workers format, must be an array` )
         log.info( `Received ${ workers.length } workers from mining pool ${ mining_pool_uid }@${ mining_pool_ip }, example: `, workers[0] )
 
+        // Drop malformed entries before any property access or network lookups
+        const worker_objects = workers.filter( is_worker_object )
+        const dropped_worker_count = workers.length - worker_objects.length
+        if( dropped_worker_count ) log.warn( `Dropping ${ dropped_worker_count } non-object worker entries before preprocessing` )
+
         // Normalise IPs before any geodata or peer-validator lookups use miner-supplied values
-        workers = workers.map( sanitise_worker_ip )
+        workers = worker_objects.map( sanitise_worker_ip )
 
         // Check that the claimed countries and datacenter status are valid according to our db
         const workers_geo = await Promise.all( workers.map( async worker => {
-
-            if( !worker || typeof worker !== `object` ) return null
 
             const sanitised_ip = sanetise_ipv4( { ip: worker.ip, validate: true, error_on_invalid: false } )
             if( !sanitised_ip ) return null
@@ -70,7 +86,10 @@ router.post( '/workers', async ( req, res ) => {
         } ) )
 
         // Filter out workers where the mining_pool_url ip does not match the mining_pool_ip
-        const pool_urls_to_check = [ ...new Set( workers.map( worker => worker.mining_pool_url ) ) ]
+        const pool_urls_to_check = [ ...new Set( workers
+            .map( worker => worker.mining_pool_url )
+            .filter( url => typeof url === `string` && url.length )
+        ) ]
         const pool_url_ip_map = {}
         await Promise.all( pool_urls_to_check.map( async ( url ) => {
             try {

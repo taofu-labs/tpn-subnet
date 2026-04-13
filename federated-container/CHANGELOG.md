@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.3] - 2026-04-13
+
+### Fixed
+- drop malformed worker entries before validator broadcast preprocessing
+- skip mining pool URL resolution for empty worker URL values
+
 ## [1.5.2] - 2026-04-13
 
 ### Fixed
