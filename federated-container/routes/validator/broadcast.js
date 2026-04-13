@@ -15,6 +15,26 @@ const { CI_MODE } = process.env
 export const router = Router()
 
 /**
+ * Sanitises a worker IP without rejecting the full worker object.
+ * Invalid or missing IPs are left untouched so later validation can drop them.
+ * @param {Object} worker - Worker payload from the miner.
+ * @returns {Object} Worker with a normalised IP when valid.
+ */
+const sanitise_worker_ip = worker => {
+
+    if( !worker || typeof worker !== `object` ) return worker
+
+    try {
+        const sanitised_ip = sanetise_ipv4( { ip: worker.ip, validate: true, error_on_invalid: false } )
+        if( !sanitised_ip ) return worker
+        return { ...worker, ip: sanitised_ip }
+    } catch {
+        return worker
+    }
+
+}
+
+/**
  * Handle the submission of worker lists from mining pools
  * @params {Object} req.body.workers - Array of worker objects with properties: ip, country_code
  */
@@ -33,10 +53,20 @@ router.post( '/workers', async ( req, res ) => {
         if( !Array.isArray( workers ) ) throw new Error( `Invalid workers format, must be an array` )
         log.info( `Received ${ workers.length } workers from mining pool ${ mining_pool_uid }@${ mining_pool_ip }, example: `, workers[0] )
 
+        // Normalise IPs before any geodata or peer-validator lookups use miner-supplied values
+        workers = workers.map( sanitise_worker_ip )
+
         // Check that the claimed countries and datacenter status are valid according to our db
-        const workers_geo = await Promise.all( workers.map( async ( { ip } ) => {
-            const { country_code, connection_type, datacenter } = await ip_geodata( ip )
-            return { ip, country_code, connection_type, datacenter }
+        const workers_geo = await Promise.all( workers.map( async worker => {
+
+            if( !worker || typeof worker !== `object` ) return null
+
+            const sanitised_ip = sanetise_ipv4( { ip: worker.ip, validate: true, error_on_invalid: false } )
+            if( !sanitised_ip ) return null
+
+            const { country_code, connection_type, datacenter } = await ip_geodata( sanitised_ip )
+            return { ip: sanitised_ip, country_code, connection_type, datacenter }
+
         } ) )
 
         // Filter out workers where the mining_pool_url ip does not match the mining_pool_ip
@@ -66,7 +96,7 @@ router.post( '/workers', async ( req, res ) => {
         workers = workers.map( ( worker ) => {
 
             // Check is claimed data matches ours
-            const geo = workers_geo.find( g => g.ip === worker.ip )
+            const geo = workers_geo.find( g => g?.ip === worker?.ip )
             if( !geo ) return worker
             const country_matches = worker.country_code == geo.country_code
             const connection_type_matches = worker.connection_type == geo.connection_type
@@ -219,4 +249,3 @@ router.get( '/geodata/:ip', async ( req, res ) => {
     }
 
 } )
-

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.1] - 2026-04-13
+
+### Fixed
+- resolve peer geodata requests through advertised validator public endpoints
+- sanitise worker IPs before geodata lookups use miner-supplied values
+
 ## [1.5.0] - 2026-04-07
 
 ### Added

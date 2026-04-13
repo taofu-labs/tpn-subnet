@@ -233,6 +233,37 @@ async function ip_geodata_from_maxmind( ip ) {
 
 
 /**
+ * Resolve the public geodata endpoint for a peer validator.
+ * Uses the validator's advertised public protocol/host/port, mirroring the
+ * rest of the validator broadcast flow.
+ * @param {Object} peer - Validator peer metadata.
+ * @returns {Promise<string>} Peer geodata endpoint URL.
+ */
+async function get_validator_geodata_endpoint( peer ) {
+
+    const endpoint_cache_key = `validator:geodata_endpoint:${ peer.ip }`
+    const cached_endpoint = cache( endpoint_cache_key )
+    if( cached_endpoint ) return cached_endpoint
+
+    const { abort_controller } = await import( 'mentie' )
+    const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+
+    const health_res = await fetch( `http://${ peer.ip }:3000/`, fetch_options )
+    if( !health_res.ok ) throw new Error( `Peer ${ peer.ip } metadata returned ${ health_res.status }` )
+
+    const health_data = await health_res.json()
+    const protocol = health_data.SERVER_PUBLIC_PROTOCOL || `http`
+    const host = health_data.SERVER_PUBLIC_HOST || peer.ip
+    const port = health_data.SERVER_PUBLIC_PORT || 3000
+    const endpoint = `${ protocol }://${ host }:${ port }/validator/broadcast/geodata`
+
+    cache( endpoint_cache_key, endpoint, 5 * 60 * 1000 )
+    return endpoint
+
+}
+
+
+/**
  * Resolve geodata by querying peer validators for their cached data.
  * Races all peers concurrently via Promise.any — first successful response wins.
  * Returns null if no peer has cached data for the IP.
@@ -258,7 +289,9 @@ async function ip_geodata_from_validators( ip ) {
         // Query a single peer with a 5-second timeout
         const query_peer = async ( peer ) => {
             const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
-            const res = await fetch( `http://${ peer.ip }:3000/validator/broadcast/geodata/${ ip }`, fetch_options )
+            const peer_geodata_endpoint = await get_validator_geodata_endpoint( peer )
+            const geodata_url = `${ peer_geodata_endpoint }/${ encodeURIComponent( ip ) }`
+            const res = await fetch( geodata_url, fetch_options )
             if( !res.ok ) throw new Error( `Peer ${ peer.ip } returned ${ res.status }` )
             const body = await res.json()
             if( !body?.success || !body?.data ) throw new Error( `Peer ${ peer.ip } has no data` )
