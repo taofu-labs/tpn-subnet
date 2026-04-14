@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0] - 2026-04-14
+
+### Added
+- track original resolution source (maxmind/geoip_lite) in `ip_geodata_cache` DB table
+- `authoritative_only` mode now checks source provenance in both memory and DB caches
+- backwards-compat migration adds `source` column to existing `ip_geodata_cache` tables
+
+### Changed
+- `authoritative_only: true` rejects all non-MaxMind data including legacy DB entries without source
+
 ## [1.5.3] - 2026-04-13
 
 ### Fixed

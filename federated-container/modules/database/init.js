@@ -383,6 +383,22 @@ export async function init_database() {
         } )
     }
 
+    // If ip_geodata_cache is missing the source column, add it to track where data came from
+    if( miner_mode || validator_mode ) {
+        await pool.query( `
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ip_geodata_cache') THEN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ip_geodata_cache' AND column_name='source') THEN
+                        ALTER TABLE ip_geodata_cache ADD COLUMN source TEXT;
+                        RAISE NOTICE 'Added source column to ip_geodata_cache table';
+                    END IF;
+                END IF;
+            END
+            $$;
+        ` )
+    }
+
     log.info( `✅ Backwards compatibility section complete` )
 
 }

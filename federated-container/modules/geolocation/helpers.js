@@ -1,6 +1,7 @@
 import { cache, log } from 'mentie'
 import { is_data_center } from './ip2location.js'
 import { get_pg_pool } from '../database/postgres.js'
+import { run_mode } from '../validations.js'
 
 // Helper that has all country names
 export const region_names = new Intl.DisplayNames( [ 'en' ], { type: 'region' } )
@@ -74,6 +75,7 @@ export async function get_db_cached_geodata( ip ) {
             country_code: row.country,
             datacenter: row.datacenter,
             connection_type: row.connection_type,
+            source: row.source || null,
         }
 
     } catch ( e ) {
@@ -88,9 +90,10 @@ export async function get_db_cached_geodata( ip ) {
  * Save geodata to the ip_geodata_cache table (upsert).
  * @param {string} ip - The IP address.
  * @param {object} data - The geodata to cache.
+ * @param {string} source - The resolution source (e.g. "maxmind", "geoip_lite").
  * @param {object} [extras={}] - Additional MaxMind fields to store.
  */
-async function save_db_cached_geodata( ip, data, extras = {} ) {
+async function save_db_cached_geodata( ip, data, source, extras = {} ) {
 
     try {
 
@@ -99,8 +102,8 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
         const expires_at = now + GEODATA_CACHE_EXPIRY_MS
 
         await pool.query( `
-            INSERT INTO ip_geodata_cache ( ip, country, datacenter, connection_type, user_type, connection_type_raw, user_count, updated_at, expires_at )
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9 )
+            INSERT INTO ip_geodata_cache ( ip, country, datacenter, connection_type, user_type, connection_type_raw, user_count, source, updated_at, expires_at )
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 )
             ON CONFLICT ( ip ) DO UPDATE SET
                 country = EXCLUDED.country,
                 datacenter = EXCLUDED.datacenter,
@@ -108,6 +111,7 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
                 user_type = EXCLUDED.user_type,
                 connection_type_raw = EXCLUDED.connection_type_raw,
                 user_count = EXCLUDED.user_count,
+                source = EXCLUDED.source,
                 updated_at = EXCLUDED.updated_at,
                 expires_at = EXCLUDED.expires_at
         `, [
@@ -118,6 +122,7 @@ async function save_db_cached_geodata( ip, data, extras = {} ) {
             extras.userType ?? null,
             extras.connectionType ?? null,
             extras.userCount ?? null,
+            source,
             now,
             expires_at,
         ] )
@@ -186,22 +191,45 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     let geodata = null
     let geodata_source = null
     let maxmind_extras = null
+    const { validator_mode } = await run_mode()
+
+    // If validator and maxmind insights not enabled, log and make sure to ask other validators
+    if( validator_mode && !maxmind_insights_enabled ) log.warn( `Your validator did not set MAXMIND_ACCOUNT_ID, MaxMind insights will be disabled.` )
 
     // --- Layer 1: in-memory cache ---
     geodata = cache( cache_key )
     geodata_source = cache( cache_source_key ) || `memory`
 
-    // Keep fallback cache entries out of authoritative-only responses, and
-    // avoid resetting TTLs or rewriting DB state on memory hits.
-    if( geodata && ( !authoritative_only || !is_fallback_source( geodata_source ) ) ) return geodata
+    // Authoritative-only callers require MaxMind provenance — reject everything else.
+    // Regular callers accept any source except short-lived fallback entries
+    // (which shouldn't linger in memory anyway).
+    if( geodata && ( !authoritative_only || geodata_source === `maxmind` ) ) return geodata
     geodata = null
     geodata_source = null
 
     // --- Layer 2: database cache ---
     if( !geodata ) {
-        geodata = await get_db_cached_geodata( ip )
-        if( geodata ) geodata_source = `db`
+
+        const db_result = await get_db_cached_geodata( ip )
+
+        if( db_result ) {
+
+            // The DB row tracks which provider originally produced this data.
+            // When authoritative_only is set, reject entries that came from a
+            // fallback source (e.g. geoip_lite) — only MaxMind data qualifies.
+            const original_source = db_result.source || null
+
+            if( authoritative_only && original_source !== `maxmind` ) {
+                log.debug( `DB cache hit for ${ ip } but source "${ original_source }" is not authoritative, skipping` )
+            } else {
+                geodata = { country_code: db_result.country_code, datacenter: db_result.datacenter, connection_type: db_result.connection_type }
+                geodata_source = original_source || `db`
+            }
+
+        }
+
         log.debug( `DB cache ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
+
     }
 
     // --- Layer 3: MaxMind Insights API ---
@@ -243,7 +271,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     const ttl = is_fallback_source( geodata_source ) ? GEODATA_FALLBACK_CACHE_EXPIRY_MS : GEODATA_CACHE_EXPIRY_MS
 
     if( geodata_source === `maxmind` ||  geodata_source === `geoip_lite` && !maxmind_insights_enabled  ) {
-        await save_db_cached_geodata( ip, geodata, maxmind_extras ?? undefined )
+        await save_db_cached_geodata( ip, geodata, geodata_source, maxmind_extras ?? undefined )
     }
 
     save_memory_cached_geodata( { ip, geodata, source: geodata_source, ttl } )
