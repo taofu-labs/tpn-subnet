@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.1] - 2026-04-14
+
+### Fixed
+- add missing `source` column to `ip_geodata_cache` CREATE TABLE schema (existing validators needed restart for migration)
+
 ## [1.6.0] - 2026-04-14
 
 ### Added
