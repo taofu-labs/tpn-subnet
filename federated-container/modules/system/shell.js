@@ -157,7 +157,8 @@ export async function check_system_warnings() {
             `SERVER_PUBLIC_PORT`,
             ... validator_mode || miner_mode  ? [
                 `SERVER_PUBLIC_URL`, 
-                `MAXMIND_LICENSE_KEY`, 
+                `MAXMIND_ACCOUNT_ID`,
+                `MAXMIND_LICENSE_KEY`,
                 `IP2LOCATION_DOWNLOAD_TOKEN`,
                 `SWAG_DOMAIN_NAME`,
                 `SWAG_EMAIL`,
