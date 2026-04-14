@@ -214,12 +214,15 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     }
 
     // In authoritative-only mode, return null if layers 1-3 had no data
-    if( authoritative_only && !geodata ) return null
+    if( authoritative_only && !geodata ) {
+        log.debug( `Authoritative-only mode: no geodata found for ${ ip } in memory, DB, or MaxMind` )
+        return null
+    }
 
     // --- Layer 4: peer validators ---
     if( !geodata ) {
         geodata = await ip_geodata_from_validators( ip )
-        if( geodata ) geodata_source = `validator`
+        if( geodata ) geodata_source = `external validator`
         log.debug( `Validator peer ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
     }
 
@@ -244,7 +247,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     }
 
     save_memory_cached_geodata( { ip, geodata, source: geodata_source, ttl } )
-    log.info( `Resolved geodata for ${ ip } from source "${ geodata_source }"` )
+    log.info( `Resolved geodata for ${ ip } from source "${ geodata_source }" (MaxMind insights ${ maxmind_insights_enabled ? 'enabled' : 'disabled' })` )
 
     return geodata
 
