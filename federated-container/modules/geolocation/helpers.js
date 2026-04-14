@@ -169,19 +169,25 @@ function is_fallback_source( source ) {
 /**
  * Get geolocation data for an IP address.
  *
- * Resolution layers (first hit wins):
+ * Resolution layers:
  *   1. In-memory cache
  *   2. PostgreSQL cache
  *   3. MaxMind Insights API (when credentials are configured)
  *   4. Peer validators (ask other validators for their cached geodata)
  *   5. geoip-lite + ip2location (local fallback)
  *
- * When `authoritative_only` is true, only layers 1-3 are used — this prevents
- * recursive validator-to-validator calls and avoids low-fidelity geoip-lite data.
+ * When MaxMind is enabled and a cache hit (layer 1/2) came from a non-maxmind
+ * source, the cache data is stashed and MaxMind is tried first. If MaxMind
+ * fails, the stashed cache data is used as a fallback — avoiding unnecessary
+ * round-trips to peers or geoip-lite.
+ *
+ * When `authoritative_only` is true, only MaxMind-sourced data is accepted
+ * from any layer. This prevents recursive validator-to-validator calls and
+ * avoids low-fidelity geoip-lite data.
  *
  * @param {string} ip - The IP address to lookup.
  * @param {Object} [options] - Options object.
- * @param {boolean} [options.authoritative_only=false] - Skip peer validators and geoip-lite fallback.
+ * @param {boolean} [options.authoritative_only=false] - Only return MaxMind-sourced data.
  * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string }|null>}
  */
 export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
@@ -199,16 +205,32 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
         log.warn( `Your validator did not set MAXMIND_ACCOUNT_ID, MaxMind insights will be disabled.` )
     }
 
+    // Holds non-maxmind cache data so MaxMind can be attempted first.
+    // If MaxMind fails we fall back to this instead of hitting peers / geoip-lite.
+    let cached_fallback = null
+
     // --- Layer 1: in-memory cache ---
     geodata = cache( cache_key )
     geodata_source = cache( cache_source_key ) || `memory`
 
-    // Authoritative-only callers require MaxMind provenance — reject everything else.
-    // Regular callers accept any source except short-lived fallback entries
-    // (which shouldn't linger in memory anyway).
-    if( geodata && ( !authoritative_only || geodata_source === `maxmind` ) ) return geodata
-    geodata = null
-    geodata_source = null
+    if( geodata ) {
+
+        // MaxMind-sourced memory hit — always trust immediately
+        if( geodata_source === `maxmind` ) return geodata
+
+        // Non-maxmind hit with MaxMind enabled — stash and let MaxMind try first
+        if( maxmind_insights_enabled ) {
+            cached_fallback = { geodata, source: geodata_source }
+            log.debug( `Memory cache hit for ${ ip } from "${ geodata_source }", deferring to MaxMind` )
+        } else if( !authoritative_only ) {
+            // MaxMind disabled, non-authoritative — best we have
+            return geodata
+        }
+
+        geodata = null
+        geodata_source = null
+
+    }
 
     // --- Layer 2: database cache ---
     if( !geodata ) {
@@ -217,15 +239,20 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
 
         if( db_result ) {
 
-            // The DB row tracks which provider originally produced this data.
-            // When authoritative_only is set, reject entries that came from a
-            // fallback source (e.g. geoip_lite) — only MaxMind data qualifies.
             const original_source = db_result.source || null
+            const db_geodata = { country_code: db_result.country_code, datacenter: db_result.datacenter, connection_type: db_result.connection_type }
 
-            if( authoritative_only && original_source !== `maxmind` ) {
-                log.debug( `DB cache hit for ${ ip } but source "${ original_source }" is not authoritative, skipping` )
-            } else {
-                geodata = { country_code: db_result.country_code, datacenter: db_result.datacenter, connection_type: db_result.connection_type }
+            if( original_source === `maxmind` ) {
+                // MaxMind-sourced DB hit — accept directly
+                geodata = db_geodata
+                geodata_source = `maxmind`
+            } else if( maxmind_insights_enabled ) {
+                // Non-maxmind DB hit with MaxMind enabled — stash if we don't already have a fresher fallback
+                if( !cached_fallback ) cached_fallback = { geodata: db_geodata, source: original_source || `db` }
+                log.debug( `DB cache hit for ${ ip } from "${ original_source }", deferring to MaxMind` )
+            } else if( !authoritative_only ) {
+                // MaxMind disabled, non-authoritative — accept
+                geodata = db_geodata
                 geodata_source = original_source || `db`
             }
 
@@ -242,6 +269,14 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
         maxmind_extras = result?.extras
         if( geodata ) geodata_source = `maxmind`
         log.debug( `MaxMind Insights API ${ geodata ? 'hit' : 'miss' } for ${ ip }` )
+    }
+
+    // MaxMind failed or unavailable — fall back to stashed cache data
+    // (authoritative_only rejects non-maxmind, so the fallback doesn't apply)
+    if( !geodata && cached_fallback && !authoritative_only ) {
+        geodata = cached_fallback.geodata
+        geodata_source = cached_fallback.source
+        log.debug( `MaxMind miss for ${ ip }, falling back to cached "${ geodata_source }" data` )
     }
 
     // In authoritative-only mode, return null if layers 1-3 had no data
