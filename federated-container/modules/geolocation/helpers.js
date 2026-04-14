@@ -159,7 +159,7 @@ function save_memory_cached_geodata( { ip, geodata, source, ttl } ) {
  */
 function is_fallback_source( source ) {
 
-    if( source === `validator` ) return true
+    if( source === `validator` || source === `external validator` ) return true
     if( source === `geoip_lite` && maxmind_insights_enabled ) return true
     return false
 
@@ -193,8 +193,11 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     let maxmind_extras = null
     const { validator_mode } = await run_mode()
 
-    // If validator and maxmind insights not enabled, log and make sure to ask other validators
-    if( validator_mode && !maxmind_insights_enabled ) log.warn( `Your validator did not set MAXMIND_ACCOUNT_ID, MaxMind insights will be disabled.` )
+    // Warn once per process lifetime if MaxMind is not configured
+    if( validator_mode && !maxmind_insights_enabled && !cache( `warned:maxmind_disabled` ) ) {
+        cache( `warned:maxmind_disabled`, true )
+        log.warn( `Your validator did not set MAXMIND_ACCOUNT_ID, MaxMind insights will be disabled.` )
+    }
 
     // --- Layer 1: in-memory cache ---
     geodata = cache( cache_key )
