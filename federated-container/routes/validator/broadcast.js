@@ -80,8 +80,15 @@ router.post( '/workers', async ( req, res ) => {
             const sanitised_ip = sanetise_ipv4( { ip: worker.ip, validate: true, error_on_invalid: false } )
             if( !sanitised_ip ) return null
 
-            const { country_code, connection_type, datacenter } = await ip_geodata( sanitised_ip )
-            return { ip: sanitised_ip, country_code, connection_type, datacenter }
+            try {
+                const geodata = await ip_geodata( sanitised_ip )
+                if( !geodata ) return null
+                const { country_code, connection_type, datacenter } = geodata
+                return { ip: sanitised_ip, country_code, connection_type, datacenter }
+            } catch ( e ) {
+                log.warn( `Failed to resolve geodata for worker ${ sanitised_ip }: ${ e.message }` )
+                return null
+            }
 
         } ) )
 

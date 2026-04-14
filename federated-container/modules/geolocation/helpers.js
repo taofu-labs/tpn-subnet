@@ -449,12 +449,21 @@ async function ip_geodata_from_validators( ip ) {
  */
 async function ip_geodata_from_geoip_lite( ip ) {
 
-    const { default: geoip } = await import( 'geoip-lite' )
+    try {
 
-    const { country } = geoip.lookup( ip ) || {}
-    const datacenter = !!ip && await is_data_center( ip )
-    const connection_type = datacenter ? 'datacenter' : 'residential'
+        const { default: geoip } = await import( 'geoip-lite' )
 
-    return { country_code: country, datacenter, connection_type }
+        const { country } = geoip.lookup( ip ) || {}
+        const datacenter = !!ip && await is_data_center( ip )
+        const connection_type = datacenter ? 'datacenter' : 'residential'
+
+        return { country_code: country, datacenter, connection_type }
+
+    } catch ( e ) {
+
+        log.warn( `geoip-lite fallback failed for ${ ip }: ${ e.message }` )
+        return null
+
+    }
 
 }
