@@ -229,6 +229,7 @@ export async function init_database() {
                 user_type TEXT,
                 connection_type_raw TEXT,
                 user_count INTEGER,
+                source TEXT,
                 updated_at BIGINT NOT NULL,
                 expires_at BIGINT NOT NULL
             )
