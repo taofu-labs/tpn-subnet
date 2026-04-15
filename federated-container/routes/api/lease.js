@@ -42,15 +42,17 @@ const extract_entry_ip = ( { config, type } ) => {
     // WireGuard: JSON has peer.Endpoint = "ip:port"; text has an "Endpoint = ip:port" line
     if( type === 'wireguard' ) {
         if( typeof config === 'object' ) return config.peer?.Endpoint?.split( ':' )[ 0 ] || null
-        const [ , endpoint_ip ] = `${ config }`.match( /Endpoint\s*=\s*([^:\s]+)/ ) || []
-        return endpoint_ip || null
+        let [ , ip ] = `${ config }`.match( /Endpoint\s*=\s*([^:\s]+)/ ) || []
+        ip = sanetise_ipv4( { ip, validate: true } )
+        return ip
     }
 
     // SOCKS5: JSON has ip_address; text is socks5://user:pass@ip:port
     if( type === 'socks5' ) {
         if( typeof config === 'object' ) return config.ip_address || null
-        const [ , endpoint_ip ] = `${ config }`.match( /@([^:\s]+):/ ) || []
-        return endpoint_ip || null
+        let [ , ip ] = `${ config }`.match( /@([^:\s]+):/ ) || []
+        ip = sanetise_ipv4( { ip, validate: true } )
+        return ip
     }
 
     return null
