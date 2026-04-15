@@ -237,6 +237,11 @@ export async function init_database() {
                 user_type TEXT,
                 granular_connection_type TEXT,
                 user_count INTEGER,
+                city_id INTEGER,
+                city_name TEXT,
+                proxy_type TEXT,
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
                 source TEXT,
                 updated_at BIGINT NOT NULL,
                 expires_at BIGINT NOT NULL

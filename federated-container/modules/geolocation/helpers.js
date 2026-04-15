@@ -93,11 +93,20 @@ async function save_db_cached_geodata( ip, data ) {
         const now = Date.now()
         const expires_at = now + GEODATA_CACHE_EXPIRY_MS
         const { country_code, datacenter, connection_type, extras={}, source } = data
-        const { user_type, granular_connection_type, user_count } = extras
+        const {
+            user_type,
+            granular_connection_type,
+            user_count,
+            city_id,
+            city_name,
+            proxy_type,
+            latitude,
+            longitude,
+        } = extras
 
         await pool.query( `
-            INSERT INTO ip_geodata_cache ( ip, country_code, datacenter, connection_type, user_type, granular_connection_type, user_count, source, updated_at, expires_at )
-            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 )
+            INSERT INTO ip_geodata_cache ( ip, country_code, datacenter, connection_type, user_type, granular_connection_type, user_count, city_id, city_name, proxy_type, latitude, longitude, source, updated_at, expires_at )
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15 )
             ON CONFLICT ( ip ) DO UPDATE SET
                 country_code = EXCLUDED.country_code,
                 datacenter = EXCLUDED.datacenter,
@@ -105,6 +114,11 @@ async function save_db_cached_geodata( ip, data ) {
                 user_type = EXCLUDED.user_type,
                 granular_connection_type = EXCLUDED.granular_connection_type,
                 user_count = EXCLUDED.user_count,
+                city_id = EXCLUDED.city_id,
+                city_name = EXCLUDED.city_name,
+                proxy_type = EXCLUDED.proxy_type,
+                latitude = EXCLUDED.latitude,
+                longitude = EXCLUDED.longitude,
                 source = EXCLUDED.source,
                 updated_at = EXCLUDED.updated_at,
                 expires_at = EXCLUDED.expires_at
@@ -116,6 +130,11 @@ async function save_db_cached_geodata( ip, data ) {
             user_type,
             granular_connection_type,
             user_count,
+            city_id,
+            city_name,
+            proxy_type,
+            latitude,
+            longitude,
             source,
             now,
             expires_at,
@@ -168,6 +187,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     // ---------------------------------
     // --- Layer 1: in-memory cache ---
     geodata = cache( cache_key )
+    if( geodata ) log.debug( `In-memory cache hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
     // If source requirement does not match the cache hit, invalidate
     if( !valid_geodata_sources.includes( geodata?.source ) ) geodata = null
@@ -175,6 +195,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     // ---------------------------------
     // --- Layer 2: database cache ---
     if( !geodata ) geodata = await get_db_cached_geodata( ip )
+    if( geodata ) log.debug( `Database cache hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
     // If source requirement not matched, invalidate
     if( !valid_geodata_sources.includes( geodata?.source ) ) geodata = null
@@ -182,12 +203,15 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     // ---------------------------------
     // --- Layer 3: MaxMind Insights API ---
     if( !geodata && valid_geodata_sources.includes( `maxmind_insights` ) && maxmind_insights_enabled ) geodata = await ip_geodata_from_maxmind( ip )
+    if( geodata ) log.debug( `MaxMind Insights API hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
     // --- Layer 4: peer validators ---
     if( !geodata && valid_geodata_sources.includes( `external_validator` ) ) geodata = await ip_geodata_from_validators( ip )
+    if( geodata ) log.debug( `Peer validator hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
     // --- Layer 5: geoip-lite (final fallback) ---
     if( !geodata && valid_geodata_sources.includes( `geoip_lite` ) ) geodata = await ip_geodata_from_geoip_lite( ip )
+    if( geodata ) log.debug( `geoip-lite fallback hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
     // If there is no geodata, something is really wrong
     if( !geodata ) {
@@ -198,7 +222,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     // Save caches
     if( !geodata?.is_cache ) await save_db_cached_geodata( ip, geodata )
     cache( cache_key, geodata, GEODATA_CACHE_EXPIRY_MS )
-    log.info( `Resolved geodata for ${ ip } from source ${ geodata.source }, valid sources: ${ valid_geodata_sources.join( ', ' ) }` )
+    log.info( `Resolved geodata for ${ ip } from source ${ geodata.source }` )
     log.insane( `Geodata for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
     return geodata
@@ -232,7 +256,36 @@ async function ip_geodata_from_maxmind( ip ) {
         const connection_type = datacenter ? 'datacenter' : 'residential'
 
         const { userType, connectionType, userCount } = response.traits || {}
-        const extras = { user_type: userType, granular_connection_type: connectionType, user_count: userCount }
+
+        // City: geonameId + English name from the Names interface
+        const city_id = response.city?.geonameId || null
+        const city_name = response.city?.names?.en || null
+
+        // Location: latitude/longitude from LocationRecord
+        const { latitude = null, longitude = null } = response.location || {}
+
+        // Proxy type: amalgamate AnonymizerRecord flags into a single lower_case label.
+        // Most specific wins (tor > residential > vpn > public > hosting > anonymous).
+        // See https://maxmind.github.io/GeoIP2-node/interfaces/AnonymizerRecord.html
+        const anonymizer = response.traits || {}
+        let proxy_type = null
+        if( anonymizer.isTorExitNode ) proxy_type = 'tor'
+        else if( anonymizer.isResidentialProxy ) proxy_type = 'residential_proxy'
+        else if( anonymizer.isAnonymousVpn ) proxy_type = 'anonymous_vpn'
+        else if( anonymizer.isPublicProxy ) proxy_type = 'public_proxy'
+        else if( anonymizer.isHostingProvider ) proxy_type = 'hosting_provider'
+        else if( anonymizer.isAnonymous ) proxy_type = 'anonymous'
+
+        const extras = {
+            user_type: userType,
+            granular_connection_type: connectionType,
+            user_count: userCount,
+            city_id,
+            city_name,
+            proxy_type,
+            latitude,
+            longitude,
+        }
         const data = { country_code, datacenter, connection_type, source: 'maxmind_insights', extras, is_cache: false }
         log.insane( `MaxMind Insights API hit for ${ ip }: ${ JSON.stringify( data ) }` )
 

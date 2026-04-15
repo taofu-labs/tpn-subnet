@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.0] - 2026-04-15
+
+### Added
+- cache `city_id`, `city_name`, `proxy_type`, `latitude`, `longitude` from MaxMind Insights in `ip_geodata_cache`
+- add matching columns to `ip_geodata_cache` schema (existing tables unaltered — new columns populate on fresh inserts)
+
 ## [1.6.1] - 2026-04-14
 
 ### Fixed
