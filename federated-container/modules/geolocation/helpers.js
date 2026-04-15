@@ -53,7 +53,7 @@ const maxmind_insights_enabled = !!MAXMIND_ACCOUNT_ID && !!MAXMIND_LICENSE_KEY
 /**
  * Query the ip_geodata_cache table for a non-expired entry.
  * @param {string} ip - The IP address to look up.
- * @returns {Promise<object|null>} - Cached row or null if not found / expired.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: string, is_cache: true }|null>} - Cached geodata or null if not found / expired.
  */
 export async function get_db_cached_geodata( ip ) {
 
@@ -83,9 +83,7 @@ export async function get_db_cached_geodata( ip ) {
 /**
  * Save geodata to the ip_geodata_cache table (upsert).
  * @param {string} ip - The IP address.
- * @param {object} data - The geodata to cache.
- * @param {string} source - The resolution source (e.g. "maxmind", "geoip_lite").
- * @param {object} [extras={}] - Additional MaxMind fields to store.
+ * @param {object} data - The geodata to cache (must include country_code, datacenter, connection_type, source; optionally extras).
  */
 async function save_db_cached_geodata( ip, data ) {
 
@@ -95,17 +93,17 @@ async function save_db_cached_geodata( ip, data ) {
         const now = Date.now()
         const expires_at = now + GEODATA_CACHE_EXPIRY_MS
         const { country_code, datacenter, connection_type, extras={}, source } = data
-        const { userType, connectionType, userCount } = extras
+        const { user_type, granular_connection_type, user_count } = extras
 
         await pool.query( `
-            INSERT INTO ip_geodata_cache ( ip, country_code, datacenter, connection_type, user_type, connection_type_raw, user_count, source, updated_at, expires_at )
+            INSERT INTO ip_geodata_cache ( ip, country_code, datacenter, connection_type, user_type, granular_connection_type, user_count, source, updated_at, expires_at )
             VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 )
             ON CONFLICT ( ip ) DO UPDATE SET
                 country_code = EXCLUDED.country_code,
                 datacenter = EXCLUDED.datacenter,
                 connection_type = EXCLUDED.connection_type,
                 user_type = EXCLUDED.user_type,
-                connection_type_raw = EXCLUDED.connection_type_raw,
+                granular_connection_type = EXCLUDED.granular_connection_type,
                 user_count = EXCLUDED.user_count,
                 source = EXCLUDED.source,
                 updated_at = EXCLUDED.updated_at,
@@ -115,9 +113,9 @@ async function save_db_cached_geodata( ip, data ) {
             country_code,
             datacenter,
             connection_type,
-            userType,
-            connectionType,
-            userCount,
+            user_type,
+            granular_connection_type,
+            user_count,
             source,
             now,
             expires_at,
@@ -140,19 +138,18 @@ async function save_db_cached_geodata( ip, data ) {
  *   4. Peer validators (ask other validators for their cached geodata)
  *   5. geoip-lite + ip2location (local fallback)
  *
- * When MaxMind is enabled and a cache hit (layer 1/2) came from a non-maxmind
- * source, the cache data is stashed and MaxMind is tried first. If MaxMind
- * fails, the stashed cache data is used as a fallback — avoiding unnecessary
- * round-trips to peers or geoip-lite.
+ * The function uses source-based filtering: each layer's result is only accepted
+ * if its `source` property matches the valid sources for the current run mode.
+ * Miners accept `maxmind_insights` and `geoip_lite`; validators also accept
+ * `external_validator`. Cache hits from non-matching sources are discarded.
  *
- * When `authoritative_only` is true, only MaxMind-sourced data is accepted
- * from any layer. This prevents recursive validator-to-validator calls and
- * avoids low-fidelity geoip-lite data.
+ * When `authoritative_only` is true, only `maxmind_insights` data is accepted.
+ * This prevents recursive validator-to-validator calls and avoids low-fidelity data.
  *
  * @param {string} ip - The IP address to lookup.
  * @param {Object} [options] - Options object.
  * @param {boolean} [options.authoritative_only=false] - Only return MaxMind-sourced data.
- * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string }|null>}
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: string, is_cache: boolean, extras?: object }|null>}
  */
 export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
 
@@ -163,7 +160,7 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
     // Determine what source we accept
     let valid_geodata_sources = []
     if( miner_mode ) valid_geodata_sources = [ `maxmind_insights`, `geoip_lite` ]
-    if( validator_mode ) valid_geodata_sources = [ `maxmind_insights`, `external_validator` ]
+    if( validator_mode ) valid_geodata_sources = [ `maxmind_insights`, `external_validator`, `geoip_lite` ]
     if( authoritative_only ) valid_geodata_sources = [ `maxmind_insights` ]
     log.debug( `Resolving geodata for ${ ip } (authoritative_only=${ authoritative_only }, valid sources: ${ valid_geodata_sources.join( ', ' ) })` )
     
@@ -211,7 +208,8 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
 
 /**
  * Resolve geodata via the MaxMind Insights web API.
- * Returns { data, extras } on success, null on failure.
+ * @param {string} ip - The IP address to lookup.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: 'maxmind_insights', extras: object, is_cache: false }|null>}
  */
 async function ip_geodata_from_maxmind( ip ) {
 
@@ -232,7 +230,7 @@ async function ip_geodata_from_maxmind( ip ) {
         const connection_type = datacenter ? 'datacenter' : 'residential'
 
         const { userType, connectionType, userCount } = response.traits || {}
-        const extras = { userType, connectionType, userCount }
+        const extras = { user_type: userType, granular_connection_type: connectionType, user_count: userCount }
         const data = { country_code, datacenter, connection_type, source: 'maxmind_insights', extras, is_cache: false }
         log.insane( `MaxMind Insights API hit for ${ ip }: ${ JSON.stringify( data ) }` )
 
@@ -282,7 +280,8 @@ async function get_validator_geodata_endpoint( peer ) {
 /**
  * Resolve geodata by querying peer validators for their cached data.
  * Races all peers concurrently via Promise.any — first successful response wins.
- * Returns null if no peer has cached data for the IP.
+ * @param {string} ip - The IP address to lookup.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: 'external_validator', is_cache: false }|null>}
  */
 async function ip_geodata_from_validators( ip ) {
 
@@ -333,6 +332,8 @@ async function ip_geodata_from_validators( ip ) {
 
 /**
  * Resolve geodata via geoip-lite + ip2location (the original path).
+ * @param {string} ip - The IP address to lookup.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: 'geoip_lite', is_cache: false }|null>}
  */
 async function ip_geodata_from_geoip_lite( ip ) {
 

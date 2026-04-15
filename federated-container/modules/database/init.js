@@ -1,3 +1,4 @@
+import { get_git_branch_and_hash } from "../system/shell.js"
 import { run_mode } from "../validations.js"
 import { get_pg_pool } from "./postgres.js"
 import { log } from "mentie"
@@ -24,6 +25,13 @@ export async function init_database() {
         await pool.query( `DROP TABLE IF EXISTS challenge_solution` )
         await pool.query( `DROP TABLE IF EXISTS scores` )
         await pool.query( `DROP TABLE IF EXISTS worker_wireguard_configs` )
+        await pool.query( `DROP TABLE IF EXISTS ip_geodata_cache` )
+    }
+
+    // On development branch, delete ip_geodata_cache to prevent stale geodata from interfering with testing
+    const { branch } = await get_git_branch_and_hash()
+    if( branch === 'development' ) {
+        log.info( 'Dropping ip_geodata_cache table on development branch to prevent stale geodata issues' )
         await pool.query( `DROP TABLE IF EXISTS ip_geodata_cache` )
     }
 
@@ -227,7 +235,7 @@ export async function init_database() {
                 datacenter BOOLEAN NOT NULL DEFAULT FALSE,
                 connection_type TEXT NOT NULL DEFAULT 'unknown',
                 user_type TEXT,
-                connection_type_raw TEXT,
+                granular_connection_type TEXT,
                 user_count INTEGER,
                 source TEXT,
                 updated_at BIGINT NOT NULL,
@@ -382,36 +390,6 @@ export async function init_database() {
             log.info( `✅ Successfully created unique index after removing duplicates` )
 
         } )
-    }
-
-    // If ip_geodata_cache is missing the source column, add it to track where data came from
-    if( miner_mode || validator_mode ) {
-        await pool.query( `
-            DO $$
-            BEGIN
-                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ip_geodata_cache') THEN
-                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ip_geodata_cache' AND column_name='source') THEN
-                        ALTER TABLE ip_geodata_cache ADD COLUMN source TEXT;
-                        RAISE NOTICE 'Added source column to ip_geodata_cache table';
-                    END IF;
-                END IF;
-            END
-            $$;
-        ` )
-    }
-
-    // Rename country → country_code in ip_geodata_cache to match the JS field name
-    if( miner_mode || validator_mode ) {
-        await pool.query( `
-            DO $$
-            BEGIN
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ip_geodata_cache' AND column_name='country') THEN
-                    ALTER TABLE ip_geodata_cache RENAME COLUMN country TO country_code;
-                    RAISE NOTICE 'Renamed country column to country_code in ip_geodata_cache table';
-                END IF;
-            END
-            $$;
-        ` )
     }
 
     log.info( `✅ Backwards compatibility section complete` )
