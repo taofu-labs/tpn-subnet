@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.8.0] - 2026-04-15
+
+### Added
+- expose `X-Entry-Ip` and `X-Exit-Ip` response headers on lease requests
+- annotate WireGuard text configs with trailing `# Entry ip:` / `# Exit ip:` comment lines
+
 ## [1.7.0] - 2026-04-15
 
 ### Added

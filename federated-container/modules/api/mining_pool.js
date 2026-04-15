@@ -123,6 +123,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         country: null,
         lease_ref: null,
         lease_expires_at: null,
+        exit_ip: null,
     }
 
     // Return config wrapped with resolved worker metadata (available for all formats)
@@ -134,6 +135,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         country: winning_worker?.country_code ?? null,
         lease_ref: resolved_lease_ref,
         lease_expires_at: resolved_lease_expires_at,
+        exit_ip: winning_worker?.ip ?? null,
     }
 
 }

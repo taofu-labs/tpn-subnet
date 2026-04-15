@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: TPN Network Federated API
-  version: 1.3.3
+  version: 1.4.0
   description: |
     Public HTTP API exposed by the TPN Network federated container. The routes
     documented here are mounted under `/api` and cover live lease negotiation and
@@ -173,6 +173,14 @@ paths:
               schema:
                 type: string
               description: Opaque token that can be used to extend the lease. Present only when a lease token is issued (e.g. validator mode). Useful for `format=text` consumers that cannot read `lease_token` from the JSON body.
+            X-Entry-Ip:
+              schema:
+                type: string
+              description: The IP address the caller connects to (WireGuard `Endpoint` or SOCKS5 `ip_address`). Present when resolvable from the returned config.
+            X-Exit-Ip:
+              schema:
+                type: string
+              description: The IP address traffic appears to come from — the worker IP as registered with the validator. Present when the lease was resolved via validator/mining-pool routing.
           content:
             application/json:
               schema:
@@ -238,6 +246,8 @@ paths:
                     PresharedKey = EXAMPLE5sEDGxRoAkpzXibnCCLpSkhV3BNGIaH5XJDKiIG79OY=
                     AllowedIPs = 0.0.0.0/0
                     Endpoint = 203.0.113.54:51820
+                    # Entry ip: 203.0.113.54 (you will connect to this)
+                    # Exit ip: 198.51.100.17 (you will appear to come from here)
                 socks5Profile:
                   summary: SOCKS5 config as plain text
                   value: socks5://u_demo:p_secret@203.0.113.42:1080
@@ -480,6 +490,18 @@ paths:
               schema:
                 type: string
               description: Lease expiration timestamp (Unix ms, string-encoded).
+            X-Lease-Extension-Token:
+              schema:
+                type: string
+              description: Opaque token that can be used to extend the lease. Present only when a lease token is issued (e.g. validator mode). Useful for `format=text` consumers that cannot read `lease_token` from the JSON body.
+            X-Entry-Ip:
+              schema:
+                type: string
+              description: The IP address the caller connects to (WireGuard `Endpoint` or SOCKS5 `ip_address`).
+            X-Exit-Ip:
+              schema:
+                type: string
+              description: The IP address traffic appears to come from — the worker IP as registered with the validator.
           content:
             application/json:
               schema:

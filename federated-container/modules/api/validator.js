@@ -173,6 +173,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         lease_token: signed_token,
         lease_ref,
         lease_expires_at,
+        exit_ip: winning_worker?.ip ?? null,
     }
 
 
@@ -237,6 +238,7 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
         lease_token: new_token,
         lease_ref: pool_result.lease_ref ?? config_ref,
         lease_expires_at: new_expires_at,
+        exit_ip: worker_ip,
     }
 
 }
