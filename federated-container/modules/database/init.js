@@ -223,7 +223,7 @@ export async function init_database() {
         await pool.query( `
             CREATE TABLE IF NOT EXISTS ip_geodata_cache (
                 ip TEXT PRIMARY KEY,
-                country TEXT,
+                country_code TEXT,
                 datacenter BOOLEAN NOT NULL DEFAULT FALSE,
                 connection_type TEXT NOT NULL DEFAULT 'unknown',
                 user_type TEXT,
@@ -394,6 +394,20 @@ export async function init_database() {
                         ALTER TABLE ip_geodata_cache ADD COLUMN source TEXT;
                         RAISE NOTICE 'Added source column to ip_geodata_cache table';
                     END IF;
+                END IF;
+            END
+            $$;
+        ` )
+    }
+
+    // Rename country → country_code in ip_geodata_cache to match the JS field name
+    if( miner_mode || validator_mode ) {
+        await pool.query( `
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='ip_geodata_cache' AND column_name='country') THEN
+                    ALTER TABLE ip_geodata_cache RENAME COLUMN country TO country_code;
+                    RAISE NOTICE 'Renamed country column to country_code in ip_geodata_cache table';
                 END IF;
             END
             $$;
