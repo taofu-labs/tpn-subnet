@@ -1,4 +1,4 @@
-import { abort_controller, is_ipv4, log, wait } from "mentie"
+import { abort_controller, is_ipv4, log, sanetise_ipv4, wait } from "mentie"
 import { ip_from_req } from "./network.js"
 import { get_tpn_cache } from "../caching.js"
 import { read_mining_pool_metadata } from "../database/mining_pools.js"
@@ -135,13 +135,15 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
     if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) {
         log.info( `CI_MOCK_MINING_POOL_RESPONSES is enabled, returning mock response for ${ endpoint }/${ query }` )
         const mock_config = format === 'json' ? { json_config: { endpoint_ipv4: 'mock.mock.mock.mock' }, text_config: "" } : "Mock WireGuard config"
-        return { config: mock_config, lease_ref: null, lease_expires_at: null }
+        return { config: mock_config, lease_ref: null, lease_expires_at: null, entry_ip: null, exit_ip: null }
     }
 
     // Get config through mining pool, reading lease metadata headers alongside the body
     let config = null
     let lease_ref = null
     let lease_expires_at = null
+    let entry_ip = null
+    let exit_ip = null
     let attempts = 0
     while( !config && attempts < max_retries ) {
 
@@ -155,8 +157,10 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
             if( !res.ok ) throw new Error( `Mining pool ${ mining_pool_uid } returned HTTP ${ res.status }` )
             const ref = res.headers.get( `X-Lease-Ref` )
             const expires = res.headers.get( `X-Lease-Expires` )
+            const entry = res.headers.get( `X-Entry-Ip` )
+            const exit = res.headers.get( `X-Exit-Ip` )
             const body = format === `json` ? await res.json() : await res.text()
-            return { body, ref, expires }
+            return { body, ref, expires, entry, exit }
 
         } ).catch( e => {
             log.warn( `Error fetching worker config from mining pool ${ mining_pool_uid } on attempt ${ attempts }:`, e.message )
@@ -167,12 +171,14 @@ export async function get_worker_config_through_mining_pool( { worker, max_retri
             config = result.body
             lease_ref = result.ref || null
             lease_expires_at = result.expires ? Number( result.expires ) : null
+            entry_ip = result.entry ? sanetise_ipv4( { ip: result.entry, validate: true, error_on_invalid: false } ) : null
+            exit_ip = result.exit ? sanetise_ipv4( { ip: result.exit, validate: true, error_on_invalid: false } ) : null
             log.info( `Received config from mining pool ${ mining_pool_uid } for worker ${ worker.ip }` )
         }
 
     }
 
     if( !config ) return null
-    return { config, lease_ref, lease_expires_at }
+    return { config, lease_ref, lease_expires_at, entry_ip, exit_ip }
 
 }

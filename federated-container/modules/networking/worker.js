@@ -1,4 +1,4 @@
-import { abort_controller, log, sanetise_string } from "mentie"
+import { abort_controller, log, sanetise_ipv4, sanetise_string } from "mentie"
 const { SERVER_PUBLIC_PORT=3000 } = process.env
 
 /**
@@ -60,6 +60,8 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
     let config = null
     let lease_ref = null
     let lease_expires_at = null
+    let entry_ip = null
+    let exit_ip = null
     let attempts = 0
     while( !config && attempts < max_retries ) {
 
@@ -72,9 +74,11 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
             // Read lease metadata headers before parsing body
             const ref = res.headers.get( `X-Lease-Ref` )
             const expires = res.headers.get( `X-Lease-Expires` )
+            const entry = res.headers.get( `X-Entry-Ip` )
+            const exit = res.headers.get( `X-Exit-Ip` )
             if( !res.ok ) throw new Error( `Worker ${ ip } returned HTTP ${ res.status }` )
             const body = format === `json` ? await res.json() : await res.text()
-            return { body, ref, expires }
+            return { body, ref, expires, entry, exit }
 
         } ).catch( e => {
             log.warn( `Error fetching config from worker ${ ip } on attempt ${ attempts }:`, e.message )
@@ -85,6 +89,8 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
             config = result.body
             lease_ref = result.ref || null
             lease_expires_at = result.expires ? Number( result.expires ) : null
+            entry_ip = result.entry ? sanetise_ipv4( { ip: result.entry, validate: true, error_on_invalid: false } ) : null
+            exit_ip = result.exit ? sanetise_ipv4( { ip: result.exit, validate: true, error_on_invalid: false } ) : null
             log.info( `Received ${ type } config from worker ${ ip }` )
         }
 
@@ -96,5 +102,5 @@ export async function get_config_directly_from_worker( { worker, max_retries=2, 
     // On mock success
     if( CI_MOCK_WORKER_RESPONSES ) config = config || ( format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : "Mock WireGuard config" )
 
-    return { config, lease_ref, lease_expires_at }
+    return { config, lease_ref, lease_expires_at, entry_ip, exit_ip }
 }

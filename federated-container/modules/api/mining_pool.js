@@ -1,4 +1,4 @@
-import { abort_controller, cache, is_ipv4, log, shuffle_array } from "mentie"
+import { abort_controller, cache, is_ipv4, log, sanetise_ipv4, shuffle_array } from "mentie"
 import { v4 as uuidv4 } from 'uuid'
 import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_validators } from "../networking/validators.js"
@@ -104,10 +104,12 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     const winning_worker = config?.worker ?? null
     const worker_result = config?.winner_nonce ? config.config : config
 
-    // Unwrap the worker result — get_config_directly_from_worker returns { config, lease_ref, lease_expires_at }
+    // Unwrap the worker result — get_config_directly_from_worker returns { config, lease_ref, lease_expires_at, entry_ip, exit_ip }
     const resolved_config = worker_result?.config ?? worker_result
     const resolved_lease_ref = worker_result?.lease_ref ?? null
     const resolved_lease_expires_at = worker_result?.lease_expires_at ?? null
+    const resolved_entry_ip = sanetise_ipv4( { ip: worker_result?.entry_ip ?? winning_worker?.ip, validate: true, error_on_invalid: false } ) || null
+    const resolved_exit_ip = sanetise_ipv4( { ip: worker_result?.exit_ip ?? winning_worker?.ip, validate: true, error_on_invalid: false } ) || null
 
     // Mark request complete with winner so losing workers can free their configs
     if( resolved_config ) {
@@ -123,6 +125,8 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         country: null,
         lease_ref: null,
         lease_expires_at: null,
+        entry_ip: null,
+        exit_ip: null,
     }
 
     // Return config wrapped with resolved worker metadata (available for all formats)
@@ -134,6 +138,8 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
         country: winning_worker?.country_code ?? null,
         lease_ref: resolved_lease_ref,
         lease_expires_at: resolved_lease_expires_at,
+        entry_ip: resolved_entry_ip,
+        exit_ip: resolved_exit_ip,
     }
 
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.0] - 2026-04-15
+
+### Added
+- `X-Entry-Ip` and `X-Exit-Ip` response headers on `/api/lease/new` (and `/api/config/new`) exposing the worker's dial-in and apparent-egress addresses — propagated end-to-end through worker → mining pool → validator
+- wireguard text configs now include `# Entry ip:` and `# Exit ip:` comment lines so clients can see both addresses at a glance
+- json lease responses include `entry_ip` and `exit_ip` alongside existing metadata
+
+### Changed
+- hardened `parse_wireguard_config` consumers in `modules/api/worker.js`: throw when the parser returns null instead of wrapping a "null" string/empty object as a truthy config
+
 ## [1.7.0] - 2026-04-15
 
 ### Added

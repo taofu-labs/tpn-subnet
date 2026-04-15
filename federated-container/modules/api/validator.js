@@ -1,4 +1,4 @@
-import { cache, is_ipv4, log, shuffle_array } from "mentie"
+import { cache, is_ipv4, log, sanetise_ipv4, shuffle_array } from "mentie"
 import { get_workers } from "../database/workers.js"
 import { get_worker_config_through_mining_pool } from "../networking/miners.js"
 import { resolve_domain_to_ip } from "../networking/network.js"
@@ -165,6 +165,11 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         } )
     }
 
+    // Entry/exit IPs come from the mining pool response; fall back to the worker
+    // record's single IP when upstream did not provide them (older pools, mocks).
+    const entry_ip = sanetise_ipv4( { ip: pool_result?.entry_ip ?? winning_worker?.ip, validate: true, error_on_invalid: false } ) || null
+    const exit_ip = sanetise_ipv4( { ip: pool_result?.exit_ip ?? winning_worker?.ip, validate: true, error_on_invalid: false } ) || null
+
     return {
         _lease_result: true,
         config: resolved_config,
@@ -173,6 +178,8 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
         lease_token: signed_token,
         lease_ref,
         lease_expires_at,
+        entry_ip,
+        exit_ip,
     }
 
 
@@ -237,6 +244,8 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
         lease_token: new_token,
         lease_ref: pool_result.lease_ref ?? config_ref,
         lease_expires_at: new_expires_at,
+        entry_ip: sanetise_ipv4( { ip: pool_result.entry_ip ?? worker_ip, validate: true, error_on_invalid: false } ) || null,
+        exit_ip: sanetise_ipv4( { ip: pool_result.exit_ip ?? worker_ip, validate: true, error_on_invalid: false } ) || null,
     }
 
 }

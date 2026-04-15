@@ -1,4 +1,4 @@
-import { abort_controller, log } from "mentie"
+import { abort_controller, log, sanetise_ipv4 } from "mentie"
 import { get_valid_wireguard_config, monitor_lease_ownership, read_wireguard_peer_config } from "../networking/wg-container.js"
 import { parse_wireguard_config } from "../networking/wireguard.js"
 import { MINING_POOL_URL } from "../networking/worker.js"
@@ -27,6 +27,18 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
     let lease_ref = null
     let lease_expires_at = null
 
+    // Entry (where the client dials) and exit (where traffic appears to egress) IPs.
+    // Currently both resolve to the worker's single public host — separate plumbing is
+    // kept in place so future deployments with distinct dial-in vs egress addresses
+    // can populate these independently without touching every caller.
+    const { SERVER_PUBLIC_HOST } = process.env
+    const entry_ip = sanetise_ipv4( { ip: SERVER_PUBLIC_HOST, validate: true, error_on_invalid: false } )
+    const exit_ip = sanetise_ipv4( { ip: SERVER_PUBLIC_HOST, validate: true, error_on_invalid: false } )
+
+    // Comment lines appended to wireguard text configs so clients can see both
+    // the address they dialled and the address their traffic will appear from.
+    const wireguard_ip_comments = `\n# Entry ip: ${ entry_ip } (you will connect to this)\n# Exit ip: ${ exit_ip } (you will appear to come from here)`
+
     // Extract trace from feedback URL for log correlation across hops
     let log_tag = ``
     if( feedback_url ) {
@@ -54,7 +66,8 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
             // Re-read the peer config from disk
             const wireguard_config = await read_wireguard_peer_config( { peer_id } )
             const { json_config, text_config } = parse_wireguard_config( { wireguard_config } )
-            config = format === `text` ? text_config : json_config
+            if( !text_config || !json_config ) throw new Error( `Extended WireGuard peer${ peer_id } config failed to parse` )
+            config = format === `text` ? `${ text_config }${ wireguard_ip_comments }` : { ...json_config, entry_ip, exit_ip }
             lease_ref = peer_id
             lease_expires_at = result.expires_at
 
@@ -77,7 +90,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         }
 
         log.info( `${ log_tag }Lease extension complete for ${ type } ref=${ lease_ref }, new expires_at=${ new Date( lease_expires_at ).toISOString() }` )
-        return { config, lease_ref, lease_expires_at }
+        return { config, lease_ref, lease_expires_at, entry_ip, exit_ip }
 
     }
 
@@ -96,8 +109,9 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
         // Return right format
         const { json_config, text_config } = parse_wireguard_config( { wireguard_config } )
-        if( format == 'text' ) config = text_config
-        else config = json_config
+        if( !text_config || !json_config ) throw new Error( `WireGuard peer${ peer_id } config failed to parse` )
+        if( format == 'text' ) config = `${ text_config }${ wireguard_ip_comments }`
+        else config = { ...json_config, entry_ip, exit_ip }
 
         lease_ref = peer_id
         lease_expires_at = expires_at
@@ -125,7 +139,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         lease_expires_at = expires_at
     }
 
-    return { config, lease_ref, lease_expires_at }
+    return { config, lease_ref, lease_expires_at, entry_ip, exit_ip }
 
 }
 

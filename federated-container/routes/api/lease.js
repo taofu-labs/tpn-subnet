@@ -44,6 +44,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         delete resolved_meta.lease_ref
         delete resolved_meta.lease_expires_at
         delete resolved_meta.lease_token
+        delete resolved_meta.entry_ip
+        delete resolved_meta.exit_ip
 
         // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
@@ -151,7 +153,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( worker_mode ) result = await get_worker_config_as_worker( config_meta )
 
         // Unwrap lease result — mining pool and validator return { _lease_result, config, ... }
-        // Worker now returns { config, lease_ref, lease_expires_at } directly
+        // Worker now returns { config, lease_ref, lease_expires_at, entry_ip, exit_ip } directly
         let config = result
         if( result?._lease_result ) {
             if( result.connection_type ) resolved_meta.connection_type = result.connection_type
@@ -159,11 +161,15 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
             if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
             if( result.lease_token ) resolved_meta.lease_token = result.lease_token
+            if( result.entry_ip ) resolved_meta.entry_ip = result.entry_ip
+            if( result.exit_ip ) resolved_meta.exit_ip = result.exit_ip
             config = result.config
         } else if( result?.lease_ref !== undefined ) {
-            // Worker-mode result: { config, lease_ref, lease_expires_at }
+            // Worker-mode result: { config, lease_ref, lease_expires_at, entry_ip, exit_ip }
             if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
             if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
+            if( result.entry_ip ) resolved_meta.entry_ip = result.entry_ip
+            if( result.exit_ip ) resolved_meta.exit_ip = result.exit_ip
             config = result.config
         }
 
@@ -172,6 +178,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             if( resolved_meta.connection_type && !config.connection_type ) config.connection_type = resolved_meta.connection_type
             if( resolved_meta.country && !config.country ) config.country = resolved_meta.country
             if( resolved_meta.lease_token ) config.lease_token = resolved_meta.lease_token
+            if( resolved_meta.entry_ip && !config.entry_ip ) config.entry_ip = resolved_meta.entry_ip
+            if( resolved_meta.exit_ip && !config.exit_ip ) config.exit_ip = resolved_meta.exit_ip
         }
 
         // Validate config
@@ -197,6 +205,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( resolved_meta.lease_ref ) res.set( 'X-Lease-Ref', `${ resolved_meta.lease_ref }` )
         if( resolved_meta.lease_expires_at ) res.set( 'X-Lease-Expires', `${ resolved_meta.lease_expires_at }` )
         if( resolved_meta.lease_token ) res.set( 'X-Lease-Extension-Token', resolved_meta.lease_token )
+        if( resolved_meta.entry_ip ) res.set( 'X-Entry-Ip', resolved_meta.entry_ip )
+        if( resolved_meta.exit_ip ) res.set( 'X-Exit-Ip', resolved_meta.exit_ip )
 
         return format == 'text' ? res.send( response_data ) : res.json( response_data )
     } catch ( e ) {
