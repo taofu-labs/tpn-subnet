@@ -27,6 +27,36 @@ const constant_time_includes = ( keys, candidate ) => {
     } )
 }
 
+/**
+ * Extracts the entry IP — the endpoint the caller will connect to — from a lease config.
+ * Handles both text and JSON representations of WireGuard and SOCKS5 configs.
+ * @param {Object} params
+ * @param {string|Object} params.config - The lease config (text form or parsed JSON)
+ * @param {string} params.type - The lease type ('wireguard' or 'socks5')
+ * @returns {string|null} The entry IP, or null if it could not be determined
+ */
+const extract_entry_ip = ( { config, type } ) => {
+
+    if( !config ) return null
+
+    // WireGuard: JSON has peer.Endpoint = "ip:port"; text has an "Endpoint = ip:port" line
+    if( type === 'wireguard' ) {
+        if( typeof config === 'object' ) return config.peer?.Endpoint?.split( ':' )[ 0 ] || null
+        const [ , endpoint_ip ] = `${ config }`.match( /Endpoint\s*=\s*([^:\s]+)/ ) || []
+        return endpoint_ip || null
+    }
+
+    // SOCKS5: JSON has ip_address; text is socks5://user:pass@ip:port
+    if( type === 'socks5' ) {
+        if( typeof config === 'object' ) return config.ip_address || null
+        const [ , endpoint_ip ] = `${ config }`.match( /@([^:\s]+):/ ) || []
+        return endpoint_ip || null
+    }
+
+    return null
+
+}
+
 export const router = Router()
 
 router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
@@ -44,6 +74,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         delete resolved_meta.lease_ref
         delete resolved_meta.lease_expires_at
         delete resolved_meta.lease_token
+        delete resolved_meta.entry_ip
+        delete resolved_meta.exit_ip
 
         // Mining pool access controls
         const { mode, worker_mode, miner_mode, validator_mode } = run_mode()
@@ -159,12 +191,24 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
             if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
             if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
             if( result.lease_token ) resolved_meta.lease_token = result.lease_token
+            if( result.exit_ip ) resolved_meta.exit_ip = result.exit_ip
             config = result.config
         } else if( result?.lease_ref !== undefined ) {
             // Worker-mode result: { config, lease_ref, lease_expires_at }
             if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
             if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
             config = result.config
+        }
+
+        // Derive entry IP — the endpoint the caller connects to — from the returned config
+        resolved_meta.entry_ip = extract_entry_ip( { config, type } )
+
+        // Annotate wireguard text configs with the entry/exit IP pair at the bottom
+        // so downstream consumers can see the routing topology at a glance.
+        if( type === 'wireguard' && typeof config === 'string' ) {
+            const entry_ip = resolved_meta.entry_ip || 'unknown'
+            const exit_ip = resolved_meta.exit_ip || 'unknown'
+            config = `${ config }\n# Entry ip: ${ entry_ip } (you will connect to this)\n# Exit ip: ${ exit_ip } (you will appear to come from here)\n`
         }
 
         // Enrich JSON responses with resolved metadata in the body
@@ -197,6 +241,8 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( resolved_meta.lease_ref ) res.set( 'X-Lease-Ref', `${ resolved_meta.lease_ref }` )
         if( resolved_meta.lease_expires_at ) res.set( 'X-Lease-Expires', `${ resolved_meta.lease_expires_at }` )
         if( resolved_meta.lease_token ) res.set( 'X-Lease-Extension-Token', resolved_meta.lease_token )
+        if( resolved_meta.entry_ip ) res.set( 'X-Entry-Ip', resolved_meta.entry_ip )
+        if( resolved_meta.exit_ip ) res.set( 'X-Exit-Ip', resolved_meta.exit_ip )
 
         return format == 'text' ? res.send( response_data ) : res.json( response_data )
     } catch ( e ) {

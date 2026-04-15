@@ -173,6 +173,14 @@ paths:
               schema:
                 type: string
               description: Opaque token that can be used to extend the lease. Present only when a lease token is issued (e.g. validator mode). Useful for `format=text` consumers that cannot read `lease_token` from the JSON body.
+            X-Entry-Ip:
+              schema:
+                type: string
+              description: The IP address the caller connects to (WireGuard `Endpoint` or SOCKS5 `ip_address`). Present when resolvable from the returned config.
+            X-Exit-Ip:
+              schema:
+                type: string
+              description: The IP address traffic appears to come from — the worker IP as registered with the validator. Present when the lease was resolved via validator/mining-pool routing.
           content:
             application/json:
               schema:
@@ -480,6 +488,14 @@ paths:
               schema:
                 type: string
               description: Lease expiration timestamp (Unix ms, string-encoded).
+            X-Entry-Ip:
+              schema:
+                type: string
+              description: The IP address the caller connects to (WireGuard `Endpoint` or SOCKS5 `ip_address`).
+            X-Exit-Ip:
+              schema:
+                type: string
+              description: The IP address traffic appears to come from — the worker IP as registered with the validator.
           content:
             application/json:
               schema:
