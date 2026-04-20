@@ -3,8 +3,10 @@ import { v4 as uuidv4 } from 'uuid'
 import { get_config_directly_from_worker } from "../networking/worker.js"
 import { get_validators } from "../networking/validators.js"
 import { get_workers } from "../database/workers.js"
+import { get_pg_pool } from "../database/postgres.js"
 import { base_url, parse_url } from "../networking/url.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES } = process.env
+const { DAEMON_INTERVAL_SECONDS=CI_MODE === 'true' ? 60 : 300 } = process.env
 let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SERVER_PUBLIC_HOST } = process.env
 
 
@@ -189,15 +191,50 @@ export async function register_mining_pool_with_validators() {
 }
 
 /**
+ * Marks workers whose updated_at predates the last scoring cycle as 'stale'.
+ * Only demotes workers currently marked 'up' for mining_pool_uid 'internal'.
+ * Returns gracefully on error so downstream functions always run.
+ * @returns {Promise<void>}
+ */
+export async function mark_stale_workers() {
+
+    try {
+
+        const pool = await get_pg_pool()
+
+        // Workers not touched by the last score_all_known_workers cycle are stale.
+        // 1.5x interval gives headroom for scoring duration and timing jitter.
+        const staleness_threshold = Date.now() - ( DAEMON_INTERVAL_SECONDS * 1.5 * 1_000 )
+
+        const { rowCount } = await pool.query( `
+            UPDATE workers
+            SET status = 'stale', updated_at = $1
+            WHERE mining_pool_uid = 'internal'
+              AND status = 'up'
+              AND updated_at < $2
+        `, [ Date.now(), staleness_threshold ] )
+
+        if( rowCount ) log.info( `Marked ${ rowCount } workers as stale` )
+
+    } catch( e ) {
+        log.error( `Error marking stale workers:`, e )
+    }
+
+}
+
+/**
  * Registers all mining pool workers with validators by broadcasting worker list.
  * @returns {Promise<{successes: Array, failures: Array}>} - Registration results with successes and failures.
  */
 export async function register_mining_pool_workers_with_validators() {
 
+    // Mark workers not updated by the last scoring cycle as stale
+    await mark_stale_workers()
+
     // Get validator ip list
     const validator_ips = await get_validators( { ip_only: true } )
 
-    // Get all worker data and structure it
+    // Get all worker data and structure it (includes stale workers so validators see updated statuses)
     const { workers } = await get_workers( { mining_pool_uid: 'internal' } )
     log.info( `Broadcasting ${ workers.length } workers to ${ validator_ips.length } validators` )
 

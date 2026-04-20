@@ -11,21 +11,18 @@ import { score_node_version } from "./score_node.js"
 import { is_partnered_pool } from "../partnered_pools.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
 
-const status_from_failure_code = failure_code => failure_code === 'egress_ip_mismatch' ? 'cheat' : 'down'
-
 /**
  * Tests and scores all known workers registered with the mining pool.
- * @param {number} [max_duration_minutes=15] - Maximum duration in minutes before function times out.
  * @returns {Promise<void>}
  */
-export async function score_all_known_workers( max_duration_minutes=15 ) {
+export async function score_all_known_workers() {
 
     // Warn if function was is called by non miner
     const { miner_mode } = run_mode()
     if( !miner_mode ) log.warn( `score_all_known_workers called while not in miner mode, this may be unintended` )
 
     // Try to acquire lock - if already running, return early
-    log.info( `Starting score_all_known_workers, max duration ${ max_duration_minutes } minutes` )
+    log.info( `Starting score_all_known_workers` )
     const release_lock = await try_acquire_lock( `score_all_known_workers` )
     if( !release_lock ) return log.warn( `score_all_known_workers is already running` )
 
@@ -215,9 +212,9 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
     // Score the selected workers
     const scoring_queue = valid_workers.map( async worker => {
 
-        // Prepare test
+        // Prepare test, set default status down, start timer
         const start = Date.now()
-        const test_result = { ...worker }
+        const test_result = { ...worker, status: 'down' }
 
         try {
     
@@ -240,6 +237,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
             // Validate that wireguard config works
             const wireguard_validation = await test_wireguard_connection( { wireguard_config: text_config, claimed_worker_ip: worker.ip } )
             const { valid, message, failure_code, observed_egress_ip, claimed_worker_ip } = wireguard_validation
+            const status_from_failure_code = failure_code => failure_code == 'egress_ip_mismatch' ? 'cheat' : 'down'
             if( !valid ) {
                 const status = status_from_failure_code( failure_code )
                 test_result.success = false

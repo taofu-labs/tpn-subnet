@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.0] - 2026-04-20
+
+### Added
+- mark workers not updated by last scoring cycle as `stale` before validator broadcast
+- add `stale` to valid worker status values in `get_workers`
+
 ## [1.8.0] - 2026-04-15
 
 ### Added
