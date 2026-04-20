@@ -5,8 +5,15 @@
   "main": "app.js",
   "type": "module",
   "devDependencies": {
-    "airier": "^0.1.1",
+    "@babel/eslint-parser": "^7.28.5",
+    "@babel/preset-react": "^7.24.1",
+    "@eslint/js": "^9.39.2",
+    "airier": "github:actuallymentor/airier",
+    "eslint": "^9.39.2",
     "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-unused-imports": "^4.3.0",
+    "globals": "^15.0.0",
     "husky": "^9.1.7",
     "nodemon": "^3.1.14",
     "start-server-and-test": "^2.1.3"
