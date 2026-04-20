@@ -37,25 +37,34 @@ const constant_time_includes = ( keys, candidate ) => {
  */
 const extract_entry_ip = ( { config, type } ) => {
 
-    if( !config ) return null
+    try {
 
-    // WireGuard: JSON has peer.Endpoint = "ip:port"; text has an "Endpoint = ip:port" line
-    if( type === 'wireguard' ) {
-        if( typeof config === 'object' ) return config.peer?.Endpoint?.split( ':' )[ 0 ] || null
-        let [ , ip ] = `${ config }`.match( /Endpoint\s*=\s*([^:\s]+)/ ) || []
-        ip = sanetise_ipv4( { ip, validate: true } )
-        return ip
+        if( !config ) return null
+
+        // WireGuard: JSON has peer.Endpoint = "ip:port"; text has an "Endpoint = ip:port" line
+        if( type === 'wireguard' ) {
+            if( typeof config === 'object' ) return config.peer?.Endpoint?.split( ':' )[ 0 ] || null
+            let [ , ip ] = `${ config }`.match( /Endpoint\s*=\s*([^:\s]+)/ ) || []
+            ip = sanetise_ipv4( { ip, validate: true } )
+            return ip
+        }
+
+        // SOCKS5: JSON has ip_address; text is socks5://user:pass@ip:port
+        if( type === 'socks5' ) {
+            if( typeof config === 'object' ) return config.ip_address || null
+            let [ , ip ] = `${ config }`.match( /@([^:\s]+):/ ) || []
+            ip = sanetise_ipv4( { ip, validate: true } )
+            return ip
+        }
+
+        return null
+
+    } catch ( e ) {
+
+        log.warn( `Failed to extract entry IP from config: ${ e.message }` )
+        return null
+        
     }
-
-    // SOCKS5: JSON has ip_address; text is socks5://user:pass@ip:port
-    if( type === 'socks5' ) {
-        if( typeof config === 'object' ) return config.ip_address || null
-        let [ , ip ] = `${ config }`.match( /@([^:\s]+):/ ) || []
-        ip = sanetise_ipv4( { ip, validate: true } )
-        return ip
-    }
-
-    return null
 
 }
 

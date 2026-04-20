@@ -102,7 +102,7 @@ async function save_db_cached_geodata( ip, data ) {
             proxy_type,
             latitude,
             longitude,
-        } = extras
+        } = Object.keys( extras ).length ? extras : data
 
         await pool.query( `
             INSERT INTO ip_geodata_cache ( ip, country_code, datacenter, connection_type, user_type, granular_connection_type, user_count, city_id, city_name, proxy_type, latitude, longitude, source, updated_at, expires_at )
@@ -219,9 +219,22 @@ export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
         return null
     }
 
+    // Cache freshness determination
+    const five_min_ms = 5 * 60_000
+    const validator_transient_fallback = validator_mode && maxmind_insights_enabled && geodata?.source !== 'maxmind_insights'
+    const fresh_data_validator = validator_mode && geodata?.source === 'maxmind_insights'
+    const fresh_data_miner = miner_mode && !geodata?.is_cache
+    let ttl = GEODATA_CACHE_EXPIRY_MS
+
+    // Set ttl based on data source
+    if( validator_transient_fallback ) ttl = five_min_ms
+    if( validator_mode && !fresh_data_validator ) ttl = five_min_ms
+    if( miner_mode && !fresh_data_miner ) ttl = five_min_ms
+
     // Save caches
-    if( !geodata?.is_cache ) await save_db_cached_geodata( ip, geodata )
-    cache( cache_key, geodata, GEODATA_CACHE_EXPIRY_MS )
+    if( fresh_data_validator || fresh_data_miner ) await save_db_cached_geodata( ip, geodata )
+    geodata.is_cache = true
+    cache( cache_key, geodata, ttl )
     log.info( `Resolved geodata for ${ ip } from source ${ geodata.source }` )
     log.insane( `Geodata for ${ ip }: ${ JSON.stringify( geodata ) }` )
 
@@ -345,11 +358,13 @@ async function ip_geodata_from_validators( ip ) {
         // Dynamic imports to avoid circular dependency (validators.js → helpers.js)
         const { abort_controller } = await import( 'mentie' )
         const { get_validators } = await import( '../networking/validators.js' )
+        const { resolve_domain_to_ip } = await import( '../networking/network.js' )
 
         // Get peer validators, excluding self
         const { SERVER_PUBLIC_HOST } = process.env
+        const { ip: self_ip } = await resolve_domain_to_ip( { domain: SERVER_PUBLIC_HOST, fallback: SERVER_PUBLIC_HOST } )
         const all_validators = await get_validators()
-        const peers = all_validators.filter( v => v.ip !== SERVER_PUBLIC_HOST && v.ip !== '0.0.0.0' )
+        const peers = all_validators.filter( v => v.ip !== self_ip && v.ip !== '0.0.0.0' )
 
         if( !peers.length ) {
             log.info( `No validator peers available for geodata fallback` )

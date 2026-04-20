@@ -8,7 +8,7 @@
     "@babel/eslint-parser": "^7.28.5",
     "@babel/preset-react": "^7.24.1",
     "@eslint/js": "^9.39.2",
-    "airier": "github:actuallymentor/airier",
+    "airier": "github:actuallymentor/airier#0573a5d213b616789140a31f8dc0464955337788",
     "eslint": "^9.39.2",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react": "^7.37.5",

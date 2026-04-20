@@ -266,7 +266,9 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
             }
 
             // Get the most recent country data for these workers
-            const { country_code, datacenter, connection_type } = await ip_geodata( worker.ip )
+            const geodata = await ip_geodata( worker.ip )
+            if( !geodata ) throw new Error( `Unable to resolve geodata for worker ${ worker.ip }` )
+            const { country_code, datacenter, connection_type } = geodata
             test_result.country_code = country_code
             test_result.datacenter = datacenter
             test_result.connection_type = connection_type
