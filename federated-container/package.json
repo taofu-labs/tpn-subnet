@@ -1,11 +1,11 @@
 {
   "name": "tpn-node",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "TPN Node docker container code, used for validators, miners, and workers",
   "main": "app.js",
   "type": "module",
   "devDependencies": {
-    "@babel/eslint-parser": "^7.28.5",
+    "@babel/eslint-parser": "^7.28.6",
     "@babel/preset-react": "^7.24.1",
     "@eslint/js": "^9.39.2",
     "airier": "github:actuallymentor/airier#0573a5d213b616789140a31f8dc0464955337788",
