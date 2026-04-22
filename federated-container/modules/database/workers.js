@@ -521,10 +521,10 @@ export async function get_workers( { ips, exclude_ips, mining_pool_uid, mining_p
     // Force country code to capitals
     if( country_code ) country_code = `${ country_code }`.toUpperCase()
 
-    // Status must be up, down, unknown, or cheat
-    if( status && ![ 'up', 'down', 'unknown', 'cheat' ].includes( sanetise_string( status ) ) ) {
-        log.warn( `Invalid status filter provided: ${ status }, THIS SHOULD NEVER HAPPEN, defaulting to 'up'` )
-        status = 'up'
+    // Status must be up, down, unknown, cheat, or stale
+    if( status && ![ 'up', 'down', 'unknown', 'cheat', 'stale' ].includes( sanetise_string( status ) ) ) {
+        log.warn( `Invalid status filter provided: ${ status }, THIS SHOULD NEVER HAPPEN, defaulting to 'down'` )
+        status = 'down'
     }
 
     // If url provided, sanetise it and remove trailing slash

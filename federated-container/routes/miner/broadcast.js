@@ -25,7 +25,9 @@ router.post( '/worker', async ( req, res ) => {
         log.debug( `Received worker registration request from ${ unspoofable_ip }: `, req.body )
         
         // Get worker data
-        const { country_code, connection_type } = await ip_geodata( unspoofable_ip )
+        const geodata = await ip_geodata( unspoofable_ip )
+        if( !geodata ) throw new Error( `Unable to resolve geodata for IP ${ unspoofable_ip }` )
+        const { country_code, connection_type } = geodata
         let worker = { ip: unspoofable_ip, country_code, connection_type, status: 'tbd', mining_pool_url, public_url, public_port, payment_address_evm, payment_address_bittensor }
         log.info( `Received worker registration from ${ unspoofable_ip }:`, worker )
         worker = annotate_worker_with_defaults( worker )

@@ -24,6 +24,7 @@ export async function database_cleanup() {
         { table: 'worker_performance', time_field: 'updated_at', max_stale_minutes: year_in_mins },
         { table: 'worker_broadcast_metadata', time_field: 'updated', max_stale_minutes: epoch_minutes },
         { table: 'challenge_solution', time_field: 'updated', max_stale_minutes: epoch_minutes },
+        { table: 'ip_geodata_cache', time_field: 'expires_at', max_stale_minutes: 0 },
     ]
     const validator_tables = [
         { table: 'mining_pool_metadata_broadcast', time_field: 'updated', max_stale_minutes: epoch_minutes },
@@ -44,7 +45,7 @@ export async function database_cleanup() {
         // For each table, delete stale entries
         for( const { table, max_stale_minutes, time_field } of STALENESS_THRESHOLDS ) {
 
-            if( !table || !max_stale_minutes || !time_field ) continue
+            if( !table || max_stale_minutes == null || !time_field ) continue
 
             // Calculate threshold time
             const threshold_time = Date.now() -  max_stale_minutes * 60_000 

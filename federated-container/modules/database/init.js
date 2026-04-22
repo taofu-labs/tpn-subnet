@@ -1,3 +1,4 @@
+import { get_git_branch_and_hash } from "../system/shell.js"
 import { run_mode } from "../validations.js"
 import { get_pg_pool } from "./postgres.js"
 import { log } from "mentie"
@@ -24,6 +25,14 @@ export async function init_database() {
         await pool.query( `DROP TABLE IF EXISTS challenge_solution` )
         await pool.query( `DROP TABLE IF EXISTS scores` )
         await pool.query( `DROP TABLE IF EXISTS worker_wireguard_configs` )
+        await pool.query( `DROP TABLE IF EXISTS ip_geodata_cache` )
+    }
+
+    // On development branch, delete ip_geodata_cache to prevent stale geodata from interfering with testing
+    const { branch } = await get_git_branch_and_hash()
+    if( branch === 'development' ) {
+        log.info( 'Dropping ip_geodata_cache table on development branch to prevent stale geodata issues' )
+        await pool.query( `DROP TABLE IF EXISTS ip_geodata_cache` )
     }
 
     // Enable extension that can sample rows randomly
@@ -215,6 +224,33 @@ export async function init_database() {
 
         // Speed up expired lease lookups and cleanup deletes
         await pool.query( `CREATE INDEX IF NOT EXISTS idx_socks5_expires_at ON worker_socks5_configs ( expires_at )` )
+    }
+
+    // Create the IP_GEODATA_CACHE table for caching MaxMind / geoip results
+    if( miner_mode || validator_mode ) {
+        await pool.query( `
+            CREATE TABLE IF NOT EXISTS ip_geodata_cache (
+                ip TEXT PRIMARY KEY,
+                country_code TEXT,
+                datacenter BOOLEAN NOT NULL DEFAULT FALSE,
+                connection_type TEXT NOT NULL DEFAULT 'unknown',
+                user_type TEXT,
+                granular_connection_type TEXT,
+                user_count INTEGER,
+                city_id INTEGER,
+                city_name TEXT,
+                proxy_type TEXT,
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
+                source TEXT,
+                updated_at BIGINT NOT NULL,
+                expires_at BIGINT NOT NULL
+            )
+        ` )
+        log.info( `✅ IP geodata cache table initialized` )
+
+        // Speed up expired entry lookups and cleanup
+        await pool.query( `CREATE INDEX IF NOT EXISTS idx_ip_geodata_cache_expires_at ON ip_geodata_cache ( expires_at )` )
     }
 
     // Create the TIMESTAMPS table if it doesn't exist

@@ -1,5 +1,7 @@
 import { cache, log } from 'mentie'
 import { is_data_center } from './ip2location.js'
+import { get_pg_pool } from '../database/postgres.js'
+import { run_mode } from '../validations.js'
 
 // Helper that has all country names
 export const region_names = new Intl.DisplayNames( [ 'en' ], { type: 'region' } )
@@ -24,71 +26,402 @@ export const geolocation_update_interval_ms = 60_000 * 60 * 24
 
 // Datacenter name patterns (including educated guesses)
 export const datacenter_patterns = [
-    /amazon/i,
-    /aws/i,
-    /cloudfront/i,
-    /google/i,
-    /microsoft/i,
-    /azure/i,
-    /digitalocean/i,
-    /linode/i,
-    /vultr/i,
-    /ovh/i,
-    /hetzner/i,
-    /upcloud/i,
-    /scaleway/i,
-    /contabo/i,
-    /ionos/i,
-    /rackspace/i,
-    /softlayer/i,
-    /alibaba/i,
-    /tencent/i,
-    /baidu/i,
-    /cloudflare/i,
-    /fastly/i,
-    /akamai/i,
-    /edgecast/i,
-    /level3/i,
-    /limelight/i,
-    /incapsula/i,
-    /stackpath/i,
-    /maxcdn/i,
-    /cloudsigma/i,
-    /quadranet/i,
-    /psychz/i,
-    /choopa/i,
-    /leaseweb/i,
-    /hostwinds/i,
-    /equinix/i,
-    /colocrossing/i,
-    /hivelocity/i,
-    /godaddy/i,
-    /bluehost/i,
-    /hostgator/i,
-    /dreamhost/i,
+    /amazon/i, /aws/i, /cloudfront/i, /google/i, /microsoft/i, /azure/i,
+    /digitalocean/i, /linode/i, /vultr/i, /ovh/i, /hetzner/i, /upcloud/i,
+    /scaleway/i, /contabo/i, /ionos/i, /rackspace/i, /softlayer/i,
+    /alibaba/i, /tencent/i, /baidu/i, /cloudflare/i, /fastly/i, /akamai/i,
+    /edgecast/i, /level3/i, /limelight/i, /incapsula/i, /stackpath/i,
+    /maxcdn/i, /cloudsigma/i, /quadranet/i, /psychz/i, /choopa/i,
+    /leaseweb/i, /hostwinds/i, /equinix/i, /colocrossing/i, /hivelocity/i,
+    /godaddy/i, /bluehost/i, /hostgator/i, /dreamhost/i,
     /hurricane electric/i,
     // Generic patterns indicating data centers
-    /colo/i,
-    /datacenter/i,
-    /serverfarm/i,
-    /hosting/i,
-    /cloud\s*services?/i,
-    /dedicated\s*server/i,
-    /vps/i
+    /colo/i, /datacenter/i, /serverfarm/i,
+    /hosting/i, /cloud\s*services?/i, /dedicated\s*server/i, /vps/i
 ]
 
+
+// Cache expiration: 30 days in milliseconds
+const GEODATA_CACHE_EXPIRY_DAYS = 30
+const GEODATA_CACHE_EXPIRY_MS = GEODATA_CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+
+// Check if MaxMind web service credentials are configured
+const { MAXMIND_ACCOUNT_ID, MAXMIND_LICENSE_KEY } = process.env
+const maxmind_insights_enabled = !!MAXMIND_ACCOUNT_ID && !!MAXMIND_LICENSE_KEY
+
+
 /**
- * Get geolocation data for an IP address
- * @param {string} ip - The IP address to lookup
- * @returns {Promise<{ country: string, datacenter: boolean }>} - The geolocation data
+ * Query the ip_geodata_cache table for a non-expired entry.
+ * @param {string} ip - The IP address to look up.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: string, is_cache: true }|null>} - Cached geodata or null if not found / expired.
  */
-export async function ip_geodata( ip ) {
-    const { default: geoip } = await import( 'geoip-lite' )
-    const cached_value = cache( `geoip:${ ip }` )
-    if( cached_value ) return cached_value
-    const { country } = geoip.lookup( ip ) || {}
-    const datacenter = !!ip && await is_data_center( ip )
-    const connection_type = datacenter ? 'datacenter' : 'residential'
-    const data = { country_code: country, datacenter, connection_type }
-    return cache( `geoip:${ ip }`, data, 60_000 )
+export async function get_db_cached_geodata( ip ) {
+
+    try {
+
+        const pool = await get_pg_pool()
+        const now = Date.now()
+
+        const { rows } = await pool.query(
+            `SELECT * FROM ip_geodata_cache WHERE ip = $1 AND expires_at > $2 LIMIT 1`,
+            [ ip, now ]
+        )
+
+        if( !rows.length ) return null
+
+        const [ row ] = rows
+        return { ...row, is_cache: true }
+
+    } catch ( e ) {
+        log.warn( `ip_geodata_cache db lookup failed for ${ ip }: ${ e.message }` )
+        return null
+    }
+
+}
+
+
+/**
+ * Save geodata to the ip_geodata_cache table (upsert).
+ * @param {string} ip - The IP address.
+ * @param {object} data - The geodata to cache (must include country_code, datacenter, connection_type, source; optionally extras).
+ */
+async function save_db_cached_geodata( ip, data ) {
+
+    try {
+
+        const pool = await get_pg_pool()
+        const now = Date.now()
+        const expires_at = now + GEODATA_CACHE_EXPIRY_MS
+        const { country_code, datacenter, connection_type, extras={}, source } = data
+        const {
+            user_type,
+            granular_connection_type,
+            user_count,
+            city_id,
+            city_name,
+            proxy_type,
+            latitude,
+            longitude,
+        } = Object.keys( extras ).length ? extras : data
+
+        await pool.query( `
+            INSERT INTO ip_geodata_cache ( ip, country_code, datacenter, connection_type, user_type, granular_connection_type, user_count, city_id, city_name, proxy_type, latitude, longitude, source, updated_at, expires_at )
+            VALUES ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15 )
+            ON CONFLICT ( ip ) DO UPDATE SET
+                country_code = EXCLUDED.country_code,
+                datacenter = EXCLUDED.datacenter,
+                connection_type = EXCLUDED.connection_type,
+                user_type = EXCLUDED.user_type,
+                granular_connection_type = EXCLUDED.granular_connection_type,
+                user_count = EXCLUDED.user_count,
+                city_id = EXCLUDED.city_id,
+                city_name = EXCLUDED.city_name,
+                proxy_type = EXCLUDED.proxy_type,
+                latitude = EXCLUDED.latitude,
+                longitude = EXCLUDED.longitude,
+                source = EXCLUDED.source,
+                updated_at = EXCLUDED.updated_at,
+                expires_at = EXCLUDED.expires_at
+        `, [
+            ip,
+            country_code,
+            datacenter,
+            connection_type,
+            user_type,
+            granular_connection_type,
+            user_count,
+            city_id,
+            city_name,
+            proxy_type,
+            latitude,
+            longitude,
+            source,
+            now,
+            expires_at,
+        ] )
+
+    } catch ( e ) {
+        log.warn( `ip_geodata_cache db save failed for ${ ip }: ${ e.message }` )
+    }
+
+}
+
+
+/**
+ * Get geolocation data for an IP address.
+ *
+ * Resolution layers:
+ *   1. In-memory cache
+ *   2. PostgreSQL cache
+ *   3. MaxMind Insights API (when credentials are configured)
+ *   4. Peer validators (ask other validators for their cached geodata)
+ *   5. geoip-lite + ip2location (local fallback)
+ *
+ * The function uses source-based filtering: each layer's result is only accepted
+ * if its `source` property matches the valid sources for the current run mode.
+ * Miners accept `maxmind_insights` and `geoip_lite`; validators also accept
+ * `external_validator`. Cache hits from non-matching sources are discarded.
+ *
+ * When `authoritative_only` is true, only `maxmind_insights` data is accepted.
+ * This prevents recursive validator-to-validator calls and avoids low-fidelity data.
+ *
+ * @param {string} ip - The IP address to lookup.
+ * @param {Object} [options] - Options object.
+ * @param {boolean} [options.authoritative_only=false] - Only return MaxMind-sourced data.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: string, is_cache: boolean, extras?: object }|null>}
+ */
+export async function ip_geodata( ip, { authoritative_only = false } = {} ) {
+
+    const cache_key = `geoip:${ ip }`
+    let geodata = null
+    const { miner_mode, validator_mode } = await run_mode()
+
+    // Determine what source we accept
+    let valid_geodata_sources = []
+    if( miner_mode ) valid_geodata_sources = [ `maxmind_insights`, `geoip_lite` ]
+    if( validator_mode ) valid_geodata_sources = [ `maxmind_insights`, `external_validator`, `geoip_lite` ]
+    if( authoritative_only ) valid_geodata_sources = [ `maxmind_insights` ]
+    log.debug( `Resolving geodata for ${ ip } (authoritative_only=${ authoritative_only }, valid sources: ${ valid_geodata_sources.join( ', ' ) })` )
+    
+
+    // ---------------------------------
+    // --- Layer 1: in-memory cache ---
+    geodata = cache( cache_key )
+    if( geodata ) log.debug( `In-memory cache hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
+
+    // If source requirement does not match the cache hit, invalidate
+    if( !valid_geodata_sources.includes( geodata?.source ) ) geodata = null
+
+    // ---------------------------------
+    // --- Layer 2: database cache ---
+    if( !geodata ) geodata = await get_db_cached_geodata( ip )
+    if( geodata ) log.debug( `Database cache hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
+
+    // If source requirement not matched, invalidate
+    if( !valid_geodata_sources.includes( geodata?.source ) ) geodata = null
+
+    // ---------------------------------
+    // --- Layer 3: MaxMind Insights API ---
+    if( !geodata && valid_geodata_sources.includes( `maxmind_insights` ) && maxmind_insights_enabled ) geodata = await ip_geodata_from_maxmind( ip )
+    if( geodata ) log.debug( `MaxMind Insights API hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
+
+    // --- Layer 4: peer validators ---
+    if( !geodata && valid_geodata_sources.includes( `external_validator` ) ) geodata = await ip_geodata_from_validators( ip )
+    if( geodata ) log.debug( `Peer validator hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
+
+    // --- Layer 5: geoip-lite (final fallback) ---
+    if( !geodata && valid_geodata_sources.includes( `geoip_lite` ) ) geodata = await ip_geodata_from_geoip_lite( ip )
+    if( geodata ) log.debug( `geoip-lite fallback hit for ${ ip }: ${ JSON.stringify( geodata ) }` )
+
+    // If there is no geodata, something is really wrong
+    if( !geodata ) {
+        log.error( `Failed to resolve geodata for ${ ip } from any source` )
+        return null
+    }
+
+    // Cache freshness determination
+    const five_min_ms = 5 * 60_000
+    const validator_transient_fallback = validator_mode && maxmind_insights_enabled && geodata?.source !== 'maxmind_insights'
+    const fresh_data_validator = validator_mode && geodata?.source === 'maxmind_insights'
+    const fresh_data_miner = miner_mode && !geodata?.is_cache
+    let ttl = GEODATA_CACHE_EXPIRY_MS
+
+    // Set ttl based on data source
+    if( validator_transient_fallback ) ttl = five_min_ms
+    if( validator_mode && !fresh_data_validator ) ttl = five_min_ms
+    if( miner_mode && !fresh_data_miner ) ttl = five_min_ms
+
+    // Save caches
+    if( fresh_data_validator || fresh_data_miner ) await save_db_cached_geodata( ip, geodata )
+    geodata.is_cache = true
+    cache( cache_key, geodata, ttl )
+    log.info( `Resolved geodata for ${ ip } from source ${ geodata.source }` )
+    log.insane( `Geodata for ${ ip }: ${ JSON.stringify( geodata ) }` )
+
+    return geodata
+
+}
+
+
+/**
+ * Resolve geodata via the MaxMind Insights web API.
+ * @param {string} ip - The IP address to lookup.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: 'maxmind_insights', extras: object, is_cache: false }|null>}
+ */
+async function ip_geodata_from_maxmind( ip ) {
+
+    try {
+
+        // Reuse a single WebServiceClient instance across calls
+        let client = cache( `maxmind:client` )
+        if( !client ) {
+            log.info( `Initializing MaxMind WebServiceClient` )
+            const { WebServiceClient } = await import( '@maxmind/geoip2-node' )
+            client = new WebServiceClient( MAXMIND_ACCOUNT_ID, MAXMIND_LICENSE_KEY, { timeout: 5000 } )
+            cache( `maxmind:client`, client )
+        }
+
+        const response = await client.insights( ip )
+        log.insane( `MaxMind Insights API response for ${ ip }: ${ JSON.stringify( response ) }` )
+
+        const country_code = response.country?.isoCode || undefined
+        const datacenter = !!response.traits?.isHostingProvider
+        const connection_type = datacenter ? 'datacenter' : 'residential'
+
+        const { userType, connectionType, userCount } = response.traits || {}
+
+        // City: geonameId + English name from the Names interface
+        const city_id = response.city?.geonameId || null
+        const city_name = response.city?.names?.en || null
+
+        // Location: latitude/longitude from LocationRecord
+        const { latitude = null, longitude = null } = response.location || {}
+
+        // Proxy type: amalgamate AnonymizerRecord flags into a single lower_case label.
+        // Most specific wins (tor > residential > vpn > public > hosting > anonymous).
+        // See https://maxmind.github.io/GeoIP2-node/interfaces/AnonymizerRecord.html
+        const anonymizer = response.traits || {}
+        let proxy_type = null
+        if( anonymizer.isTorExitNode ) proxy_type = 'tor'
+        else if( anonymizer.isResidentialProxy ) proxy_type = 'residential_proxy'
+        else if( anonymizer.isAnonymousVpn ) proxy_type = 'anonymous_vpn'
+        else if( anonymizer.isPublicProxy ) proxy_type = 'public_proxy'
+        else if( anonymizer.isHostingProvider ) proxy_type = 'hosting_provider'
+        else if( anonymizer.isAnonymous ) proxy_type = 'anonymous'
+
+        const extras = {
+            user_type: userType,
+            granular_connection_type: connectionType,
+            user_count: userCount,
+            city_id,
+            city_name,
+            proxy_type,
+            latitude,
+            longitude,
+        }
+        const data = { country_code, datacenter, connection_type, source: 'maxmind_insights', extras, is_cache: false }
+        log.insane( `MaxMind Insights API hit for ${ ip }: ${ JSON.stringify( data ) }` )
+
+        return data
+
+    } catch ( e ) {
+
+        log.error( `MaxMind Insights API error for ${ ip }:`, e )
+        return null
+
+    }
+
+}
+
+
+/**
+ * Resolve the public geodata endpoint for a peer validator.
+ * Uses the validator's advertised public protocol/host/port, mirroring the
+ * rest of the validator broadcast flow.
+ * @param {Object} peer - Validator peer metadata.
+ * @returns {Promise<string>} Peer geodata endpoint URL.
+ */
+async function get_validator_geodata_endpoint( peer ) {
+
+    const endpoint_cache_key = `validator:geodata_endpoint:${ peer.ip }`
+    const cached_endpoint = cache( endpoint_cache_key )
+    if( cached_endpoint ) return cached_endpoint
+
+    const { abort_controller } = await import( 'mentie' )
+    const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+
+    const health_res = await fetch( `http://${ peer.ip }:3000/`, fetch_options )
+    if( !health_res.ok ) throw new Error( `Peer ${ peer.ip } metadata returned ${ health_res.status }` )
+
+    const health_data = await health_res.json()
+    const protocol = health_data.SERVER_PUBLIC_PROTOCOL || `http`
+    const host = health_data.SERVER_PUBLIC_HOST || peer.ip
+    const port = health_data.SERVER_PUBLIC_PORT || 3000
+    const endpoint = `${ protocol }://${ host }:${ port }/validator/broadcast/geodata`
+
+    cache( endpoint_cache_key, endpoint, 5 * 60 * 1000 )
+    return endpoint
+
+}
+
+
+/**
+ * Resolve geodata by querying peer validators for their cached data.
+ * Races all peers concurrently via Promise.any — first successful response wins.
+ * @param {string} ip - The IP address to lookup.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: 'external_validator', is_cache: false }|null>}
+ */
+async function ip_geodata_from_validators( ip ) {
+
+    try {
+
+        // Dynamic imports to avoid circular dependency (validators.js → helpers.js)
+        const { abort_controller } = await import( 'mentie' )
+        const { get_validators } = await import( '../networking/validators.js' )
+        const { resolve_domain_to_ip } = await import( '../networking/network.js' )
+
+        // Get peer validators, excluding self
+        const { SERVER_PUBLIC_HOST } = process.env
+        const { ip: self_ip } = await resolve_domain_to_ip( { domain: SERVER_PUBLIC_HOST, fallback: SERVER_PUBLIC_HOST } )
+        const all_validators = await get_validators()
+        const peers = all_validators.filter( v => v.ip !== self_ip && v.ip !== '0.0.0.0' )
+
+        if( !peers.length ) {
+            log.info( `No validator peers available for geodata fallback` )
+            return null
+        }
+
+        // Query a single peer with a 5-second timeout
+        const query_peer = async ( peer ) => {
+            const { fetch_options } = abort_controller( { timeout_ms: 5_000 } )
+            const peer_geodata_endpoint = await get_validator_geodata_endpoint( peer )
+            const geodata_url = `${ peer_geodata_endpoint }/${ encodeURIComponent( ip ) }`
+            const res = await fetch( geodata_url, fetch_options )
+            if( !res.ok ) throw new Error( `Peer ${ peer.ip } returned ${ res.status }` )
+            const body = await res.json()
+            if( !body?.success || !body?.data ) throw new Error( `Peer ${ peer.ip } has no data` )
+            log.info( `Peer ${ peer.ip } has cached geodata for ${ ip }` )
+            return body.data
+        }
+
+        // Race all peers — first successful response wins
+        const data = await Promise.any( peers.map( query_peer ) )
+        log.info( `Got geodata for ${ ip } from validator peer` )
+        return { ...data, source: 'external_validator', is_cache: false }
+
+    } catch ( e ) {
+
+        // AggregateError means all peers failed, anything else is unexpected
+        log.info( `No validator peers had cached geodata for ${ ip }` )
+        return null
+
+    }
+
+}
+
+
+/**
+ * Resolve geodata via geoip-lite + ip2location (the original path).
+ * @param {string} ip - The IP address to lookup.
+ * @returns {Promise<{ country_code: string, datacenter: boolean, connection_type: string, source: 'geoip_lite', is_cache: false }|null>}
+ */
+async function ip_geodata_from_geoip_lite( ip ) {
+
+    try {
+
+        const { default: geoip } = await import( 'geoip-lite' )
+
+        const { country } = geoip.lookup( ip ) || {}
+        const datacenter = !!ip && await is_data_center( ip )
+        const connection_type = datacenter ? 'datacenter' : 'residential'
+
+        return { country_code: country, datacenter, connection_type, source: 'geoip_lite', is_cache: false }
+
+    } catch ( e ) {
+
+        log.warn( `geoip-lite fallback failed for ${ ip }: ${ e.message }` )
+        return null
+
+    }
+
 }

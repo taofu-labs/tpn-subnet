@@ -1,5 +1,80 @@
 # Changelog
 
+## [1.9.0] - 2026-04-20
+
+### Added
+- mark workers not updated by last scoring cycle as `stale` before validator broadcast
+- add `stale` to valid worker status values in `get_workers`
+
+## [1.8.0] - 2026-04-15
+
+### Added
+- expose `X-Entry-Ip` and `X-Exit-Ip` response headers on lease requests
+- annotate WireGuard text configs with trailing `# Entry ip:` / `# Exit ip:` comment lines
+
+## [1.7.0] - 2026-04-15
+
+### Added
+- cache `city_id`, `city_name`, `proxy_type`, `latitude`, `longitude` from MaxMind Insights in `ip_geodata_cache`
+- add matching columns to `ip_geodata_cache` schema (existing tables unaltered — new columns populate on fresh inserts)
+
+## [1.6.1] - 2026-04-14
+
+### Fixed
+- add missing `source` column to `ip_geodata_cache` CREATE TABLE schema (existing validators needed restart for migration)
+
+## [1.6.0] - 2026-04-14
+
+### Added
+- track original resolution source (maxmind/geoip_lite) in `ip_geodata_cache` DB table
+- `authoritative_only` mode now checks source provenance in both memory and DB caches
+- backwards-compat migration adds `source` column to existing `ip_geodata_cache` tables
+
+### Changed
+- `authoritative_only: true` rejects all non-MaxMind data including legacy DB entries without source
+
+## [1.5.3] - 2026-04-13
+
+### Fixed
+- drop malformed worker entries before validator broadcast preprocessing
+- skip mining pool URL resolution for empty worker URL values
+
+## [1.5.2] - 2026-04-13
+
+### Fixed
+- keep authoritative geodata cache hits on long TTL when MaxMind is enabled
+- track geodata cache source so validator fallback stays on short retry TTL
+
+## [1.5.1] - 2026-04-13
+
+### Fixed
+- resolve peer geodata requests through advertised validator public endpoints
+- sanitise worker IPs before geodata lookups use miner-supplied values
+
+## [1.5.0] - 2026-04-07
+
+### Added
+- validator-to-validator geodata fallback when MaxMind fails
+- `GET /validator/broadcast/geodata/:ip` endpoint for peer cache lookups
+- race all validator peers concurrently for fastest geodata response
+
+## [1.4.0] - 2026-04-01
+
+### Added
+- add MaxMind Insights web API support to `ip_geodata` with multi-layer caching (in-memory → postgres → API)
+- add `ip_geodata_cache` table for persistent geodata caching with 30-day expiry
+- store extra MaxMind traits (userType, connectionType, userCount) in cache table
+
+### Fixed
+- fix package-lock.json version mismatch (1.3.3 → 1.4.0)
+- fix in-memory cache TTL on MaxMind fallback suppressing retries for 30 days (now 5 min)
+- add `ip_geodata_cache` to periodic database cleanup to prevent unbounded table growth
+- fix cleanup guard skipping tables with `max_stale_minutes: 0`
+
+### Changed
+- `ip_geodata` now checks postgres cache before falling back to geoip-lite
+- graceful fallback to geoip-lite when MaxMind API is unavailable or errors
+
 ## [1.3.3] - 2026-04-01
 
 ### Fixed
