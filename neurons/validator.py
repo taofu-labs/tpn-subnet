@@ -18,15 +18,12 @@
 # DEALINGS IN THE SOFTWARE.
 
 
-import os
 import time
-import datetime
 import logging
 import requests
 
 # Bittensor
 import bittensor as bt
-import wandb
 
 # import base validator class which takes care of most of the boilerplate
 from sybil.base.validator import BaseValidatorNeuron
@@ -75,43 +72,6 @@ class Validator(BaseValidatorNeuron):
             pass
 
         bt.logging.info(f"===> Validator initialized: {self.step}, {len(self.scores)}, {len(self.hotkeys)}")
-
-        self.wandb_run_start = None
-        if not self.config.wandb.off:
-            if os.getenv("WANDB_API_KEY"):
-                self.new_wandb_run()
-            else:
-                bt.logging.exception(
-                    "WANDB_API_KEY not found. Set it with `export WANDB_API_KEY=<your API key>`. Alternatively, you can disable W&B with --wandb.off, but it is strongly recommended to run with W&B enabled."
-                )
-                self.config.wandb.off = True
-        else:
-            bt.logging.warning(
-                "Running with --wandb.off. It is strongly recommended to run with W&B enabled."
-            )
-
-    def new_wandb_run(self):
-        """Creates a new wandb run to save information to."""
-        # Create a unique run id for this run.
-        now = datetime.datetime.now()
-        self.wandb_run_start = now
-        run_id = now.strftime("%Y-%m-%d_%H-%M-%S")
-        name = "validator-" + str(self.uid) + "-" + run_id
-        self.wandb_run = wandb.init(
-            name=name,
-            project="tpn-validators",
-            entity="tpn-subnet",
-            config={
-                "uid": self.uid,
-                "hotkey": self.wallet.hotkey.ss58_address,
-                "run_name": run_id,
-                "type": "validator",
-            },
-            allow_val_change=True,
-            anonymous="allow",
-        )
-
-        bt.logging.debug(f"Started a new wandb run: {name}")
 
     async def forward(self):
         """

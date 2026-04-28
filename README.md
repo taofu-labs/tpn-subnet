@@ -104,7 +104,6 @@ source venv/bin/activate
 TPN_CACHE="$HOME/.tpn_cache"
 mkdir -p $TPN_CACHE
 export TMPDIR=$TPN_CACHE
-export WANDB_CACHE_DIR=$TPN_CACHE
 pip3 install -r requirements.txt
 export PYTHONPATH=.
 ```
@@ -271,45 +270,7 @@ Here are some examples of how a minint pool could operate:
 
 Validators are the interface between end users and miners. They send work requests to miners, which the miners complete and submit to the validator. Running a validator is more complicated than a miner and requires more setup than a miner.
 
-### Step 1: Configure the validator settings
-
-The validator neuron needs you to supply a WanDB API key. You can get one by signing up at [WanDB](https://wandb.ai/site). Once you have the key, add it to your environment by running the code below:
-
-```bash
-# 🚨 Change the below to your API key
-WANDB_API_KEY=xxxx
-
-# Determine the default login shell using the SHELL env variable
-shell=$(basename "$SHELL")
-export_line="export WANDB_API_KEY=$WANDB_API_KEY"
-
-# For bash: if the default shell is bash, add the export_line to ~/.bashrc if not present
-if [[ "$shell" == "bash" ]]; then
-  # Check if the exact export_line exists in ~/.bashrc
-  if ! grep -Fxq "$export_line" ~/.bashrc; then
-    echo "$export_line" >> ~/.bashrc  # Append if not found
-    echo "Added '$export_line' to ~/.bashrc"
-  else
-    echo "'$export_line' already exists in ~/.bashrc"
-  fi
-fi
-
-# For zsh: if the default shell is zsh, add the export_line to ~/.zshrc if not present
-if [[ "$shell" == "zsh" ]]; then
-  # Check if the exact export_line exists in ~/.zshrc
-  if ! grep -Fxq "$export_line" ~/.zshrc; then
-    echo "$export_line" >> ~/.zshrc  # Append if not found
-    echo "Added '$export_line' to ~/.zshrc"
-  else
-    echo "'$export_line' already exists in ~/.zshrc"
-  fi
-fi
-
-# Run the export line in the current shell
-eval $export_line
-```
-
-### Step 2: Start the validator
+### Start the validator
 
 The validator also consists out of two components:
 
