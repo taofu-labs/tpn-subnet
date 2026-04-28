@@ -1,0 +1,133 @@
+// TPN Observability — Grafana Alloy agent config
+// Collects Docker logs + node metrics + PM2 neuron logs, ships to tpn-obs.
+//
+// Identity: the agent GETs /identity with its bearer token at startup.
+// The receiver returns the bound node name. That becomes the `host` label.
+// The partner never types a hostname — tpn-cc is the source of truth.
+
+// ─── Identity Lookup ────────────────────────────────────
+// Fetches the node name from tpn-cc. Polls every 5m (effectively a one-shot
+// since the value never changes, but keeps the connection validated).
+
+remote.http "identity" {
+  url = env("TELEMETRY_URL") + "/identity"
+
+  headers = {
+    "Authorization" = "Bearer " + env("TELEMETRY_KEY"),
+  }
+
+  poll_frequency = "5m"
+}
+
+// ─── Node Metrics ───────────────────────────────────────
+
+prometheus.exporter.unix "node" {
+}
+
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.node.targets
+  forward_to      = [prometheus.relabel.add_labels.receiver]
+  scrape_interval = "60s"
+}
+
+prometheus.relabel "add_labels" {
+  forward_to = [prometheus.remote_write.tpn.receiver]
+
+  rule {
+    target_label = "cluster"
+    replacement  = "tpn"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = remote.http.identity.content
+  }
+}
+
+prometheus.remote_write "tpn" {
+  endpoint {
+    url = env("TELEMETRY_URL") + "/api/v1/push"
+
+    headers = {
+      "Authorization" = "Bearer " + env("TELEMETRY_KEY"),
+    }
+  }
+}
+
+// ─── Docker Container Logs ──────────────────────────────
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "docker" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "container"
+  }
+
+  rule {
+    target_label = "cluster"
+    replacement  = "tpn"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = remote.http.identity.content
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker.output
+  forward_to = [loki.write.tpn.receiver]
+}
+
+// ─── PM2 Neuron Logs ────────────────────────────────────
+// PM2 logs live on the host filesystem (mounted at /host/root)
+
+local.file_match "pm2" {
+  path_targets = [
+    {
+      __path__ = "/host/root/home/pool/.pm2/logs/*.log",
+      cluster  = "tpn",
+      host     = remote.http.identity.content,
+      source   = "pm2",
+    },
+  ]
+  sync_period = "30s"
+}
+
+loki.source.file "pm2" {
+  targets    = local.file_match.pm2.targets
+  forward_to = [loki.process.pm2.receiver]
+}
+
+loki.process "pm2" {
+  forward_to = [loki.write.tpn.receiver]
+
+  // Extract process name + stream (out/error) from filename like "neuron-out.log" or "neuron-error-0.log"
+  stage.regex {
+    expression = "/(?P<process>[^/]+)-(?P<stream>out|error)(-\\d+)?\\.log$"
+    source     = "filename"
+  }
+
+  stage.labels {
+    values = {
+      process = "",
+      stream  = "",
+    }
+  }
+}
+
+loki.write "tpn" {
+  endpoint {
+    url = env("TELEMETRY_URL") + "/loki/api/v1/push"
+
+    headers = {
+      "Authorization" = "Bearer " + env("TELEMETRY_KEY"),
+    }
+  }
+}

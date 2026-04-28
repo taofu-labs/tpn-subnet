@@ -1,0 +1,20 @@
+services:
+  alloy:
+    image: grafana/alloy:v1.6.1
+    container_name: tpn-alloy
+    restart: unless-stopped
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/host/root:ro
+      - /sys:/host/sys:ro
+      - /proc:/host/proc:ro
+    environment:
+      - TELEMETRY_URL=${TELEMETRY_URL}
+      - TELEMETRY_KEY=${TELEMETRY_KEY}
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+    network_mode: host
+    pid: host
