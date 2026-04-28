@@ -454,7 +454,6 @@ if [ "$RUN_MODE" != "worker" ]; then
         TPN_CACHE="$HOME/.tpn_cache"
         mkdir -p "$TPN_CACHE"
         export TMPDIR=$TPN_CACHE
-        export WANDB_CACHE_DIR=$TPN_CACHE
 
         echo "Installing Python dependencies..."
         if ! pip install -r requirements.txt; then
