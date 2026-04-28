@@ -56,7 +56,7 @@ async def _retry_with_backoff( func, *args, max_retries: int = MAX_RETRIES, **kw
                 wait_time = min( delay + jitter, MAX_DELAY )
                 bt.logging.warning(
                     f"HTTP request failed (attempt { attempt + 1 }/{ max_retries }): { e }. "
-                    f"Retrying in { wait_time:.1f }s..."
+                    f"Retrying in { wait_time:.1f}s..."
                 )
                 await asyncio.sleep( wait_time )
                 delay *= BACKOFF_MULTIPLIER
