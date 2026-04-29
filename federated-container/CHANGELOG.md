@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.10.0] - 2026-04-29
+
+### Added
+- `concurrency` parameter on `validate_and_annotate_workers` (default 200) — caps parallel worker tests below the ~253-slot veth subnet pool so high worker counts no longer starve the network namespace allocator
+- `max_worker_test_time_s` parameter on `validate_and_annotate_workers` (default 60) — soft per-worker timeout that marks slow workers `down` while letting the underlying wireguard test finish its cleanup
+
+### Fixed
+- wireguard cleanup now removes the MASQUERADE iptables rule using `${ uplink_interface }` instead of a hardcoded `eth0`, so hosts whose uplink is `ens5` / `enp0s*` / etc. no longer leak NAT rules
+
+### Changed
+- removed the obsolete `>250 workers` warning in `validate_and_annotate_workers` — superseded by the concurrency cap
+- documented the intentional `10.200.{2..254}` subnet pool range in `network.js:mk_subnet_prefix` (.1 host-side, .255 broadcast)
+
 ## [1.9.0] - 2026-04-20
 
 ### Added
