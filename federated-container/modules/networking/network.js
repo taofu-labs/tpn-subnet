@@ -118,8 +118,8 @@ export async function get_free_interfaces( { log_tag=uuidv4(), verbose } ) {
     // Generators
     const mk_interface_id = () => `tpn${ random_string_of_length( 5 ) }`
     const mk_veth_id = () => `tpn${ random_string_of_length( 5 ) }`
-    // Subnet pool yields {2..254} on purpose: .1 is reserved for the host side of the veth pair, .255 is broadcast
-    const mk_subnet_prefix = () => `10.200.${ random_number_between( 1, 254 ) }`
+    // Subnet selector for `10.200.X.0/24` — any value in {1..255} is a valid /24 in RFC1918 space (.1/.255 reservations apply within each /24, not to the selector)
+    const mk_subnet_prefix = () => `10.200.${ random_number_between( 255 ) }`
     const mk_namespace_id = () => `ns_${ mk_interface_id() }`
 
     // Host level info

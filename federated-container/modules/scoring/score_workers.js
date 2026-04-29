@@ -178,7 +178,7 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  * @param {string} [params.mining_pool_uid] - UID of the mining pool (required for partnered pool detection)
  * @param {string} [params.mining_pool_ip] - IP of the mining pool (required for partnered pool detection)
  * @param {number} [params.max_worker_test_time_s=60] - Soft per-worker timeout in seconds. On expiry the worker is marked down; the underlying wireguard test still runs to completion so its slot is released cleanly.
- * @param {number} [params.concurrency=200] - Maximum number of workers tested in parallel. Capped below the ~253-slot veth subnet pool (see network.js mk_subnet_prefix) so the orchestrator never starves the allocator.
+ * @param {number} [params.concurrency=200] - Maximum number of workers tested in parallel. Capped below the 255-slot veth subnet pool (see network.js mk_subnet_prefix) so the orchestrator never starves the allocator.
  * @returns {Promise<Object>} Object with successes and failures arrays
  * @returns {Array} returns.successes - Array of successful worker tests
  * @returns {Array} returns.failures - Array of failed worker tests
@@ -299,7 +299,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
             resolve( {
                 ...worker,
                 success: false,
-                status: worker.status || 'down',
+                status: 'down',
                 error: `Worker test exceeded ${ max_worker_test_time_s }s timeout`,
                 test_duration_s: max_worker_test_time_s
             } )
