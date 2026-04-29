@@ -294,7 +294,9 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
     // completion to keep the concurrency cap honest. The timeout flag here is purely observational.
     const score_worker_with_timeout = async ( worker ) => {
         let timed_out = false
-        const timer = setTimeout( () => { timed_out = true }, max_worker_test_time_s * 1000 )
+        const timer = setTimeout( () => {
+            timed_out = true
+        }, max_worker_test_time_s * 1000 )
         try {
             const result = await score_worker( worker )
             if( timed_out ) {
@@ -314,18 +316,18 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
 
     // Run worker scoring with a concurrency cap. Each runner pulls from a shared queue until empty.
     // Output is shaped like Promise.allSettled output so the downstream reducer keeps working unchanged.
-    const queue = valid_workers.slice()
-    const workers_test_results = []
+    const queue = valid_workers.map( ( worker, index ) => ( { worker, index } ) )
+    const workers_test_results = Array( valid_workers.length )
     const runner_count = Math.min( concurrency, queue.length )
     log.info( `Scoring ${ queue.length } workers with concurrency ${ runner_count } and per-worker timeout ${ max_worker_test_time_s }s` )
     const runners = Array( runner_count ).fill( 0 ).map( async () => {
         while( queue.length > 0 ) {
-            const worker = queue.shift()
+            const { worker, index } = queue.shift()
             try {
                 const value = await score_worker_with_timeout( worker )
-                workers_test_results.push( { status: 'fulfilled', value } )
+                workers_test_results[ index ] = { status: 'fulfilled', value }
             } catch ( reason ) {
-                workers_test_results.push( { status: 'rejected', reason } )
+                workers_test_results[ index ] = { status: 'rejected', reason }
             }
         }
     } )

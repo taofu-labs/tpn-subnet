@@ -9,6 +9,7 @@
 ### Fixed
 - wireguard cleanup now removes the MASQUERADE iptables rule using `${ uplink_interface }` instead of a hardcoded `eth0`, so hosts whose uplink is `ens5` / `enp0s*` / etc. no longer leak NAT rules
 - veth subnet selector in `network.js:mk_subnet_prefix` now correctly produces `{1..255}` via `random_number_between( 255 )`. The previous `random_number_between( 1, 254 )` form relied on mentie's reversed `(max_num, min_num=1)` signature and accidentally yielded `{2..254}` — same intent, but a maintenance trap for readers expecting `(min, max)`
+- concurrent worker validation now preserves input order in returned successes/failures/statuses, matching the previous `Promise.allSettled` behavior
 
 ### Changed
 - removed the obsolete `>250 workers` warning in `validate_and_annotate_workers` — superseded by the concurrency cap
