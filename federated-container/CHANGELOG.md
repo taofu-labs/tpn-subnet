@@ -4,7 +4,7 @@
 
 ### Added
 - `concurrency` parameter on `validate_and_annotate_workers` (default 200) — caps parallel worker tests below the 255-slot veth subnet pool so high worker counts no longer starve the network namespace allocator
-- `max_worker_test_time_s` parameter on `validate_and_annotate_workers` (default 60) — soft per-worker timeout that marks slow workers `down` while letting the underlying wireguard test finish its cleanup
+- `max_worker_test_time_s` parameter on `validate_and_annotate_workers` (default 60) — observability marker that flags worker tests exceeding this duration as `down` with a timeout error. The runner always awaits natural completion of the underlying wireguard test so the veth subnet slot is released before the next worker is picked up — cancelling the inner test would orphan its slot and silently violate the concurrency cap
 
 ### Fixed
 - wireguard cleanup now removes the MASQUERADE iptables rule using `${ uplink_interface }` instead of a hardcoded `eth0`, so hosts whose uplink is `ens5` / `enp0s*` / etc. no longer leak NAT rules

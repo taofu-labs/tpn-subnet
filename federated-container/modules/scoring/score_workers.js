@@ -177,7 +177,7 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  * @param {string} params.workers_with_configs[].mining_pool_url - URL of the mining pool
  * @param {string} [params.mining_pool_uid] - UID of the mining pool (required for partnered pool detection)
  * @param {string} [params.mining_pool_ip] - IP of the mining pool (required for partnered pool detection)
- * @param {number} [params.max_worker_test_time_s=60] - Soft per-worker timeout in seconds. On expiry the worker is marked down; the underlying wireguard test still runs to completion so its slot is released cleanly.
+ * @param {number} [params.max_worker_test_time_s=60] - Soft per-worker timeout marker in seconds. The runner always awaits the underlying wireguard test (so the veth subnet slot is released before the runner moves on), but tests exceeding this threshold are flagged `down` with a timeout error. Pure observability — does not cancel the inner test or bound per-worker runtime.
  * @param {number} [params.concurrency=200] - Maximum number of workers tested in parallel. Capped below the 255-slot veth subnet pool (see network.js mk_subnet_prefix) so the orchestrator never starves the allocator.
  * @returns {Promise<Object>} Object with successes and failures arrays
  * @returns {Array} returns.successes - Array of successful worker tests
@@ -288,34 +288,29 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
 
     }
 
-    // Wrap a worker test in a soft timeout. The underlying test continues running until its own internal timeouts fire,
-    // which lets test_wireguard_connection's finally block release the veth subnet slot. We just stop waiting after the cap.
-    const score_worker_with_timeout = ( worker ) => new Promise( ( resolve, reject ) => {
-        let settled = false
-        const timer = setTimeout( () => {
-            if( settled ) return
-            settled = true
-            log.warn( `Worker ${ worker.ip } test exceeded ${ max_worker_test_time_s }s timeout, marking as down` )
-            resolve( {
-                ...worker,
-                success: false,
-                status: 'down',
-                error: `Worker test exceeded ${ max_worker_test_time_s }s timeout`,
-                test_duration_s: max_worker_test_time_s
-            } )
-        }, max_worker_test_time_s * 1000 )
-        score_worker( worker ).then( value => {
-            if( settled ) return
-            settled = true
+    // Soft-timeout marker: always awaits the underlying score_worker so the veth subnet slot is released (via
+    // test_wireguard_connection's finally → clear_interfaces) before the runner picks up the next worker.
+    // Cancelling the inner test would orphan its slot in the 255-slot pool — we intentionally wait for natural
+    // completion to keep the concurrency cap honest. The timeout flag here is purely observational.
+    const score_worker_with_timeout = async ( worker ) => {
+        let timed_out = false
+        const timer = setTimeout( () => { timed_out = true }, max_worker_test_time_s * 1000 )
+        try {
+            const result = await score_worker( worker )
+            if( timed_out ) {
+                log.warn( `Worker ${ worker.ip } test exceeded ${ max_worker_test_time_s }s soft timeout, marking as down` )
+                return {
+                    ...result,
+                    success: false,
+                    status: 'down',
+                    error: `Worker test exceeded ${ max_worker_test_time_s }s soft timeout`
+                }
+            }
+            return result
+        } finally {
             clearTimeout( timer )
-            resolve( value )
-        } ).catch( reason => {
-            if( settled ) return
-            settled = true
-            clearTimeout( timer )
-            reject( reason )
-        } )
-    } )
+        }
+    }
 
     // Run worker scoring with a concurrency cap. Each runner pulls from a shared queue until empty.
     // Output is shaped like Promise.allSettled output so the downstream reducer keeps working unchanged.
