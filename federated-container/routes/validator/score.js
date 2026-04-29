@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { score_mining_pools } from "../../modules/scoring/score_mining_pools.js"
-import { cache, log } from "mentie"
+import { cache, log, wait } from "mentie"
 import { get_pool_scores } from "../../modules/database/mining_pools.js"
 import { request_is_local } from "../../modules/networking/network.js"
 import { get_workers } from "../../modules/database/workers.js"
@@ -9,6 +9,14 @@ import { validate_and_annotate_workers, match_worker_to_pool } from "../../modul
 import { get_worker_config_as_validator } from "../../modules/api/validator.js"
 import { get_tpn_cache } from "../../modules/caching.js"
 import { is_partnered_pool } from "../../modules/partnered_pools.js"
+import {
+    AUDIT_SCORING_MAX_WAIT_MS,
+    AUDIT_SCORING_WAIT_INTERVAL_MS,
+    AUDIT_WORKER_VALIDATION_CONCURRENCY,
+    WORKER_AUDIT_ACTIVE_CACHE_KEY,
+    WORKER_SCORING_ACTIVE_CACHE_KEY,
+    WORKER_VALIDATION_COORDINATION_TTL_MS
+} from "../../modules/scoring/worker_validation_state.js"
 
 
 export const router = Router()
@@ -80,6 +88,10 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
     if( !ADMIN_API_KEY ) return res.status( 403 ).json( { error: `ADMIN_API_KEY not configured` } )
     if( api_key !== ADMIN_API_KEY ) return res.status( 403 ).json( { error: `Invalid API key` } )
 
+    // Prevent concurrent audits. The audit key means active or pending, so future scoring runs lower concurrency while this request waits.
+    const audit_locked = cache( WORKER_AUDIT_ACTIVE_CACHE_KEY )
+    if( audit_locked ) return res.status( 429 ).json( { error: `Worker audit already in progress` } )
+
     // Prevent concurrent audits for the same pool
     const lock_key = `audit_pool_${ pool_uid }_running`
     const locked = cache( lock_key )
@@ -87,10 +99,21 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
 
     try {
 
-        // Set lock for 15 minutes max duration
-        cache( lock_key, true, 15 * 60_000 )
+        // Set locks with a TTL so abandoned requests do not permanently block audits or throttle scoring
+        cache( WORKER_AUDIT_ACTIVE_CACHE_KEY, true, WORKER_VALIDATION_COORDINATION_TTL_MS )
+        cache( lock_key, true, WORKER_VALIDATION_COORDINATION_TTL_MS )
 
         log.info( `Starting audit for pool ${ pool_uid }` )
+
+        // If scoring is already validating workers, wait for that batch to drain before this audit starts.
+        const wait_started_at = Date.now()
+        while( cache( WORKER_SCORING_ACTIVE_CACHE_KEY ) ) {
+            const elapsed_ms = Date.now() - wait_started_at
+            if( elapsed_ms > AUDIT_SCORING_MAX_WAIT_MS ) throw new Error( `Timed out waiting for worker scoring validation to finish before audit` )
+
+            log.info( `Audit for pool ${ pool_uid } waiting ${ AUDIT_SCORING_WAIT_INTERVAL_MS / 1_000 }s for worker scoring validation to finish` )
+            await wait( AUDIT_SCORING_WAIT_INTERVAL_MS )
+        }
 
         // Get workers for this pool
         const { workers } = await get_workers( { mining_pool_uid: pool_uid } )
@@ -143,7 +166,7 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
         } ) )
 
         // Test all workers (partnered pools skip version + membership checks in validate_and_annotate_workers)
-        const { successes, failures } = await validate_and_annotate_workers( { workers_with_configs: workers_to_validate, mining_pool_uid: pool_uid, mining_pool_ip } )
+        const { successes, failures } = await validate_and_annotate_workers( { workers_with_configs: workers_to_validate, mining_pool_uid: pool_uid, mining_pool_ip, concurrency: AUDIT_WORKER_VALIDATION_CONCURRENCY } )
 
         // Calculate uptime percentage based on verified members only
         const total = workers_to_validate.length
@@ -179,8 +202,9 @@ router.get( '/audit/:pool_uid', async ( req, res ) => {
         return res.status( 500 ).json( { error: e.message } )
     } finally {
 
-        // Release lock
+        // Release locks
         cache( lock_key, false )
+        cache( WORKER_AUDIT_ACTIVE_CACHE_KEY, false )
 
     }
 

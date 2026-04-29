@@ -12,6 +12,7 @@
 
 ### Changed
 - removed the obsolete `>250 workers` warning in `validate_and_annotate_workers` — superseded by the concurrency cap
+- validator audits are now globally exclusive, wait for active scoring validation to drain, and run worker validation at concurrency 100; scoring also drops to concurrency 100 while an audit is pending/active
 
 ## [1.9.0] - 2026-04-20
 

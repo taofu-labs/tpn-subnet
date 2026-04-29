@@ -9,6 +9,13 @@ import { read_mining_pool_metadata, write_pool_score } from "../database/mining_
 import { get_miners } from "../networking/miners.js"
 import { score_node_version } from "./score_node.js"
 import { is_partnered_pool } from "../partnered_pools.js"
+import {
+    AUDIT_WORKER_VALIDATION_CONCURRENCY,
+    DEFAULT_WORKER_VALIDATION_CONCURRENCY,
+    WORKER_AUDIT_ACTIVE_CACHE_KEY,
+    WORKER_SCORING_ACTIVE_CACHE_KEY,
+    WORKER_VALIDATION_COORDINATION_TTL_MS
+} from "./worker_validation_state.js"
 const { CI_MODE, CI_MOCK_MINING_POOL_RESPONSES, CI_MOCK_WORKER_RESPONSES, CI_MINER_IP_OVERRIDES } = process.env
 
 /**
@@ -216,7 +223,20 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Score the selected workers
     cache.merge( cache_key, [ `${ elapsed_s() }s - Validating and annotating ${ workers_with_configs.length } workers for mining pool ${ pool_label }` ] )
-    const { successes, failures, workers_with_status } = await validate_and_annotate_workers( { workers_with_configs, mining_pool_uid, mining_pool_ip } )
+
+    const audit_active = cache( WORKER_AUDIT_ACTIVE_CACHE_KEY )
+    const validation_concurrency = audit_active ? AUDIT_WORKER_VALIDATION_CONCURRENCY : DEFAULT_WORKER_VALIDATION_CONCURRENCY
+    if( audit_active ) log.info( `Worker audit is active or pending, lowering scoring validation concurrency to ${ validation_concurrency }` )
+
+    let validation_result
+    cache( WORKER_SCORING_ACTIVE_CACHE_KEY, true, WORKER_VALIDATION_COORDINATION_TTL_MS )
+    try {
+        validation_result = await validate_and_annotate_workers( { workers_with_configs, mining_pool_uid, mining_pool_ip, concurrency: validation_concurrency } )
+    } finally {
+        cache( WORKER_SCORING_ACTIVE_CACHE_KEY, false )
+    }
+
+    const { successes, failures, workers_with_status } = validation_result
     cache.merge( cache_key, [ `${ elapsed_s() }s - Completed validating and annotating workers for mining pool ${ pool_label }` ] )
     log.info( `Scored workers for mining pool ${ pool_label }, successes: ${ successes?.length }, failures: ${ failures?.length }. Status annotated: ${ workers_with_status?.length }` )
     log.debug( `Failure exerpt: `, failures?.slice( 0, 3 ) )
@@ -306,4 +326,3 @@ async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
     return composite_scores
 
 }
-
