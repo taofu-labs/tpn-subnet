@@ -177,20 +177,17 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  * @param {string} params.workers_with_configs[].mining_pool_url - URL of the mining pool
  * @param {string} [params.mining_pool_uid] - UID of the mining pool (required for partnered pool detection)
  * @param {string} [params.mining_pool_ip] - IP of the mining pool (required for partnered pool detection)
+ * @param {number} [params.max_worker_test_time_s=60] - Soft per-worker timeout in seconds. On expiry the worker is marked down; the underlying wireguard test still runs to completion so its slot is released cleanly.
+ * @param {number} [params.concurrency=200] - Maximum number of workers tested in parallel. Capped below the 255-slot veth subnet pool (see network.js mk_subnet_prefix) so the orchestrator never starves the allocator.
  * @returns {Promise<Object>} Object with successes and failures arrays
  * @returns {Array} returns.successes - Array of successful worker tests
  * @returns {Array} returns.failures - Array of failed worker tests
  */
-export async function validate_and_annotate_workers( { workers_with_configs=[], mining_pool_uid, mining_pool_ip } ) {
+export async function validate_and_annotate_workers( { workers_with_configs=[], mining_pool_uid, mining_pool_ip, max_worker_test_time_s=60, concurrency=200 } ) {
 
     // Partnered pool workers run custom code — version and membership checks call workers directly and must be skipped
     const is_partnered = mining_pool_uid && mining_pool_ip && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
     if( is_partnered ) log.info( `Pool ${ mining_pool_uid } is a partnered network pool, skipping version and membership checks for ${ workers_with_configs.length } workers` )
-
-    // If worker config list exceeds 250, warn this is close to ip subnet limit and might cause issues
-    if( workers_with_configs.length > 250 ) {
-        log.warn( `Worker config list exceeds 250, this may cause issues with IP subnet limits` )
-    }
 
     if( CI_MODE === 'true' ) log.info( `Validating ${ workers_with_configs?.length } workers, first:`, workers_with_configs?.[0] )
 
@@ -209,15 +206,15 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
 
     }, [ [], [] ] )
 
-    // Score the selected workers
-    const scoring_queue = valid_workers.map( async worker => {
+    // Score a single worker — runs the full battery of checks and returns a test_result shaped object
+    const score_worker = async ( worker ) => {
 
         // Prepare test, set default status down, start timer
         const start = Date.now()
         const test_result = { ...worker, status: 'down' }
 
         try {
-    
+
             // Start test
             const { text_config, mining_pool_url } = worker
             if( CI_MODE === 'true' ) log.info( `Validating worker ${ worker.ip } with config:`, worker )
@@ -249,7 +246,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
                 throw new Error( `Wireguard config invalid for ${ worker.ip }: ${ message }` )
             }
 
-    
+
             // Test the socks5 config works
             const { socks5_config: sock } = worker
             const socks5_validation = await test_socks5_connection( { sock, claimed_worker_ip: worker.ip } )
@@ -272,7 +269,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
             test_result.country_code = country_code
             test_result.datacenter = datacenter
             test_result.connection_type = connection_type
-    
+
             // Set test result
             test_result.success = true
             test_result.status = 'up'
@@ -288,11 +285,56 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
         log.debug( `Worker ${ worker.ip } test result:`, test_result )
 
         return test_result
-    
+
+    }
+
+    // Wrap a worker test in a soft timeout. The underlying test continues running until its own internal timeouts fire,
+    // which lets test_wireguard_connection's finally block release the veth subnet slot. We just stop waiting after the cap.
+    const score_worker_with_timeout = ( worker ) => new Promise( ( resolve, reject ) => {
+        let settled = false
+        const timer = setTimeout( () => {
+            if( settled ) return
+            settled = true
+            log.warn( `Worker ${ worker.ip } test exceeded ${ max_worker_test_time_s }s timeout, marking as down` )
+            resolve( {
+                ...worker,
+                success: false,
+                status: 'down',
+                error: `Worker test exceeded ${ max_worker_test_time_s }s timeout`,
+                test_duration_s: max_worker_test_time_s
+            } )
+        }, max_worker_test_time_s * 1000 )
+        score_worker( worker ).then( value => {
+            if( settled ) return
+            settled = true
+            clearTimeout( timer )
+            resolve( value )
+        } ).catch( reason => {
+            if( settled ) return
+            settled = true
+            clearTimeout( timer )
+            reject( reason )
+        } )
     } )
-    
-    // Wait for all workers to be scored
-    let workers_test_results = await Promise.allSettled( scoring_queue )
+
+    // Run worker scoring with a concurrency cap. Each runner pulls from a shared queue until empty.
+    // Output is shaped like Promise.allSettled output so the downstream reducer keeps working unchanged.
+    const queue = valid_workers.slice()
+    const workers_test_results = []
+    const runner_count = Math.min( concurrency, queue.length )
+    log.info( `Scoring ${ queue.length } workers with concurrency ${ runner_count } and per-worker timeout ${ max_worker_test_time_s }s` )
+    const runners = Array( runner_count ).fill( 0 ).map( async () => {
+        while( queue.length > 0 ) {
+            const worker = queue.shift()
+            try {
+                const value = await score_worker_with_timeout( worker )
+                workers_test_results.push( { status: 'fulfilled', value } )
+            } catch ( reason ) {
+                workers_test_results.push( { status: 'rejected', reason } )
+            }
+        }
+    } )
+    await Promise.all( runners )
     const [ successes, failures ] = workers_test_results.reduce( ( acc, promise_test_result_obj ) => {
     
         const { status, value: test_result={}, reason } = promise_test_result_obj

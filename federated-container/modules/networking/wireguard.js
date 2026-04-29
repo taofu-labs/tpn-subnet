@@ -452,7 +452,7 @@ export async function test_wireguard_connection( { wireguard_config, claimed_wor
         ip link del veth${ veth_id }n || echo "Veth ${ veth_id }n does not exist"
         ip link del ${ interface_id } || echo "Interface ${ interface_id } does not exist"
         ip netns del ${ namespace_id } || echo "Namespace ${ namespace_id } does not exist"
-        iptables -t nat -D POSTROUTING -s ${ veth_subnet_prefix }.0/24 -o eth0 -j MASQUERADE || echo "iptables rule does not exist"
+        iptables -t nat -D POSTROUTING -s ${ veth_subnet_prefix }.0/24 -o ${ uplink_interface } -j MASQUERADE || echo "iptables rule does not exist"
         iptables -D FORWARD -i veth${ veth_id }h -o ${ uplink_interface } -s ${ veth_subnet_prefix }.0/24 -j ACCEPT || echo "iptables rule does not exist"
         iptables -D FORWARD -o veth${ veth_id }h -m state --state ESTABLISHED,RELATED -j ACCEPT || echo "iptables rule does not exist"
         rm -f ${ tmp_config_path } || echo "Config file ${ tmp_config_path } does not exist"
