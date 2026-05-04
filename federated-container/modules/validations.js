@@ -114,7 +114,7 @@ export const sanetise_worker = worker => {
     }
 
     // Sanetise http_proxy_port property
-    if( worker?.http_proxy_port ) {
+    if( worker?.http_proxy_port !== undefined ) {
         let port = Number( worker.http_proxy_port )
         if( isNaN( port ) || port < 1 || port > 65535 ) port = default_http_proxy_port
         worker.http_proxy_port = port

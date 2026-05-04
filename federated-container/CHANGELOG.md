@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.12.2] - 2026-05-04
+
+### Fixed
+- normalise explicitly invalid worker HTTP proxy ports before scoring and broadcast
+
 ## [1.12.1] - 2026-05-04
 
 ### Fixed
