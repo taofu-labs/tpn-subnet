@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.12.1] - 2026-05-04
+
+### Fixed
+- improve HTTP proxy validation failure codes and probe timing
+
 ## [1.12.0] - 2026-05-04
 
 ### Added

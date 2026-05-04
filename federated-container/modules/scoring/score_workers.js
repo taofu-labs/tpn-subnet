@@ -263,7 +263,23 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
 
             // Test the socks5 config works
             const { socks5_config: sock } = worker
-            const socks5_validation = await test_socks5_connection( { sock, claimed_worker_ip: worker.ip } )
+            const socks5_validation_promise = test_socks5_connection( { sock, claimed_worker_ip: worker.ip } )
+            const http_proxy_validation_promise = validate_http_proxy
+                ? test_http_proxy_connection( {
+                    proxy: http_proxy_from_socks5_config( {
+                        socks5_config: sock,
+                        http_proxy_port: worker.http_proxy_port
+                    } ),
+                    claimed_worker_ip: worker.ip
+                } )
+                : null
+            const [
+                socks5_validation,
+                http_proxy_validation
+            ] = await Promise.all( [
+                socks5_validation_promise,
+                http_proxy_validation_promise
+            ] )
             const { valid: socks5_valid, failure_code: socks5_failure_code, observed_socks5_ip, message: socks5_message, claimed_worker_ip: socks5_claimed_ip } = socks5_validation
             if( !socks5_valid ) {
                 const status = status_from_failure_code( socks5_failure_code )
@@ -278,11 +294,6 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
 
             // Test the HTTP proxy bridge for internal workers only. It reuses Dante credentials through 3proxy.
             if( validate_http_proxy ) {
-                const http_proxy = http_proxy_from_socks5_config( {
-                    socks5_config: sock,
-                    http_proxy_port: worker.http_proxy_port
-                } )
-                const http_proxy_validation = await test_http_proxy_connection( { proxy: http_proxy, claimed_worker_ip: worker.ip } )
                 const {
                     valid: http_proxy_valid,
                     failure_code: http_proxy_failure_code,
