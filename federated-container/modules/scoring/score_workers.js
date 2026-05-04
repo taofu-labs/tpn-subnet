@@ -85,10 +85,18 @@ export async function get_worker_metadata( { worker, timeout_ms=5_000 } ) {
         const mock_pool_check = CI_MOCK_WORKER_RESPONSES === 'true'
         const { fetch_options } = abort_controller( { timeout_ms } )
         const worker_metadata = mock_pool_check ? { MINING_POOL_URL: 'http://mock.mock.mock.mock' } : await fetch( `http://${ worker.ip }:${ worker.public_port }`, fetch_options ).then( res => res.json() )
-        const { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL } = worker_metadata || {}
+        const {
+            MINING_POOL_URL,
+            SERVER_PUBLIC_HOST,
+            SERVER_PUBLIC_URL,
+            SERVER_PUBLIC_PORT,
+            SERVER_PUBLIC_PROTOCOL,
+            HTTP_PROXY_PORT
+        } = worker_metadata || {}
         const url = `${ SERVER_PUBLIC_PROTOCOL }://${ SERVER_PUBLIC_HOST }:${ SERVER_PUBLIC_PORT }`
+        const http_proxy_port = HTTP_PROXY_PORT || 3128
 
-        return { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL, url }
+        return { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL, HTTP_PROXY_PORT, http_proxy_port, url }
 
     } catch ( e ) {
         log.info( `Error fetching worker metadata from ${ worker.ip }: ${ e.message }:`, e )

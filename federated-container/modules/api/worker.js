@@ -138,13 +138,19 @@ export async function register_with_mining_pool() {
     try {
 
         const public_url = base_url
-        const { PAYMENT_ADDRESS_EVM, PAYMENT_ADDRESS_BITTENSOR, SERVER_PUBLIC_PORT=3000 } = process.env
+        const {
+            PAYMENT_ADDRESS_EVM,
+            PAYMENT_ADDRESS_BITTENSOR,
+            SERVER_PUBLIC_PORT=3000,
+            HTTP_PROXY_PORT=3128
+        } = process.env
 
         // Create base worker object
         const base_worker = {
             mining_pool_url: MINING_POOL_URL,
             public_url,
             public_port: SERVER_PUBLIC_PORT,
+            http_proxy_port: HTTP_PROXY_PORT,
             payment_address_evm: PAYMENT_ADDRESS_EVM,
             payment_address_bittensor: PAYMENT_ADDRESS_BITTENSOR
         }

@@ -1,7 +1,10 @@
 import { is_ipv4, log, require_props, sanetise_string } from "mentie"
 import { country_name_from_code } from "./geolocation/helpers.js"
 
-const { CI_MODE, SERVER_PUBLIC_PORT=3000 } = process.env
+const { CI_MODE, SERVER_PUBLIC_PORT=3000, HTTP_PROXY_PORT=3128 } = process.env
+const parsed_http_proxy_port = Number( HTTP_PROXY_PORT )
+const valid_http_proxy_port = Number.isInteger( parsed_http_proxy_port ) && parsed_http_proxy_port >= 1 && parsed_http_proxy_port <= 65535
+const default_http_proxy_port = valid_http_proxy_port ? parsed_http_proxy_port : 3128
 export const default_mining_pool='https://pool.taofu.xyz'
 
 /**
@@ -56,12 +59,20 @@ export const annotate_worker_with_defaults = worker => {
     // Warnings
     if( !worker.public_port ) log.insane( `Worker is missing public_port:`, worker )
 
-    let { public_port=SERVER_PUBLIC_PORT, ip, mining_pool_url=default_mining_pool, status='unknown', connection_type='unknown' } = worker
+    let {
+        public_port=SERVER_PUBLIC_PORT,
+        http_proxy_port=default_http_proxy_port,
+        ip,
+        mining_pool_url=default_mining_pool,
+        status='unknown',
+        connection_type='unknown'
+    } = worker
 
     return {
         ...worker,
         ip,
         public_port,
+        http_proxy_port,
         mining_pool_url,
         status,
         connection_type
@@ -100,6 +111,13 @@ export const sanetise_worker = worker => {
         let port = Number( worker.public_port )
         if( isNaN( port ) || port < 1 || port > 65535 ) port = SERVER_PUBLIC_PORT
         worker.public_port = port
+    }
+
+    // Sanetise http_proxy_port property
+    if( worker?.http_proxy_port !== undefined ) {
+        let port = Number( worker.http_proxy_port )
+        if( isNaN( port ) || port < 1 || port > 65535 ) port = default_http_proxy_port
+        worker.http_proxy_port = port
     }
 
     return worker

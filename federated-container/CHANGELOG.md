@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.11.0] - 2026-05-04
+
+### Added
+- track and broadcast worker `HTTP_PROXY_PORT` metadata
+
 ## [1.10.1] - 2026-05-04
 
 ### Fixed

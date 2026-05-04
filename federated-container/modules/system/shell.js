@@ -174,7 +174,8 @@ export async function check_system_warnings() {
             ...worker_mode ? [ 
                 `PAYMENT_ADDRESS_EVM`, 
                 `PAYMENT_ADDRESS_BITTENSOR`,
-                `MINING_POOL`
+                `MINING_POOL`,
+                `HTTP_PROXY_PORT`
             ] : [],
         ]
         const missing_keys = recommended_env_vars.filter( key => !process.env[ key ] )
