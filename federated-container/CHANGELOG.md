@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.10.1] - 2026-05-04
+
+### Fixed
+- use monotonic timers to prevent negative scoring durations
+
+## [1.10.0] - 2026-04-29
+
+### Added
+- `concurrency` parameter on `validate_and_annotate_workers` (default 200) — caps parallel worker tests below the 255-slot veth subnet pool so high worker counts no longer starve the network namespace allocator
+- `max_worker_test_time_s` parameter on `validate_and_annotate_workers` (default 60) — observability marker that flags worker tests exceeding this duration as `down` with a timeout error. The runner always awaits natural completion of the underlying wireguard test so the veth subnet slot is released before the next worker is picked up — cancelling the inner test would orphan its slot and silently violate the concurrency cap
+
+### Fixed
+- wireguard cleanup now removes the MASQUERADE iptables rule using `${ uplink_interface }` instead of a hardcoded `eth0`, so hosts whose uplink is `ens5` / `enp0s*` / etc. no longer leak NAT rules
+- veth subnet selector in `network.js:mk_subnet_prefix` now correctly produces `{1..255}` via `random_number_between( 255 )`. The previous `random_number_between( 1, 254 )` form relied on mentie's reversed `(max_num, min_num=1)` signature and accidentally yielded `{2..254}` — same intent, but a maintenance trap for readers expecting `(min, max)`
+- concurrent worker validation now preserves input order in returned successes/failures/statuses, matching the previous `Promise.allSettled` behavior
+
+### Changed
+- removed the obsolete `>250 workers` warning in `validate_and_annotate_workers` — superseded by the concurrency cap
+- validator audits are now globally exclusive, wait for active scoring validation to drain, and run worker validation at concurrency 100; scoring also drops to concurrency 100 while an audit is pending/active
+
 ## [1.9.0] - 2026-04-20
 
 ### Added

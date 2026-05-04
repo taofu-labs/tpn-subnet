@@ -1,0 +1,9 @@
+export const WORKER_AUDIT_ACTIVE_CACHE_KEY = `worker_audit_active_or_pending`
+export const WORKER_SCORING_ACTIVE_CACHE_KEY = `worker_scoring_active`
+
+export const WORKER_VALIDATION_COORDINATION_TTL_MS = 60 * 60_000
+export const AUDIT_SCORING_WAIT_INTERVAL_MS = 30_000
+export const AUDIT_SCORING_MAX_WAIT_MS = 15 * 60_000
+
+export const DEFAULT_WORKER_VALIDATION_CONCURRENCY = 200
+export const AUDIT_WORKER_VALIDATION_CONCURRENCY = 100
