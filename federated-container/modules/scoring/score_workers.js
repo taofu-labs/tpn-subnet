@@ -210,7 +210,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
     const score_worker = async ( worker ) => {
 
         // Prepare test, set default status down, start timer
-        const start = Date.now()
+        const start = performance.now()
         const test_result = { ...worker, status: 'down' }
 
         try {
@@ -280,7 +280,7 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
             test_result.error = test_result.error || e.message
             test_result.status = test_result.status || 'down'
         } finally {
-            test_result.test_duration_s = ( Date.now() - start ) / 1_000
+            test_result.test_duration_s = ( performance.now() - start ) / 1_000
         }
         log.debug( `Worker ${ worker.ip } test result:`, test_result )
 

@@ -171,8 +171,8 @@ export async function score_mining_pools( max_duration_minutes=30 ) {
 async function score_single_mining_pool( { mining_pool_uid, mining_pool_ip } ) {
 
     // Prepare for scoring
-    const start = Date.now()
-    const elapsed_s = () => round_number_to_decimals( ( Date.now() - start ) / 1000, 2 )
+    const start = performance.now()
+    const elapsed_s = () => round_number_to_decimals( ( performance.now() - start ) / 1000, 2 )
     const cache_key = `score_mining_pool_${ mining_pool_uid }_${ mining_pool_ip }`
     const pool_label = `${ mining_pool_uid }@${ mining_pool_ip }`
     log.info( `Scoring mining pool ${ pool_label }` )

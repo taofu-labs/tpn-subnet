@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.10.1] - 2026-05-04
+
+### Fixed
+- use monotonic timers to prevent negative scoring durations
+
 ## [1.10.0] - 2026-04-29
 
 ### Added

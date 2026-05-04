@@ -20,8 +20,8 @@ export async function add_configs_to_workers( { workers, mining_pool_uid, mining
     const { worker_mode, miner_mode, validator_mode } = run_mode()
 
     // Default elapsed_s function if none provided
-    const start = Date.now()
-    const get_elapsed = elapsed_s || ( () => round_number_to_decimals( ( Date.now() - start ) / 1000, 2 ) )
+    const start = performance.now()
+    const get_elapsed = elapsed_s || ( () => round_number_to_decimals( ( performance.now() - start ) / 1000, 2 ) )
 
     // Helper for optional tracing
     const trace = message => {
