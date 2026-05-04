@@ -7,6 +7,7 @@ import { get_workers, write_workers, write_worker_performance } from "../databas
 import { add_configs_to_workers } from "./query_workers.js"
 import { map_ips_to_geodata } from "../geolocation/ip_mapping.js"
 import { test_socks5_connection } from "../networking/socks5.js"
+import { http_proxy_from_socks5_config, test_http_proxy_connection } from "../networking/http_proxy.js"
 import { score_node_version } from "./score_node.js"
 import { is_partnered_pool } from "../partnered_pools.js"
 const { CI_MODE, CI_MOCK_WORKER_RESPONSES } = process.env
@@ -176,6 +177,7 @@ export async function match_worker_to_pool( { worker, mining_pool_url, timeout_m
  * Checks whether the worker objects are valid and work.
  * For partnered pools (matched via PARTNERED_NETWORK_MINING_POOLS), version and membership
  * checks are skipped since those require direct worker calls. Wireguard and socks5 tests still run.
+ * HTTP proxy validation only runs for internal workers, not third-party mining pools.
  * @param {Object} params
  * @param {Array} params.workers_with_configs
  * @param {string} params.workers_with_configs[].ip - IP address of the worker
@@ -196,6 +198,10 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
     // Partnered pool workers run custom code — version and membership checks call workers directly and must be skipped
     const is_partnered = mining_pool_uid && mining_pool_ip && is_partnered_pool( { mining_pool_uid, mining_pool_ip } )
     if( is_partnered ) log.info( `Pool ${ mining_pool_uid } is a partnered network pool, skipping version and membership checks for ${ workers_with_configs.length } workers` )
+
+    // Third-party pools may not expose 3proxy on the same contract yet, so keep this as a first-party health check.
+    const validate_http_proxy = !mining_pool_uid || mining_pool_uid === 'internal'
+    if( !validate_http_proxy ) log.info( `Skipping HTTP proxy validation for third-party mining pool ${ mining_pool_uid }` )
 
     if( CI_MODE === 'true' ) log.info( `Validating ${ workers_with_configs?.length } workers, first:`, workers_with_configs?.[0] )
 
@@ -268,6 +274,32 @@ export async function validate_and_annotate_workers( { workers_with_configs=[], 
                 test_result.claimed_worker_ip = socks5_claimed_ip
                 test_result.error = `Socks5 validation failed for ${ worker.ip }: ${ socks5_message }`
                 throw new Error( `Socks5 config invalid for ${ worker.ip }: ${ socks5_message }` )
+            }
+
+            // Test the HTTP proxy bridge for internal workers only. It reuses Dante credentials through 3proxy.
+            if( validate_http_proxy ) {
+                const http_proxy = http_proxy_from_socks5_config( {
+                    socks5_config: sock,
+                    http_proxy_port: worker.http_proxy_port
+                } )
+                const http_proxy_validation = await test_http_proxy_connection( { proxy: http_proxy, claimed_worker_ip: worker.ip } )
+                const {
+                    valid: http_proxy_valid,
+                    failure_code: http_proxy_failure_code,
+                    observed_http_proxy_ip,
+                    message: http_proxy_message,
+                    claimed_worker_ip: http_proxy_claimed_ip
+                } = http_proxy_validation
+                if( !http_proxy_valid ) {
+                    const status = status_from_failure_code( http_proxy_failure_code )
+                    test_result.success = false
+                    test_result.status = status
+                    test_result.failure_code = http_proxy_failure_code
+                    test_result.observed_http_proxy_ip = observed_http_proxy_ip
+                    test_result.claimed_worker_ip = http_proxy_claimed_ip
+                    test_result.error = `HTTP proxy validation failed for ${ worker.ip }: ${ http_proxy_message }`
+                    throw new Error( `HTTP proxy config invalid for ${ worker.ip }: ${ http_proxy_message }` )
+                }
             }
 
             // Get the most recent country data for these workers

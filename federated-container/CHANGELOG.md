@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.12.0] - 2026-05-04
+
+### Added
+- validate first-party worker HTTP proxy egress through 3proxy
+
 ## [1.11.0] - 2026-05-04
 
 ### Added

@@ -5,7 +5,7 @@ import { sanetise_ipv4 } from "mentie"
  * @param {Object} params
  * @param {string} params.observed_egress_ip - Observed public egress IP from a transport probe.
  * @param {string} params.claimed_worker_ip - Claimed worker IP from registration data.
- * @param {'wireguard'|'socks5'} params.transport - Transport used to observe egress.
+ * @param {'wireguard'|'socks5'|'http_proxy'} params.transport - Transport used to observe egress.
  * @returns {{ valid: boolean, failure_code?: string, observed_egress_ip?: string, claimed_worker_ip?: string, message?: string, transport: string }}
  */
 export const evaluate_egress_identity = ( { observed_egress_ip, claimed_worker_ip, transport } ) => {
