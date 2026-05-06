@@ -1,10 +1,29 @@
 import { is_ipv4, log, require_props, sanetise_string } from "mentie"
 import { country_name_from_code } from "./geolocation/helpers.js"
 
-const { CI_MODE, SERVER_PUBLIC_PORT=3000, HTTP_PROXY_PORT=3128 } = process.env
-const parsed_http_proxy_port = Number( HTTP_PROXY_PORT )
-const valid_http_proxy_port = Number.isInteger( parsed_http_proxy_port ) && parsed_http_proxy_port >= 1 && parsed_http_proxy_port <= 65535
-const default_http_proxy_port = valid_http_proxy_port ? parsed_http_proxy_port : 3128
+const { CI_MODE, SERVER_PUBLIC_PORT=3000, HTTP_PROXY_PORT } = process.env
+export const http_proxy_port_fallback = 3128
+
+/**
+ * Normalises a TCP port from external input.
+ * @param {Object} params - Port validation parameters.
+ * @param {number|string} params.port - Candidate port value.
+ * @param {number|string|null} [params.fallback=null] - Port to use when the candidate is invalid.
+ * @returns {number|null} Valid TCP port, fallback port, or null when neither is usable.
+ */
+export const normalise_tcp_port = ( { port, fallback=null } = {} ) => {
+
+    const parsed_port = Number( port )
+    if( Number.isInteger( parsed_port ) && parsed_port >= 1 && parsed_port <= 65535 ) return parsed_port
+
+    const parsed_fallback = Number( fallback )
+    if( Number.isInteger( parsed_fallback ) && parsed_fallback >= 1 && parsed_fallback <= 65535 ) return parsed_fallback
+
+    return null
+
+}
+
+export const default_http_proxy_port = normalise_tcp_port( { port: HTTP_PROXY_PORT, fallback: http_proxy_port_fallback } )
 export const default_mining_pool='https://pool.taofu.xyz'
 
 /**
@@ -115,9 +134,7 @@ export const sanetise_worker = worker => {
 
     // Sanetise http_proxy_port property
     if( worker?.http_proxy_port !== undefined ) {
-        let port = Number( worker.http_proxy_port )
-        if( isNaN( port ) || port < 1 || port > 65535 ) port = default_http_proxy_port
-        worker.http_proxy_port = port
+        worker.http_proxy_port = normalise_tcp_port( { port: worker.http_proxy_port, fallback: default_http_proxy_port } )
     }
 
     return worker

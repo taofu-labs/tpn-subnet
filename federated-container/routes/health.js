@@ -4,6 +4,7 @@ import { get_git_branch_and_hash } from '../modules/system/shell.js'
 import { readFile } from 'fs/promises'
 import { cache } from 'mentie'
 import { MINING_POOL_URL } from '../modules/networking/worker.js'
+import { default_http_proxy_port } from '../modules/validations.js'
 const { version } = JSON.parse( await readFile( new URL( '../package.json', import.meta.url ) ) )
 const { branch, hash } = await get_git_branch_and_hash()
 const last_start = cache( 'last_start' )
@@ -19,7 +20,7 @@ const {
     CONTACT_METHOD,
     MINING_POOL_NAME
 } = process.env
-const advertised_http_proxy_port = RUN_MODE === 'worker' ? HTTP_PROXY_PORT || 3128 : HTTP_PROXY_PORT
+const advertised_http_proxy_port = RUN_MODE === 'worker' ? default_http_proxy_port : HTTP_PROXY_PORT
 
 
 router.get( '/', ( req, res ) => {

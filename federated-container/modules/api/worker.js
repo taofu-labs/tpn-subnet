@@ -8,14 +8,11 @@ import { add_configs_to_workers } from "../scoring/query_workers.js"
 import { extend_wireguard_lease } from "../database/worker_wireguard.js"
 import { extend_socks5_lease , read_socks5_config_by_username } from "../database/worker_socks5.js"
 import { http_proxy_config_from_socks5_config, http_proxy_url_from_config } from "../networking/http_proxy.js"
-
-const parsed_http_proxy_port = Number( process.env.HTTP_PROXY_PORT )
-const valid_http_proxy_port = Number.isInteger( parsed_http_proxy_port ) && parsed_http_proxy_port >= 1 && parsed_http_proxy_port <= 65535
-const http_proxy_port = valid_http_proxy_port ? parsed_http_proxy_port : 3128
+import { default_http_proxy_port } from "../validations.js"
 
 const http_proxy_response_from_socks5_config = ( { socks5_config, format } ) => {
 
-    const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port } )
+    const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port: default_http_proxy_port } )
     if( !http_proxy_config ) throw new Error( `Failed to build HTTP proxy config from SOCKS5 lease` )
 
     if( format === `text` ) {
@@ -63,7 +60,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         if( type === `wireguard` && !Number.isFinite( Number( extend_ref ) ) ) throw new Error( `Invalid extend_ref for wireguard: must be a numeric peer_id` )
         if( ![ `wireguard`, `socks5`, `http` ].includes( type ) ) throw new Error( `Unsupported type for lease extension: ${ type }` )
 
-        const new_expires_at = Date.now() +  lease_seconds * 1000 
+        const new_expires_at = Date.now() + lease_seconds * 1000
 
         if( type === `wireguard` ) {
 
@@ -120,7 +117,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
         // Return right format
         const { json_config, text_config } = parse_wireguard_config( { wireguard_config } )
-        if( format == 'text' ) config = text_config
+        if( format === `text` ) config = text_config
         else config = json_config
 
         lease_ref = peer_id
@@ -145,7 +142,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         if( type === `http` ) config = http_proxy_response_from_socks5_config( { socks5_config, format } )
         else {
             const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
-            config = format == 'text' ? text_config : json_config
+            config = format === `text` ? text_config : json_config
         }
 
         lease_ref = socks5_config.username
@@ -168,8 +165,7 @@ export async function register_with_mining_pool() {
         const {
             PAYMENT_ADDRESS_EVM,
             PAYMENT_ADDRESS_BITTENSOR,
-            SERVER_PUBLIC_PORT=3000,
-            HTTP_PROXY_PORT=3128
+            SERVER_PUBLIC_PORT=3000
         } = process.env
 
         // Create base worker object
@@ -177,7 +173,7 @@ export async function register_with_mining_pool() {
             mining_pool_url: MINING_POOL_URL,
             public_url,
             public_port: SERVER_PUBLIC_PORT,
-            http_proxy_port: HTTP_PROXY_PORT,
+            http_proxy_port: default_http_proxy_port,
             payment_address_evm: PAYMENT_ADDRESS_EVM,
             payment_address_bittensor: PAYMENT_ADDRESS_BITTENSOR
         }

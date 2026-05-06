@@ -12,7 +12,7 @@ import { MINING_POOL_URL } from "../../modules/networking/worker.js"
 import { country_name_from_code } from "../../modules/geolocation/helpers.js"
 import { get_worker_countries_for_pool } from "../../modules/database/workers.js"
 import { test_socks5_connection } from "../../modules/networking/socks5.js"
-import { test_http_proxy_connection } from "../../modules/networking/http_proxy.js"
+import { http_proxy_url_from_config, test_http_proxy_connection } from "../../modules/networking/http_proxy.js"
 const { CI_MOCK_WORKER_RESPONSES } = process.env
 const lease_types = [ `wireguard`, `socks5`, `http` ]
 
@@ -39,6 +39,7 @@ const proxy_url_from_config = ( { config, type } ) => {
         if( !config ) return null
         if( typeof config === `string` ) return config
         if( typeof config !== `object` ) return null
+        if( type === `http` ) return http_proxy_url_from_config( { http_proxy_config: config } )
 
         const { username, password, ip_address, port } = config
         if( !username || !password || !ip_address || !port ) return null

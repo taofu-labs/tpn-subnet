@@ -1,6 +1,6 @@
 import { log, sanetise_ipv4 } from "mentie"
 import { run_safe } from "../system/shell.js"
-import { run_mode } from "../validations.js"
+import { normalise_tcp_port, run_mode } from "../validations.js"
 import { evaluate_egress_identity } from "./egress_identity.js"
 
 const ip_host = `https://ipv4.icanhazip.com/`
@@ -28,8 +28,8 @@ export function http_proxy_config_from_socks5_config( { socks5_config, http_prox
 
     try {
 
-        const proxy_port = Number( http_proxy_port )
-        if( !Number.isInteger( proxy_port ) || proxy_port < 1 || proxy_port > 65535 ) return null
+        const proxy_port = normalise_tcp_port( { port: http_proxy_port } )
+        if( !proxy_port ) return null
 
         const has_json_config = typeof socks5_config === `object` && socks5_config
         if( has_json_config && !socks5_config.ip_address ) return null
@@ -59,21 +59,29 @@ export function http_proxy_config_from_socks5_config( { socks5_config, http_prox
 /**
  * Builds an HTTP proxy URL from an already-normalized HTTP proxy config.
  * @param {Object} params
- * @param {{ username: string, password: string, ip_address: string, port: number }} params.http_proxy_config - Normalized HTTP proxy config.
+ * @param {{ username: string, password: string, ip_address: string, port: number, protocol?: string }} params.http_proxy_config - Normalized HTTP proxy config.
  * @returns {string|null} HTTP proxy URL, or null when the config cannot be converted.
  */
 export function http_proxy_url_from_config( { http_proxy_config } ) {
 
     try {
 
-        const { username, password, ip_address, port } = http_proxy_config || {}
-        if( !username || !password || !ip_address || !port ) return null
+        const { username, password, ip_address, port, protocol=`http` } = http_proxy_config || {}
+        const has_valid_strings = [ username, password, ip_address ].every( value => typeof value === `string` && value.length )
+        const proxy_port = typeof port === `number` && normalise_tcp_port( { port } )
+        if( !has_valid_strings || protocol !== `http` || !proxy_port ) return null
 
-        const http_proxy_url = new URL( `http://${ ip_address }:${ port }` )
-        http_proxy_url.username = username
-        http_proxy_url.password = password
+        const host_url = new URL( `http://${ ip_address }` )
+        const host_matches_input = ip_address.toLowerCase() === host_url.host.toLowerCase()
+        const host_has_no_url_parts = host_url.pathname === `/` && !host_url.port && !host_url.search && !host_url.hash && !host_url.username && !host_url.password
+        const host_is_clean = host_url.host && host_matches_input && host_has_no_url_parts
+        if( !host_is_clean ) return null
 
-        return http_proxy_url.href.replace( /\/$/, `` )
+        const auth_url = new URL( `http://proxy.local` )
+        auth_url.username = username
+        auth_url.password = password
+
+        return `http://${ auth_url.username }:${ auth_url.password }@${ host_url.host }:${ proxy_port }`
 
     } catch {
         return null

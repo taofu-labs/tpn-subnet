@@ -1,7 +1,7 @@
 import { abort_controller, log } from "mentie"
 import { try_acquire_lock } from "../locks.js"
 import { parse_wireguard_config, test_wireguard_connection } from "../networking/wireguard.js"
-import { is_valid_worker, run_mode } from "../validations.js"
+import { http_proxy_port_fallback, is_valid_worker, normalise_tcp_port, run_mode } from "../validations.js"
 import { ip_geodata } from "../geolocation/helpers.js"
 import { get_workers, write_workers, write_worker_performance } from "../database/workers.js"
 import { add_configs_to_workers } from "./query_workers.js"
@@ -95,7 +95,7 @@ export async function get_worker_metadata( { worker, timeout_ms=5_000 } ) {
             HTTP_PROXY_PORT
         } = worker_metadata || {}
         const url = `${ SERVER_PUBLIC_PROTOCOL }://${ SERVER_PUBLIC_HOST }:${ SERVER_PUBLIC_PORT }`
-        const http_proxy_port = HTTP_PROXY_PORT || 3128
+        const http_proxy_port = normalise_tcp_port( { port: HTTP_PROXY_PORT, fallback: http_proxy_port_fallback } )
 
         return { MINING_POOL_URL, SERVER_PUBLIC_HOST, SERVER_PUBLIC_URL, SERVER_PUBLIC_PORT, SERVER_PUBLIC_PROTOCOL, HTTP_PROXY_PORT, http_proxy_port, url }
 

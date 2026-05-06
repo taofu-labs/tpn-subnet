@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.2] - 2026-05-06
+
+### Fixed
+- centralise HTTP proxy port handling and preserve explicit HTTP ports
+
 ## [1.13.1] - 2026-05-06
 
 ### Fixed
