@@ -22,8 +22,9 @@ paths:
       tags: [Lease]
       summary: Request a new worker lease
       description: |
-        Returns a WireGuard or SOCKS5 configuration for the next available worker. Responses can be
-        a structured JSON object or a ready-to-use profile string, based on the requested `format` and `type`.
+        Returns a WireGuard, SOCKS5, or HTTP proxy configuration for the next available worker.
+        Responses can be a structured JSON object or a ready-to-use profile string,
+        based on the requested `format` and `type`.
 
         ### Lease extension
 
@@ -73,7 +74,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [wireguard, socks5]
+            enum: [wireguard, socks5, http]
             default: wireguard
           description: Worker transport to lease. Defaults to WireGuard.
         - name: connection_type
@@ -176,7 +177,7 @@ paths:
             X-Entry-Ip:
               schema:
                 type: string
-              description: The IP address the caller connects to (WireGuard `Endpoint` or SOCKS5 `ip_address`). Present when resolvable from the returned config.
+              description: The IP address the caller connects to (WireGuard `Endpoint`, SOCKS5 `ip_address`, or HTTP proxy `ip_address`). Present when resolvable from the returned config.
             X-Exit-Ip:
               schema:
                 type: string
@@ -187,6 +188,7 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/LeaseConfig"
                   - $ref: "#/components/schemas/Socks5LeaseConfig"
+                  - $ref: "#/components/schemas/HttpProxyLeaseConfig"
               examples:
                 wireguardJson:
                   summary: WireGuard config as JSON
@@ -212,6 +214,16 @@ paths:
                     password: p_secret
                     ip_address: 203.0.113.42
                     port: 1080
+                httpProxyJson:
+                  summary: HTTP proxy lease as JSON
+                  value:
+                    connection_type: residential
+                    country: US
+                    username: u_demo
+                    password: p_secret
+                    ip_address: 203.0.113.42
+                    port: 3128
+                    protocol: http
                 wireguardJsonWithToken:
                   summary: WireGuard config with lease_token (validator mode)
                   value:
@@ -251,6 +263,9 @@ paths:
                 socks5Profile:
                   summary: SOCKS5 config as plain text
                   value: socks5://u_demo:p_secret@203.0.113.42:1080
+                httpProxyProfile:
+                  summary: HTTP proxy config as plain text
+                  value: http://u_demo:p_secret@203.0.113.42:3128
         "500":
           $ref: "#/components/responses/InternalError"
   /api/lease/countries:
@@ -394,7 +409,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [wireguard, socks5]
+            enum: [wireguard, socks5, http]
             default: wireguard
           description: Worker transport to lease. Defaults to WireGuard.
         - name: connection_type
@@ -497,7 +512,7 @@ paths:
             X-Entry-Ip:
               schema:
                 type: string
-              description: The IP address the caller connects to (WireGuard `Endpoint` or SOCKS5 `ip_address`).
+              description: The IP address the caller connects to (WireGuard `Endpoint`, SOCKS5 `ip_address`, or HTTP proxy `ip_address`).
             X-Exit-Ip:
               schema:
                 type: string
@@ -508,6 +523,7 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/LeaseConfig"
                   - $ref: "#/components/schemas/Socks5LeaseConfig"
+                  - $ref: "#/components/schemas/HttpProxyLeaseConfig"
             text/plain:
               schema:
                 type: string
@@ -798,6 +814,38 @@ components:
           type: integer
           description: SOCKS5 server port.
       description: Credentials returned when leasing a SOCKS5 proxy worker.
+    HttpProxyLeaseConfig:
+      type: object
+      required: [username, password, ip_address, port, protocol]
+      properties:
+        connection_type:
+          type: string
+          enum: [datacenter, residential, unknown]
+          description: Resolved connection type of the assigned worker. Especially useful when `connection_type=any` was requested.
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code of the assigned worker. Especially useful when `geo=any` was requested.
+        lease_token:
+          type: string
+          description: Signed opaque token for extending this lease. Only present in validator-mode responses.
+        username:
+          type: string
+          description: HTTP proxy username allocated for this lease.
+        password:
+          type: string
+          description: HTTP proxy password allocated for this lease.
+        ip_address:
+          type: string
+          format: ipv4
+          description: HTTP proxy server address reachable by the client.
+        port:
+          type: integer
+          description: HTTP proxy server port.
+        protocol:
+          type: string
+          enum: [http]
+          description: Proxy URL scheme for this lease.
+      description: Credentials returned when leasing an HTTP proxy worker.
     CountryList:
       type: array
       items:

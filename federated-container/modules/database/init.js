@@ -51,6 +51,7 @@ export async function init_database() {
                 payment_address_evm TEXT,
                 payment_address_bittensor TEXT,
                 public_port TEXT NOT NULL,
+                http_proxy_port TEXT NOT NULL DEFAULT '3128',
                 country_code TEXT NOT NULL,
                 mining_pool_url TEXT NOT NULL,
                 mining_pool_uid TEXT NOT NULL,
@@ -341,6 +342,22 @@ export async function init_database() {
                     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scores' AND column_name='score' AND data_type='integer') THEN
                         ALTER TABLE scores ALTER COLUMN score TYPE NUMERIC USING score::NUMERIC;
                         RAISE NOTICE 'Converted score to NUMERIC in scores table';
+                    END IF;
+                END IF;
+            END
+            $$;
+        ` )
+    }
+
+    // If worker table is missing HTTP proxy port column, add it (check if table exists first)
+    if( miner_mode || validator_mode ) {
+        await pool.query( `
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'workers') THEN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='workers' AND column_name='http_proxy_port') THEN
+                        ALTER TABLE workers ADD COLUMN http_proxy_port TEXT NOT NULL DEFAULT '3128';
+                        RAISE NOTICE 'Added http_proxy_port column to workers table';
                     END IF;
                 END IF;
             END

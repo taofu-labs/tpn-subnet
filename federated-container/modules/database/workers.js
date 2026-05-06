@@ -6,7 +6,7 @@ const { CI_MODE } = process.env
 /**
  * Finds out which worker inputs clash with out current database
  * @param {Object} params
- * @param {Array} params.workers - Array of worker objects to check for clashes, with properties: ip, country_code, public_port, public_url, mining_pool_url, mining_pool_uid
+ * @param {Array} params.workers - Array of worker objects to check for clashes, with properties: ip, country_code, public_port, http_proxy_port, public_url, mining_pool_url, mining_pool_uid
  * @returns {Promise<{ clashing_workers: Array, non_clashing_workers: Array, clashes_with_workers: Array }>} - Object with arrays of clashing and non-clashing workers
  */
 export async function find_clashing_workers( { workers } ) {
@@ -30,7 +30,7 @@ export async function find_clashing_workers( { workers } ) {
         // If no valid workers, return empty clashes
         if( valid_workers.length === 0 ) return { clashing_workers: [], non_clashing_workers: [], clashes_with_workers: [] }
 
-        // Check for clash, defined by same ip but differing at one of: public_url, public_port, mining_pool_url, mining_pool_uid
+        // Check for clash, defined by same ip but differing at one of: public_url, public_port, http_proxy_port, mining_pool_url, mining_pool_uid
         const ips = new Set( valid_workers.map( worker => worker.ip ) )
         const query = `
             SELECT * FROM workers
@@ -44,10 +44,11 @@ export async function find_clashing_workers( { workers } ) {
             const clash = existing_workers.find( existing => {
                 const same_ip = existing.ip == worker.ip
                 const same_port = existing.public_port == worker.public_port
+                const same_http_proxy_port = existing.http_proxy_port == worker.http_proxy_port
                 const same_url = existing.public_url == worker.public_url
                 const same_pool_url = existing.mining_pool_url == worker.mining_pool_url
                 const same_pool_uid = existing.mining_pool_uid == worker.mining_pool_uid
-                return same_ip && ( !same_port || !same_url || !same_pool_url || !same_pool_uid )
+                return same_ip && ( !same_port || !same_http_proxy_port || !same_url || !same_pool_url || !same_pool_uid )
             } )
 
             if( clash ) {
@@ -136,9 +137,10 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
     }
 
     // Prepare the query with pg-format
-    const values = deduped_workers_for_write.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, status='unknown', connection_type='unknown' } ) => [
+    const values = deduped_workers_for_write.map( ( { ip, country_code, mining_pool_url, public_url, payment_address_evm, payment_address_bittensor, public_port=3000, http_proxy_port=3128, status='unknown', connection_type='unknown' } ) => [
         ip,
         public_port,
+        http_proxy_port,
         public_url,
         payment_address_evm,
         payment_address_bittensor,
@@ -150,11 +152,12 @@ export async function write_workers( { workers, mining_pool_uid='internal', is_m
         Date.now()
     ] )
     const query = format( `
-        INSERT INTO workers (ip, public_port, public_url, payment_address_evm, payment_address_bittensor, country_code, mining_pool_url, mining_pool_uid, status, connection_type, updated_at)
+        INSERT INTO workers (ip, public_port, http_proxy_port, public_url, payment_address_evm, payment_address_bittensor, country_code, mining_pool_url, mining_pool_uid, status, connection_type, updated_at)
         VALUES %L
         ON CONFLICT (mining_pool_uid, mining_pool_url, ip) DO UPDATE SET
             ip = EXCLUDED.ip,
             public_port = EXCLUDED.public_port,
+            http_proxy_port = EXCLUDED.http_proxy_port,
             public_url = EXCLUDED.public_url,
             payment_address_evm = EXCLUDED.payment_address_evm,
             payment_address_bittensor = EXCLUDED.payment_address_bittensor,

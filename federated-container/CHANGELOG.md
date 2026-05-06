@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.13.2] - 2026-05-06
+
+### Fixed
+- centralise HTTP proxy port handling and preserve explicit HTTP ports
+
+## [1.13.1] - 2026-05-06
+
+### Fixed
+- harden HTTP lease URL generation and proxy port defaults
+
+## [1.13.0] - 2026-05-06
+
+### Added
+- add `type=http` lease configs for HTTP proxy workers
+
+## [1.12.2] - 2026-05-04
+
+### Fixed
+- normalise explicitly invalid worker HTTP proxy ports before scoring and broadcast
+
+## [1.12.1] - 2026-05-04
+
+### Fixed
+- improve HTTP proxy validation failure codes and probe timing
+
+## [1.12.0] - 2026-05-04
+
+### Added
+- validate first-party worker HTTP proxy egress through 3proxy
+
+## [1.11.0] - 2026-05-04
+
+### Added
+- track and broadcast worker `HTTP_PROXY_PORT` metadata
+
 ## [1.10.1] - 2026-05-04
 
 ### Fixed

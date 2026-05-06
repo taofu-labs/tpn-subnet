@@ -1,7 +1,29 @@
 import { is_ipv4, log, require_props, sanetise_string } from "mentie"
 import { country_name_from_code } from "./geolocation/helpers.js"
 
-const { CI_MODE, SERVER_PUBLIC_PORT=3000 } = process.env
+const { CI_MODE, SERVER_PUBLIC_PORT=3000, HTTP_PROXY_PORT } = process.env
+export const http_proxy_port_fallback = 3128
+
+/**
+ * Normalises a TCP port from external input.
+ * @param {Object} params - Port validation parameters.
+ * @param {number|string} params.port - Candidate port value.
+ * @param {number|string|null} [params.fallback=null] - Port to use when the candidate is invalid.
+ * @returns {number|null} Valid TCP port, fallback port, or null when neither is usable.
+ */
+export const normalise_tcp_port = ( { port, fallback=null } = {} ) => {
+
+    const parsed_port = Number( port )
+    if( Number.isInteger( parsed_port ) && parsed_port >= 1 && parsed_port <= 65535 ) return parsed_port
+
+    const parsed_fallback = Number( fallback )
+    if( Number.isInteger( parsed_fallback ) && parsed_fallback >= 1 && parsed_fallback <= 65535 ) return parsed_fallback
+
+    return null
+
+}
+
+export const default_http_proxy_port = normalise_tcp_port( { port: HTTP_PROXY_PORT, fallback: http_proxy_port_fallback } )
 export const default_mining_pool='https://pool.taofu.xyz'
 
 /**
@@ -56,12 +78,20 @@ export const annotate_worker_with_defaults = worker => {
     // Warnings
     if( !worker.public_port ) log.insane( `Worker is missing public_port:`, worker )
 
-    let { public_port=SERVER_PUBLIC_PORT, ip, mining_pool_url=default_mining_pool, status='unknown', connection_type='unknown' } = worker
+    let {
+        public_port=SERVER_PUBLIC_PORT,
+        http_proxy_port=default_http_proxy_port,
+        ip,
+        mining_pool_url=default_mining_pool,
+        status='unknown',
+        connection_type='unknown'
+    } = worker
 
     return {
         ...worker,
         ip,
         public_port,
+        http_proxy_port,
         mining_pool_url,
         status,
         connection_type
@@ -100,6 +130,11 @@ export const sanetise_worker = worker => {
         let port = Number( worker.public_port )
         if( isNaN( port ) || port < 1 || port > 65535 ) port = SERVER_PUBLIC_PORT
         worker.public_port = port
+    }
+
+    // Sanetise http_proxy_port property
+    if( worker?.http_proxy_port !== undefined ) {
+        worker.http_proxy_port = normalise_tcp_port( { port: worker.http_proxy_port, fallback: default_http_proxy_port } )
     }
 
     return worker

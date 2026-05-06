@@ -12,12 +12,17 @@ import { MINING_POOL_URL } from "../../modules/networking/worker.js"
 import { country_name_from_code } from "../../modules/geolocation/helpers.js"
 import { get_worker_countries_for_pool } from "../../modules/database/workers.js"
 import { test_socks5_connection } from "../../modules/networking/socks5.js"
+import { http_proxy_url_from_config, test_http_proxy_connection } from "../../modules/networking/http_proxy.js"
 const { CI_MOCK_WORKER_RESPONSES } = process.env
+const lease_types = [ `wireguard`, `socks5`, `http` ]
 
 // Constant-time key comparison to prevent timing attacks (H6)
 // SHA-256 normalizes lengths so timingSafeEqual always compares 32 bytes
 const constant_time_includes = ( keys, candidate ) => {
-    if( Array.isArray( candidate ) ) candidate = candidate[0]
+    if( Array.isArray( candidate ) ) {
+        const [ first_candidate ] = candidate
+        candidate = first_candidate
+    }
     if( typeof candidate !== 'string' || !candidate ) return false
     const hash = val => createHash( 'sha256' ).update( val ).digest()
     const candidate_hash = hash( candidate )
@@ -27,12 +32,45 @@ const constant_time_includes = ( keys, candidate ) => {
     } )
 }
 
+const proxy_url_from_config = ( { config, type } ) => {
+
+    try {
+
+        if( !config ) return null
+        if( typeof config === `string` ) return config
+        if( typeof config !== `object` ) return null
+        if( type === `http` ) return http_proxy_url_from_config( { http_proxy_config: config } )
+
+        const { username, password, ip_address, port } = config
+        if( !username || !password || !ip_address || !port ) return null
+
+        const proxy_url = new URL( `${ type }://${ ip_address }:${ port }` )
+        proxy_url.username = username
+        proxy_url.password = password
+
+        return proxy_url.href.replace( /\/$/, `` )
+
+    } catch {
+        return null
+    }
+
+}
+
+const apply_result_type = ( { result_type, current_type } ) => {
+
+    if( !result_type ) return current_type
+    if( lease_types.includes( result_type ) ) return result_type
+
+    throw new Error( `Invalid result type: ${ result_type }. Must be one of ${ lease_types.map( type => `'${ type }'` ).join( ', ' ) }` )
+
+}
+
 /**
  * Extracts the entry IP — the endpoint the caller will connect to — from a lease config.
- * Handles both text and JSON representations of WireGuard and SOCKS5 configs.
+ * Handles text and JSON representations of WireGuard, SOCKS5, and HTTP proxy configs.
  * @param {Object} params
  * @param {string|Object} params.config - The lease config (text form or parsed JSON)
- * @param {string} params.type - The lease type ('wireguard' or 'socks5')
+ * @param {string} params.type - The lease type ('wireguard', 'socks5', or 'http')
  * @returns {string|null} The entry IP, or null if it could not be determined
  */
 const extract_entry_ip = ( { config, type } ) => {
@@ -49,10 +87,11 @@ const extract_entry_ip = ( { config, type } ) => {
             return ip
         }
 
-        // SOCKS5: JSON has ip_address; text is socks5://user:pass@ip:port
-        if( type === 'socks5' ) {
+        // Proxy transports: JSON has ip_address; text is socks5://... or http://...
+        if( [ 'socks5', 'http' ].includes( type ) ) {
             if( typeof config === 'object' ) return config.ip_address || null
-            let [ , ip ] = `${ config }`.match( /@([^:\s]+):/ ) || []
+            const { hostname } = new URL( `${ config }` )
+            let ip = hostname
             ip = sanetise_ipv4( { ip, validate: true } )
             return ip
         }
@@ -178,7 +217,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Validate inputs as specified in props
         if( !lease_seconds || isNaN( lease_seconds ) ) throw new Error( `Invalid lease_seconds: ${ lease_seconds }. Must be a valid number greater than 0.` )
         if( format?.length && ![ 'json', 'text' ].includes( format ) ) throw new Error( `Invalid format: ${ format }. Must be one of 'json', 'text'` )
-        if( type?.length && ![ 'wireguard', 'socks5' ].includes( type ) ) throw new Error( `Invalid type: ${ type }. Must be one of 'wireguard', 'socks5'` )
+        if( type?.length && !lease_types.includes( type ) ) throw new Error( `Invalid type: ${ type }. Must be one of ${ lease_types.map( t => `'${ t }'` ).join( ', ' ) }` )
         if( geo?.length && !geo_available ) throw new Error( `No workers found for geo: ${ geo }.` )
         if( whitelist?.length && whitelist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in whitelist` )
         if( blacklist?.length && blacklist.some( ip => !is_ipv4( ip ) ) ) throw new Error( `Invalid ip addresses in blacklist` )
@@ -186,7 +225,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         if( lease_token && extend_ref ) throw new Error( `Ambiguous extension request: provide either lease_token or extend_ref, not both` )
         if( extend_ref && !extend_expires_at ) throw new Error( `extend_expires_at is required when extend_ref is provided` )
 
-        // Get relevant wireguard config based on run mode
+        // Get the requested transport config based on run mode
         log.debug( `Getting config as ${ mode } with params:`, config_meta )
         let result = null
         if( validator_mode ) result = await get_worker_config_as_validator( config_meta )
@@ -197,18 +236,31 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Worker now returns { config, lease_ref, lease_expires_at } directly
         let config = result
         if( result?._lease_result ) {
-            if( result.connection_type ) resolved_meta.connection_type = result.connection_type
-            if( result.country ) resolved_meta.country = result.country
-            if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
-            if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
-            if( result.lease_token ) resolved_meta.lease_token = result.lease_token
-            if( result.exit_ip ) resolved_meta.exit_ip = result.exit_ip
-            config = result.config
+            const {
+                type: result_type,
+                connection_type: result_connection_type,
+                country: result_country,
+                lease_ref,
+                lease_expires_at,
+                lease_token: result_lease_token,
+                exit_ip,
+                config: result_config
+            } = result
+            type = apply_result_type( { result_type, current_type: type } )
+            if( result_connection_type ) resolved_meta.connection_type = result_connection_type
+            if( result_country ) resolved_meta.country = result_country
+            if( lease_ref != null ) resolved_meta.lease_ref = lease_ref
+            if( lease_expires_at != null ) resolved_meta.lease_expires_at = lease_expires_at
+            if( result_lease_token ) resolved_meta.lease_token = result_lease_token
+            if( exit_ip ) resolved_meta.exit_ip = exit_ip
+            config = result_config
         } else if( result?.lease_ref !== undefined ) {
             // Worker-mode result: { config, lease_ref, lease_expires_at }
-            if( result.lease_ref != null ) resolved_meta.lease_ref = result.lease_ref
-            if( result.lease_expires_at != null ) resolved_meta.lease_expires_at = result.lease_expires_at
-            config = result.config
+            const { type: result_type, lease_ref, lease_expires_at, config: result_config } = result
+            type = apply_result_type( { result_type, current_type: type } )
+            if( lease_ref != null ) resolved_meta.lease_ref = lease_ref
+            if( lease_expires_at != null ) resolved_meta.lease_expires_at = lease_expires_at
+            config = result_config
         }
 
         // Derive entry IP — the endpoint the caller connects to — from the returned config
@@ -232,9 +284,14 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         // Validate config
         if( !config ) throw new Error( `${ mode } failed to get config for ${ geo }` )
         if( type == 'socks5' ) {
-            const sock = format == 'text' ? config : `socks5://${ config.username }:${ config.password }@${ config.ip_address }:${ config.port }`
+            const sock = proxy_url_from_config( { config, type } )
             const { valid } = await test_socks5_connection( { sock } )
             log.info( `Socks5 config validation result: ${ valid } for ${ config?.ip_address || 'socks5 endpoint' }` )
+        }
+        if( type == 'http' ) {
+            const proxy = proxy_url_from_config( { config, type } )
+            const { valid } = await test_http_proxy_connection( { proxy } )
+            log.info( `HTTP proxy config validation result: ${ valid } for ${ config?.ip_address || 'http proxy endpoint' }` )
         }
 
         log.info( `Successfully obtained config as ${ mode } for geo ${ geo } with priority ${ priority }` )

@@ -5,10 +5,17 @@ import { sanetise_ipv4 } from "mentie"
  * @param {Object} params
  * @param {string} params.observed_egress_ip - Observed public egress IP from a transport probe.
  * @param {string} params.claimed_worker_ip - Claimed worker IP from registration data.
- * @param {'wireguard'|'socks5'} params.transport - Transport used to observe egress.
+ * @param {'wireguard'|'socks5'|'http_proxy'} params.transport - Transport used to observe egress.
  * @returns {{ valid: boolean, failure_code?: string, observed_egress_ip?: string, claimed_worker_ip?: string, message?: string, transport: string }}
  */
 export const evaluate_egress_identity = ( { observed_egress_ip, claimed_worker_ip, transport } ) => {
+
+    const transport_labels = {
+        http_proxy: `HTTP proxy`,
+        socks5: `SOCKS5`,
+        wireguard: `WireGuard`
+    }
+    const transport_label = transport_labels[ transport ] || transport
 
     // Sanetise ips
     const expected_ip = sanetise_ipv4( { ip: claimed_worker_ip, validate: true, error_on_invalid: false } )
@@ -21,7 +28,7 @@ export const evaluate_egress_identity = ( { observed_egress_ip, claimed_worker_i
             failure_code: 'invalid_claimed_worker_ip',
             claimed_worker_ip,
             observed_egress_ip: observed_ip,
-            message: `Invalid claimed worker ip for ${ transport }: ${ claimed_worker_ip }`,
+            message: `Invalid claimed worker ip for ${ transport_label }: ${ claimed_worker_ip }`,
             transport
         }
     }
@@ -33,7 +40,7 @@ export const evaluate_egress_identity = ( { observed_egress_ip, claimed_worker_i
             failure_code: 'no_egress_ip',
             claimed_worker_ip: expected_ip,
             observed_egress_ip: observed_ip,
-            message: `No valid observed egress ip for ${ transport }`,
+            message: `No valid observed egress ip for ${ transport_label }`,
             transport
         }
     }
@@ -46,7 +53,7 @@ export const evaluate_egress_identity = ( { observed_egress_ip, claimed_worker_i
             failure_code: 'egress_ip_mismatch',
             claimed_worker_ip: expected_ip,
             observed_egress_ip: observed_ip,
-            message: `Observed ${ transport } egress ip ${ observed_ip } does not match claimed worker ip ${ expected_ip }`,
+            message: `Observed ${ transport_label } egress ip ${ observed_ip } does not match claimed worker ip ${ expected_ip }`,
             transport
         }
     }

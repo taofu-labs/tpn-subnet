@@ -22,6 +22,7 @@ services:
       - SERVER_PUBLIC_URL
       - SERVER_PUBLIC_HOST
       - SERVER_PUBLIC_PORT
+      - HTTP_PROXY_PORT
 
       # Validator and Mining pool
       - MAXMIND_LICENSE_KEY

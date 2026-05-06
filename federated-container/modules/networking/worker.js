@@ -27,7 +27,7 @@ export const get_worker_mining_pool_url = () => {
 export const MINING_POOL_URL = get_worker_mining_pool_url()
 
 /**
- * Fetches WireGuard configuration directly from a worker node.
+ * Fetches WireGuard, SOCKS5, or HTTP proxy configuration directly from a worker node.
  * Returns config alongside lease metadata headers for the extension chain.
  * @param {Object} params - Request parameters.
  * @param {Object} params.worker - The worker object.
@@ -35,7 +35,7 @@ export const MINING_POOL_URL = get_worker_mining_pool_url()
  * @param {number} [params.worker.public_port=3000] - Worker's public port.
  * @param {number} [params.max_retries=2] - Maximum retry attempts.
  * @param {number} [params.lease_seconds=120] - Lease duration in seconds.
- * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
+ * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard', 'socks5', or 'http').
  * @param {string} [params.format='text'] - Response format (text or json).
  * @param {number} [params.timeout_ms=5000] - Request timeout in milliseconds.
  * @param {boolean} [params.priority] - Whether to request a priority slot.
