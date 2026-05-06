@@ -13,14 +13,14 @@ import { is_partnered_pool } from "../partnered_pools.js"
  * Supports both new lease allocation and extending an existing lease via `lease_token`.
  * @param {Object} params - Configuration parameters.
  * @param {string} params.geo - Geographic location code.
- * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
+ * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard', 'socks5', or 'http').
  * @param {string} [params.format='text'] - Response format (text or json).
  * @param {string[]} [params.whitelist] - List of whitelisted IPs.
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
  * @param {number} [params.lease_seconds] - Duration of the lease in seconds.
  * @param {string} [params.connection_type='any'] - Connection type filter ('any', 'datacenter', 'residential').
  * @param {string} [params.lease_token] - Signed opaque token from a previous lease, triggers extension flow.
- * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null, lease_token: string|null}|null>} - Wrapped config with resolved worker metadata and optional lease token.
+ * @returns {Promise<{_lease_result: true, type: string, config: string|Object, connection_type: string|null, country: string|null, lease_token: string|null}|null>} - Wrapped config with resolved worker metadata and optional lease token.
  */
 export async function get_worker_config_as_validator( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, connection_type='any', lease_token } ) {
 
@@ -167,6 +167,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
 
     return {
         _lease_result: true,
+        type,
         config: resolved_config,
         connection_type: meta_connection_type,
         country: meta_country,
@@ -186,7 +187,7 @@ export async function get_worker_config_as_validator( { geo, type='wireguard', f
  * @param {string} params.lease_token - The signed opaque token from a previous lease
  * @param {number} params.lease_seconds - New duration from now in seconds
  * @param {string} [params.format='text'] - Response format
- * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null, lease_token: string}>}
+ * @returns {Promise<{_lease_result: true, type: string, config: string|Object, connection_type: string|null, country: string|null, lease_token: string}>}
  */
 async function extend_lease_as_validator( { lease_token, lease_seconds, format='text' } ) {
 
@@ -232,6 +233,7 @@ async function extend_lease_as_validator( { lease_token, lease_seconds, format='
 
     return {
         _lease_result: true,
+        type,
         config: pool_result.config,
         connection_type: null,
         country: null,

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.0] - 2026-05-06
+
+### Added
+- add `type=http` lease configs for HTTP proxy workers
+
 ## [1.12.2] - 2026-05-04
 
 ### Fixed

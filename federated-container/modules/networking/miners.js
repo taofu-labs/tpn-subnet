@@ -100,7 +100,7 @@ export function get_miner_by_ip( ip ) {
  * @param {Object} params.worker - The worker object
  * @param {number} [params.max_retries=2] - The maximum number of retry attempts
  * @param {number} [params.timeout_ms=5_000] - The request timeout in milliseconds
- * @param {string} [params.type='wireguard'] - The type of worker config to retrieve ('wireguard' or 'socks5')
+ * @param {string} [params.type='wireguard'] - The type of worker config to retrieve ('wireguard', 'socks5', or 'http')
  * @param {string} [params.format='text'] - The response format, either 'text' or 'json'
  * @param {number} [params.lease_seconds=120] - The lease duration in seconds
  * @param {string} params.mining_pool_uid - UID of the mining pool

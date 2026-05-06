@@ -16,7 +16,7 @@ if( !LEASE_TOKEN_SECRET && CI_MODE !== `true` ) {
  * validator can reconstruct the full chain on extension without any DB lookup.
  * @param {Object} payload
  * @param {string|number} payload.config_ref - The lease reference (peer_id or socks5 username)
- * @param {string} payload.type - Lease type ('wireguard' or 'socks5')
+ * @param {string} payload.type - Lease type ('wireguard', 'socks5', or 'http')
  * @param {string} payload.worker_ip - IP address of the worker holding the lease
  * @param {string} payload.mining_pool_url - URL of the mining pool that routed the original request
  * @param {string} payload.mining_pool_uid - UID of the mining pool

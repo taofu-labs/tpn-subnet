@@ -8,3 +8,4 @@ Docker Compose setup for running TPN (The Privacy Network) federated nodes.
 - Validator/score paths now enforce WireGuard and SOCKS5 egress identity against claimed worker IP (endpoint IP may differ for multi-hop routing)
 - Worker broadcasts now include `HTTP_PROXY_PORT` metadata for the 3proxy HTTP proxy listener, matching the existing Dante `DANTE_PORT` SOCKS5 metadata path
 - Internal worker scoring validates the 3proxy HTTP proxy bridge with the same credentials as Dante/SOCKS5; third-party mining pools are skipped for this check
+- Lease endpoints support `type=http` for HTTP proxy configs alongside `wireguard` and `socks5`

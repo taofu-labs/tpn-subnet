@@ -18,13 +18,13 @@ const curl_base_args = [
 ]
 
 /**
- * Builds an HTTP proxy URL from a SOCKS5 lease config and an advertised HTTP proxy port.
+ * Builds an HTTP proxy JSON config from a SOCKS5 lease config and an advertised HTTP proxy port.
  * @param {Object} params
  * @param {string|Object} params.socks5_config - SOCKS5 config as text or JSON.
  * @param {number|string} params.http_proxy_port - Advertised HTTP proxy port.
- * @returns {string|null} HTTP proxy URL, or null when the config cannot be parsed.
+ * @returns {{ username: string, password: string, ip_address: string, port: number, protocol: string }|null} HTTP proxy config, or null when the config cannot be parsed.
  */
-export function http_proxy_from_socks5_config( { socks5_config, http_proxy_port } ) {
+export function http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port } ) {
 
     try {
 
@@ -42,11 +42,39 @@ export function http_proxy_from_socks5_config( { socks5_config, http_proxy_port 
         const password = has_json_config ? socks5_config.password : socks5_url.password
         if( !username || !password || !socks5_url.hostname ) return null
 
-        const http_proxy_url = new URL( `http://${ socks5_url.hostname }:${ proxy_port }` )
-        http_proxy_url.username = username
-        http_proxy_url.password = password
+        return {
+            username,
+            password,
+            ip_address: socks5_url.hostname,
+            port: proxy_port,
+            protocol: `http`
+        }
 
-        return http_proxy_url.href
+    } catch {
+        return null
+    }
+
+}
+
+/**
+ * Builds an HTTP proxy URL from a SOCKS5 lease config and an advertised HTTP proxy port.
+ * @param {Object} params
+ * @param {string|Object} params.socks5_config - SOCKS5 config as text or JSON.
+ * @param {number|string} params.http_proxy_port - Advertised HTTP proxy port.
+ * @returns {string|null} HTTP proxy URL, or null when the config cannot be parsed.
+ */
+export function http_proxy_from_socks5_config( { socks5_config, http_proxy_port } ) {
+
+    try {
+
+        const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port } )
+        if( !http_proxy_config ) return null
+
+        const http_proxy_url = new URL( `http://${ http_proxy_config.ip_address }:${ http_proxy_config.port }` )
+        http_proxy_url.username = http_proxy_config.username
+        http_proxy_url.password = http_proxy_config.password
+
+        return http_proxy_url.href.replace( /\/$/, `` )
 
     } catch {
         return null

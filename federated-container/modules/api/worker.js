@@ -7,19 +7,32 @@ import { get_valid_socks5_config } from '../networking/dante-container.js'
 import { add_configs_to_workers } from "../scoring/query_workers.js"
 import { extend_wireguard_lease } from "../database/worker_wireguard.js"
 import { extend_socks5_lease , read_socks5_config_by_username } from "../database/worker_socks5.js"
+import { http_proxy_config_from_socks5_config, http_proxy_from_socks5_config } from "../networking/http_proxy.js"
+
+const { HTTP_PROXY_PORT=3128 } = process.env
+
+const http_proxy_response_from_socks5_config = ( { socks5_config, format } ) => {
+
+    const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port: HTTP_PROXY_PORT } )
+    if( !http_proxy_config ) throw new Error( `Failed to build HTTP proxy config from SOCKS5 lease` )
+
+    if( format === `text` ) return http_proxy_from_socks5_config( { socks5_config, http_proxy_port: HTTP_PROXY_PORT } )
+    return http_proxy_config
+
+}
 
 /**
- * Gets WireGuard/Socks5 VPN configuration as a worker.
+ * Gets WireGuard, SOCKS5, or HTTP proxy configuration as a worker.
  * Supports both new lease allocation and extending an existing lease via `extend_ref`.
  * @param {Object} params - Configuration parameters.
- * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
+ * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard', 'socks5', or 'http').
  * @param {number} params.lease_seconds - Duration of the lease in seconds.
  * @param {boolean} [params.priority] - Whether to prioritize this request.
  * @param {string} [params.format] - Response format (text or json).
  * @param {string} [params.feedback_url] - URL for feedback on the request status.
- * @param {string} [params.extend_ref] - Lease reference to extend (peer_id for wireguard, username for socks5).
+ * @param {string} [params.extend_ref] - Lease reference to extend (peer_id for wireguard, username for socks5/http).
  * @param {string|number} [params.extend_expires_at] - Current expires_at of the lease being extended (reallocation guard).
- * @returns {Promise<{ config: string|Object, lease_ref: string|number, lease_expires_at: number }|Object>} - Config with lease metadata.
+ * @returns {Promise<{ config: string|Object, lease_ref: string|number, lease_expires_at: number, type: string }|Object>} - Config with lease metadata.
  */
 export async function get_worker_config_as_worker( { type='wireguard', lease_seconds, priority, format='text', feedback_url, extend_ref, extend_expires_at } ) {
 
@@ -41,7 +54,7 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         const expected_expires_at = Number( extend_expires_at )
         if( !Number.isFinite( expected_expires_at ) ) throw new Error( `Invalid extend_expires_at: must be a finite timestamp` )
         if( type === `wireguard` && !Number.isFinite( Number( extend_ref ) ) ) throw new Error( `Invalid extend_ref for wireguard: must be a numeric peer_id` )
-        if( ![ `wireguard`, `socks5` ].includes( type ) ) throw new Error( `Unsupported type for lease extension: ${ type }` )
+        if( ![ `wireguard`, `socks5`, `http` ].includes( type ) ) throw new Error( `Unsupported type for lease extension: ${ type }` )
 
         const new_expires_at = Date.now() +  lease_seconds * 1000 
 
@@ -60,24 +73,27 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
         }
 
-        if( type === `socks5` ) {
+        if( [ `socks5`, `http` ].includes( type ) ) {
 
             const username = `${ extend_ref }`
-            log.info( `${ log_tag }Extending SOCKS5 lease ${ username } to ${ new Date( new_expires_at ).toISOString() }` )
+            const transport_name = type === `http` ? `HTTP proxy` : `SOCKS5`
+            log.info( `${ log_tag }Extending ${ transport_name } lease ${ username } to ${ new Date( new_expires_at ).toISOString() }` )
             const result = await extend_socks5_lease( { username, expected_expires_at, new_expires_at } )
 
             // Read the config back from DB
             const socks5_config = await read_socks5_config_by_username( { username } )
             if( !socks5_config ) throw new Error( `SOCKS5 config not found for ${ username } after extension` )
             const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
-            config = format === `text` ? text_config : socks5_config
+            config = type === `http`
+                ? http_proxy_response_from_socks5_config( { socks5_config, format } )
+                : format === `text` ? text_config : socks5_config
             lease_ref = username
             lease_expires_at = result.expires_at
 
         }
 
         log.info( `${ log_tag }Lease extension complete for ${ type } ref=${ lease_ref }, new expires_at=${ new Date( lease_expires_at ).toISOString() }` )
-        return { config, lease_ref, lease_expires_at }
+        return { config, lease_ref, lease_expires_at, type }
 
     }
 
@@ -109,23 +125,25 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
         }
     }
 
-    // Get relevant socks5 config
-    if( type === 'socks5' ) {
+    // Get relevant SOCKS5-backed proxy config
+    if( [ 'socks5', 'http' ].includes( type ) ) {
         const { socks5_config, expires_at } = await get_valid_socks5_config( { lease_seconds, priority } )
-        if( !socks5_config ) throw new Error( `Failed to get valid socks5 config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
-        log.info( `Obtained Socks5 config ${ priority ? 'with' : 'without' } priority for ${ socks5_config?.username }, expires at ${ new Date( expires_at ).toISOString() }` )
+        const transport_name = type === `http` ? `HTTP proxy` : `SOCKS5`
+        if( !socks5_config ) throw new Error( `Failed to get valid ${ transport_name } config for ${ lease_seconds }, ${ priority ? 'with' : 'without' } priority` )
+        log.info( `Obtained ${ transport_name } config ${ priority ? 'with' : 'without' } priority for ${ socks5_config?.username }, expires at ${ new Date( expires_at ).toISOString() }` )
 
         // Return right format
         const json_config = socks5_config
         const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
-        if( format == 'text' ) config = text_config
-        else config = json_config
+        config = type === `http`
+            ? http_proxy_response_from_socks5_config( { socks5_config, format } )
+            : format == 'text' ? text_config : json_config
 
         lease_ref = socks5_config.username
         lease_expires_at = expires_at
     }
 
-    return { config, lease_ref, lease_expires_at }
+    return { config, lease_ref, lease_expires_at, type }
 
 }
 

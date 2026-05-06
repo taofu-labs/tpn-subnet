@@ -11,11 +11,11 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
 
 
 /**
- * Retrieves WireGuard configuration from a worker as a mining pool.
+ * Retrieves WireGuard, SOCKS5, or HTTP proxy configuration from a worker as a mining pool.
  * Supports both new lease allocation and extending an existing lease via `extend_ref`.
  * @param {Object} params - Configuration parameters.
  * @param {string} params.geo - Geographic location code.
- * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard' or 'socks5').
+ * @param {string} [params.type='wireguard'] - Type of worker config to retrieve ('wireguard', 'socks5', or 'http').
  * @param {string} [params.format='text'] - Response format (text or json).
  * @param {string[]} [params.whitelist] - List of whitelisted IPs.
  * @param {string[]} [params.blacklist] - List of blacklisted IPs.
@@ -24,7 +24,7 @@ let { SERVER_PUBLIC_PORT: port=3000, SERVER_PUBLIC_PROTOCOL: protocol='http', SE
  * @param {string} [params.feedback_url] - Upstream feedback URL (e.g. from validator) for cascade race resolution.
  * @param {string} [params.extend_ref] - Lease reference to extend (forwarded through to worker).
  * @param {string|number} [params.extend_expires_at] - Current expires_at of the lease being extended.
- * @returns {Promise<{_lease_result: true, config: string|Object, connection_type: string|null, country: string|null, lease_ref: string|null, lease_expires_at: number|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
+ * @returns {Promise<{_lease_result: true, type: string, config: string|Object, connection_type: string|null, country: string|null, lease_ref: string|null, lease_expires_at: number|null}|null>} - Wrapped config with resolved worker metadata, or null if no workers available.
  */
 export async function get_worker_config_as_miner( { geo, type='wireguard', format='text', whitelist, blacklist, lease_seconds, priority, feedback_url: upstream_feedback_url, extend_ref, extend_expires_at } ) {
 
@@ -120,6 +120,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     // On mock success, return a fake config in the same wrapper shape
     if( CI_MOCK_MINING_POOL_RESPONSES === 'true' ) return {
         _lease_result: true,
+        type,
         config: format === 'json' ? { endpoint_ipv4: 'mock.mock.mock.mock' } : `Mock ${ type } config`,
         connection_type: null,
         country: null,
@@ -132,6 +133,7 @@ export async function get_worker_config_as_miner( { geo, type='wireguard', forma
     if( !resolved_config ) return null
     return {
         _lease_result: true,
+        type,
         config: resolved_config,
         connection_type: winning_worker?.connection_type ?? null,
         country: winning_worker?.country_code ?? null,
