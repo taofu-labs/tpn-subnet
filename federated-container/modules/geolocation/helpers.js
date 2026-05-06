@@ -1,4 +1,5 @@
 import { cache, log } from 'mentie'
+import { Semaphore } from 'async-mutex'
 import { is_data_center } from './ip2location.js'
 import { get_pg_pool } from '../database/postgres.js'
 import { run_mode } from '../validations.js'
@@ -48,6 +49,38 @@ const GEODATA_CACHE_EXPIRY_MS = GEODATA_CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000
 // Check if MaxMind web service credentials are configured
 const { MAXMIND_ACCOUNT_ID, MAXMIND_LICENSE_KEY } = process.env
 const maxmind_insights_enabled = !!MAXMIND_ACCOUNT_ID && !!MAXMIND_LICENSE_KEY
+const maxmind_lookup_concurrency = 20
+const maxmind_429_backoff_initial_ms = 5 * 60_000
+const maxmind_429_backoff_max_ms = 60 * 60_000
+const maxmind_429_backoff_jitter_ratio = 0.2
+const maxmind_lookup_semaphore = new Semaphore( maxmind_lookup_concurrency )
+
+let maxmind_backoff_until = 0
+let maxmind_backoff_ms = maxmind_429_backoff_initial_ms
+
+const maxmind_backoff_remaining_ms = () => Math.max( 0, maxmind_backoff_until - Date.now() )
+
+const activate_maxmind_429_backoff = ip => {
+
+    const remaining_ms = maxmind_backoff_remaining_ms()
+    if( remaining_ms ) {
+        log.debug( `MaxMind lookup for ${ ip } also returned 429; ${ Math.ceil( remaining_ms / 1000 ) }s of backoff already active` )
+        return
+    }
+
+    const jitter_ms = Math.floor( Math.random() * maxmind_backoff_ms * maxmind_429_backoff_jitter_ratio )
+    const delay_ms = maxmind_backoff_ms + jitter_ms
+
+    maxmind_backoff_until = Date.now() + delay_ms
+    maxmind_backoff_ms = Math.min( maxmind_backoff_ms * 2, maxmind_429_backoff_max_ms )
+
+    log.warn( `MaxMind rate limited lookup for ${ ip }; backing off for ${ Math.ceil( delay_ms / 1000 ) }s` )
+
+}
+
+const reset_maxmind_backoff = () => {
+    maxmind_backoff_ms = maxmind_429_backoff_initial_ms
+}
 
 
 /**
@@ -261,7 +294,8 @@ async function ip_geodata_from_maxmind( ip ) {
             cache( `maxmind:client`, client )
         }
 
-        const response = await client.insights( ip )
+        const response = await lookup_maxmind_insights( ip, client )
+        if( !response ) return null
         log.insane( `MaxMind Insights API response for ${ ip }: ${ JSON.stringify( response ) }` )
 
         const country_code = response.country?.isoCode || undefined
@@ -308,6 +342,48 @@ async function ip_geodata_from_maxmind( ip ) {
 
         log.error( `MaxMind Insights API error for ${ ip }:`, e )
         return null
+
+    }
+
+}
+
+/**
+ * Resolve MaxMind Insights through the process-wide rate limiter and backoff gate.
+ * @param {string} ip - The IP address to lookup.
+ * @param {Object} client - MaxMind web service client.
+ * @returns {Promise<Object|null>} MaxMind response model or null when lookups are backing off.
+ */
+async function lookup_maxmind_insights( ip, client ) {
+
+    const preflight_backoff_ms = maxmind_backoff_remaining_ms()
+    if( preflight_backoff_ms ) {
+        log.debug( `Skipping MaxMind lookup for ${ ip }; ${ Math.ceil( preflight_backoff_ms / 1000 ) }s of backoff remaining` )
+        return null
+    }
+
+    try {
+
+        const response = await maxmind_lookup_semaphore.runExclusive( async () => {
+
+            const queued_backoff_ms = maxmind_backoff_remaining_ms()
+            if( queued_backoff_ms ) return null
+
+            log.insane( `Querying MaxMind Insights API for ${ ip }` )
+            return client.insights( ip )
+
+        } )
+
+        if( response && !maxmind_backoff_remaining_ms() ) reset_maxmind_backoff()
+        return response
+
+    } catch ( e ) {
+
+        if( e?.status === 429 ) {
+            activate_maxmind_429_backoff( ip )
+            return null
+        }
+
+        throw e
 
     }
 
