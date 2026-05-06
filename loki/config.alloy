@@ -1,5 +1,5 @@
 // TPN Observability — Grafana Alloy agent config
-// Collects Docker logs + node metrics + PM2 neuron logs, ships to tpn-obs.
+// Collects Docker container logs + PM2 neuron logs, ships to tpn-obs.
 //
 // Identity: the agent GETs /identity with its bearer token at startup.
 // The receiver returns the bound node name. That becomes the `host` label.
@@ -17,41 +17,6 @@ remote.http "identity" {
   }
 
   poll_frequency = "5m"
-}
-
-// ─── Node Metrics ───────────────────────────────────────
-
-prometheus.exporter.unix "node" {
-}
-
-prometheus.scrape "node" {
-  targets         = prometheus.exporter.unix.node.targets
-  forward_to      = [prometheus.relabel.add_labels.receiver]
-  scrape_interval = "60s"
-}
-
-prometheus.relabel "add_labels" {
-  forward_to = [prometheus.remote_write.tpn.receiver]
-
-  rule {
-    target_label = "cluster"
-    replacement  = "tpn"
-  }
-
-  rule {
-    target_label = "host"
-    replacement  = remote.http.identity.content
-  }
-}
-
-prometheus.remote_write "tpn" {
-  endpoint {
-    url = env("TELEMETRY_URL") + "/api/v1/push"
-
-    headers = {
-      "Authorization" = "Bearer " + env("TELEMETRY_KEY"),
-    }
-  }
 }
 
 // ─── Docker Container Logs ──────────────────────────────
@@ -86,12 +51,12 @@ loki.source.docker "containers" {
 }
 
 // ─── PM2 Neuron Logs ────────────────────────────────────
-// PM2 logs live on the host filesystem (mounted at /host/root)
+// Only tails tpn-miner process logs, not all PM2 services on the node.
 
 local.file_match "pm2" {
   path_targets = [
     {
-      __path__ = "/host/root/home/pool/.pm2/logs/*.log",
+      __path__ = "/host/pm2-logs/tpn-miner-*.log",
       cluster  = "tpn",
       host     = remote.http.identity.content,
       source   = "pm2",
@@ -108,7 +73,7 @@ loki.source.file "pm2" {
 loki.process "pm2" {
   forward_to = [loki.write.tpn.receiver]
 
-  // Extract process name + stream (out/error) from filename like "neuron-out.log" or "neuron-error-0.log"
+  // Extract process name + stream (out/error) from filename like "tpn-miner-out.log" or "tpn-miner-error-0.log"
   stage.regex {
     expression = "/(?P<process>[^/]+)-(?P<stream>out|error)(-\\d+)?\\.log$"
     source     = "filename"
