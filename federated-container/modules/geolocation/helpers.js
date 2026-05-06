@@ -373,7 +373,7 @@ async function lookup_maxmind_insights( ip, client ) {
 
         } )
 
-        if( response ) reset_maxmind_backoff()
+        if( response && !maxmind_backoff_remaining_ms() ) reset_maxmind_backoff()
         return response
 
     } catch ( e ) {
