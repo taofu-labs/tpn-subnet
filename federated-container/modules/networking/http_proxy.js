@@ -57,6 +57,31 @@ export function http_proxy_config_from_socks5_config( { socks5_config, http_prox
 }
 
 /**
+ * Builds an HTTP proxy URL from an already-normalized HTTP proxy config.
+ * @param {Object} params
+ * @param {{ username: string, password: string, ip_address: string, port: number }} params.http_proxy_config - Normalized HTTP proxy config.
+ * @returns {string|null} HTTP proxy URL, or null when the config cannot be converted.
+ */
+export function http_proxy_url_from_config( { http_proxy_config } ) {
+
+    try {
+
+        const { username, password, ip_address, port } = http_proxy_config || {}
+        if( !username || !password || !ip_address || !port ) return null
+
+        const http_proxy_url = new URL( `http://${ ip_address }:${ port }` )
+        http_proxy_url.username = username
+        http_proxy_url.password = password
+
+        return http_proxy_url.href.replace( /\/$/, `` )
+
+    } catch {
+        return null
+    }
+
+}
+
+/**
  * Builds an HTTP proxy URL from a SOCKS5 lease config and an advertised HTTP proxy port.
  * @param {Object} params
  * @param {string|Object} params.socks5_config - SOCKS5 config as text or JSON.
@@ -70,11 +95,7 @@ export function http_proxy_from_socks5_config( { socks5_config, http_proxy_port 
         const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port } )
         if( !http_proxy_config ) return null
 
-        const http_proxy_url = new URL( `http://${ http_proxy_config.ip_address }:${ http_proxy_config.port }` )
-        http_proxy_url.username = http_proxy_config.username
-        http_proxy_url.password = http_proxy_config.password
-
-        return http_proxy_url.href.replace( /\/$/, `` )
+        return http_proxy_url_from_config( { http_proxy_config } )
 
     } catch {
         return null

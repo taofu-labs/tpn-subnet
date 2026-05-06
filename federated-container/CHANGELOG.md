@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.1] - 2026-05-06
+
+### Fixed
+- harden HTTP lease URL generation and proxy port defaults
+
 ## [1.13.0] - 2026-05-06
 
 ### Added

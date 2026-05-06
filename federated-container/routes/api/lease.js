@@ -47,11 +47,20 @@ const proxy_url_from_config = ( { config, type } ) => {
         proxy_url.username = username
         proxy_url.password = password
 
-        return proxy_url.href
+        return proxy_url.href.replace( /\/$/, `` )
 
     } catch {
         return null
     }
+
+}
+
+const apply_result_type = ( { result_type, current_type } ) => {
+
+    if( !result_type ) return current_type
+    if( lease_types.includes( result_type ) ) return result_type
+
+    throw new Error( `Invalid result type: ${ result_type }. Must be one of ${ lease_types.map( type => `'${ type }'` ).join( ', ' ) }` )
 
 }
 
@@ -236,7 +245,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
                 exit_ip,
                 config: result_config
             } = result
-            if( result_type ) type = result_type
+            type = apply_result_type( { result_type, current_type: type } )
             if( result_connection_type ) resolved_meta.connection_type = result_connection_type
             if( result_country ) resolved_meta.country = result_country
             if( lease_ref != null ) resolved_meta.lease_ref = lease_ref
@@ -247,7 +256,7 @@ router.get( [ '/config/new', '/lease/new' ], async ( req, res ) => {
         } else if( result?.lease_ref !== undefined ) {
             // Worker-mode result: { config, lease_ref, lease_expires_at }
             const { type: result_type, lease_ref, lease_expires_at, config: result_config } = result
-            if( result_type ) type = result_type
+            type = apply_result_type( { result_type, current_type: type } )
             if( lease_ref != null ) resolved_meta.lease_ref = lease_ref
             if( lease_expires_at != null ) resolved_meta.lease_expires_at = lease_expires_at
             config = result_config

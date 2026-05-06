@@ -7,16 +7,23 @@ import { get_valid_socks5_config } from '../networking/dante-container.js'
 import { add_configs_to_workers } from "../scoring/query_workers.js"
 import { extend_wireguard_lease } from "../database/worker_wireguard.js"
 import { extend_socks5_lease , read_socks5_config_by_username } from "../database/worker_socks5.js"
-import { http_proxy_config_from_socks5_config, http_proxy_from_socks5_config } from "../networking/http_proxy.js"
+import { http_proxy_config_from_socks5_config, http_proxy_url_from_config } from "../networking/http_proxy.js"
 
-const { HTTP_PROXY_PORT=3128 } = process.env
+const parsed_http_proxy_port = Number( process.env.HTTP_PROXY_PORT )
+const valid_http_proxy_port = Number.isInteger( parsed_http_proxy_port ) && parsed_http_proxy_port >= 1 && parsed_http_proxy_port <= 65535
+const http_proxy_port = valid_http_proxy_port ? parsed_http_proxy_port : 3128
 
 const http_proxy_response_from_socks5_config = ( { socks5_config, format } ) => {
 
-    const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port: HTTP_PROXY_PORT } )
+    const http_proxy_config = http_proxy_config_from_socks5_config( { socks5_config, http_proxy_port } )
     if( !http_proxy_config ) throw new Error( `Failed to build HTTP proxy config from SOCKS5 lease` )
 
-    if( format === `text` ) return http_proxy_from_socks5_config( { socks5_config, http_proxy_port: HTTP_PROXY_PORT } )
+    if( format === `text` ) {
+        const http_proxy_url = http_proxy_url_from_config( { http_proxy_config } )
+        if( !http_proxy_url ) throw new Error( `Failed to build HTTP proxy URL from SOCKS5 lease` )
+        return http_proxy_url
+    }
+
     return http_proxy_config
 
 }
@@ -82,11 +89,12 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
             // Read the config back from DB
             const socks5_config = await read_socks5_config_by_username( { username } )
-            if( !socks5_config ) throw new Error( `SOCKS5 config not found for ${ username } after extension` )
-            const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
-            config = type === `http`
-                ? http_proxy_response_from_socks5_config( { socks5_config, format } )
-                : format === `text` ? text_config : socks5_config
+            if( !socks5_config ) throw new Error( `${ transport_name } config not found for ${ username } after extension` )
+            if( type === `http` ) config = http_proxy_response_from_socks5_config( { socks5_config, format } )
+            else {
+                const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
+                config = format === `text` ? text_config : socks5_config
+            }
             lease_ref = username
             lease_expires_at = result.expires_at
 
@@ -134,10 +142,11 @@ export async function get_worker_config_as_worker( { type='wireguard', lease_sec
 
         // Return right format
         const json_config = socks5_config
-        const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
-        config = type === `http`
-            ? http_proxy_response_from_socks5_config( { socks5_config, format } )
-            : format == 'text' ? text_config : json_config
+        if( type === `http` ) config = http_proxy_response_from_socks5_config( { socks5_config, format } )
+        else {
+            const text_config = `socks5://${ socks5_config.username }:${ socks5_config.password }@${ socks5_config.ip_address }:${ socks5_config.port }`
+            config = format == 'text' ? text_config : json_config
+        }
 
         lease_ref = socks5_config.username
         lease_expires_at = expires_at
