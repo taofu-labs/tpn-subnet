@@ -330,37 +330,34 @@ class BaseValidatorNeuron(BaseNeuron):
         if previous_metagraph.axons == self.metagraph.axons:
             return
         
-        # Get balances from the database
-        neurons: List[bt.NeuronInfo] = self.metagraph.neurons
-        balances = [
-            {
-                "block": self.block,
-                "miner_uid": neuron.uid,
-                "hotkey": neuron.hotkey,
-                "balance": neuron.total_stake,
-            } for neuron in neurons
-        ]
-
-        # Timeout for balance broadcast (seconds)
-        BROADCAST_TIMEOUT = 30
-
-        try:
-            with requests.post(
-                f"{ self.validator_server_url }/protocol/broadcast/balances/miners",
-                json={ "balances": balances },
-                timeout=BROADCAST_TIMEOUT
-            ) as resp:
-                result = resp.json()
-                if result.get( "success" ):
-                    bt.logging.info( f"Broadcasted balances: { len( balances ) } balances" )
-                else:
-                    bt.logging.error( f"Failed to broadcast balances: { result }" )
-        except requests.exceptions.Timeout:
-            bt.logging.error( f"Balance broadcast timed out after { BROADCAST_TIMEOUT }s" )
-        except requests.exceptions.JSONDecodeError as e:
-            bt.logging.error( f"Balance broadcast returned invalid JSON: { e }" )
-        except Exception as e:
-            bt.logging.error( f"Failed to broadcast balances: { e }" )
+        # Deprecated: balance broadcast to federated container disabled — container not running
+        # neurons: List[bt.NeuronInfo] = self.metagraph.neurons
+        # balances = [
+        #     {
+        #         "block": self.block,
+        #         "miner_uid": neuron.uid,
+        #         "hotkey": neuron.hotkey,
+        #         "balance": neuron.total_stake,
+        #     } for neuron in neurons
+        # ]
+        # BROADCAST_TIMEOUT = 30
+        # try:
+        #     with requests.post(
+        #         f"{ self.validator_server_url }/protocol/broadcast/balances/miners",
+        #         json={ "balances": balances },
+        #         timeout=BROADCAST_TIMEOUT
+        #     ) as resp:
+        #         result = resp.json()
+        #         if result.get( "success" ):
+        #             bt.logging.info( f"Broadcasted balances: { len( balances ) } balances" )
+        #         else:
+        #             bt.logging.error( f"Failed to broadcast balances: { result }" )
+        # except requests.exceptions.Timeout:
+        #     bt.logging.error( f"Balance broadcast timed out after { BROADCAST_TIMEOUT }s" )
+        # except requests.exceptions.JSONDecodeError as e:
+        #     bt.logging.error( f"Balance broadcast returned invalid JSON: { e }" )
+        # except Exception as e:
+        #     bt.logging.error( f"Failed to broadcast balances: { e }" )
 
     def update_scores(self, rewards: np.ndarray, uids: List[int]):
         """Performs exponential moving average on the scores based on the rewards received from the miners."""
@@ -427,16 +424,7 @@ class BaseValidatorNeuron(BaseNeuron):
         bt.logging.info(f"UID/Score pairs where score is >= {min_log_score} (rounded):\n{logged_scores}")
 
     def save_state(self):
-        """Saves the state of the validator to a file."""
-        bt.logging.info("Saving validator state.")
-
-        # Save the state of the validator to file.
-        np.savez(
-            self.config.neuron.full_path + "/state.npz",
-            step=self.step,
-            scores=self.scores,
-            hotkeys=self.hotkeys,
-        )
+        pass  # deprecated: state is not persisted, always starts fresh
 
     def load_state(self):
         """Loads the state of the validator from a file."""
@@ -449,12 +437,6 @@ class BaseValidatorNeuron(BaseNeuron):
         self.hotkeys = state["hotkeys"]
         
     def init_state(self):
-        if os.path.exists(self.config.neuron.full_path + "/state.npz"):
-            state = np.load(self.config.neuron.full_path + "/state.npz")
-            self.step = state["step"]
-            self.scores = state["scores"]
-            self.hotkeys = state["hotkeys"]
-        else:
-            self.step = 0
-            self.scores = np.zeros(1, dtype=np.float32)
-            self.hotkeys = []
+        self.step = 0
+        self.scores = np.zeros(256, dtype=np.float32)
+        self.hotkeys = []

@@ -1,8 +1,7 @@
-bittensor==10.1.0
+bittensor[cli]==10.5.0
 starlette>=0.30.0
 pydantic>=2
 rich>=13
 pytest>=8
 numpy>=1
 setuptools>=68
-bittensor-cli>=9.17.0

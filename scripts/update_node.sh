@@ -363,33 +363,40 @@ if [ "$FORCE_RESTART" = "true" ]; then
     REPO_UP_TO_DATE=0
 fi
 
-# Pull the latest docker images with IPv6 fallback
-docker_pull_with_fallback "${DOCKER_CMD[@]}"
-grey "Latest docker images pulled."
-
-# Restart the node docker container if needed
-if [ "$REPO_UP_TO_DATE" -eq 0 ]; then
-    echo "Repository has changes, recreating containers..."
-
-    # Mark containers as downed so the safety-net trap can recover if we crash
-    containers_downed=true
-
-    # Use --force-recreate + --remove-orphans instead of down+up.
-    # This sequentially recreates containers (one service at a time, with brief
-    # downtime per service) AND cleans up orphaned containers from renamed/removed services.
-    "${DOCKER_CMD[@]}" up -d --force-recreate --remove-orphans
-
-    # Containers are back — disarm the safety net
-    containers_downed=false
-
-    # Prune old images/networks after containers are running (non-critical)
-    echo "Pruning unused images..."
-    docker image prune -f || echo "Failed to prune unused images."
-    echo "Pruning unused networks..."
-    docker network prune -f || echo "Failed to prune unused networks."
+# Deprecated: validators no longer run federated container — bring down any running containers then skip
+if [ "$RUN_MODE" = "validator" ]; then
+    grey "Validator mode: bringing down any running federated containers (deprecated)..."
+    "${DOCKER_CMD[@]}" down --remove-orphans 2>/dev/null || true
+    grey "Validator mode: Docker containers stopped. Skipping further container operations."
 else
-    grey "No changes in the repository, ensuring containers are running..."
-    "${DOCKER_CMD[@]}" up -d
+    # Pull the latest docker images with IPv6 fallback
+    docker_pull_with_fallback "${DOCKER_CMD[@]}"
+    grey "Latest docker images pulled."
+
+    # Restart the node docker container if needed
+    if [ "$REPO_UP_TO_DATE" -eq 0 ]; then
+        echo "Repository has changes, recreating containers..."
+
+        # Mark containers as downed so the safety-net trap can recover if we crash
+        containers_downed=true
+
+        # Use --force-recreate + --remove-orphans instead of down+up.
+        # This sequentially recreates containers (one service at a time, with brief
+        # downtime per service) AND cleans up orphaned containers from renamed/removed services.
+        "${DOCKER_CMD[@]}" up -d --force-recreate --remove-orphans
+
+        # Containers are back — disarm the safety net
+        containers_downed=false
+
+        # Prune old images/networks after containers are running (non-critical)
+        echo "Pruning unused images..."
+        docker image prune -f || echo "Failed to prune unused images."
+        echo "Pruning unused networks..."
+        docker network prune -f || echo "Failed to prune unused networks."
+    else
+        grey "No changes in the repository, ensuring containers are running..."
+        "${DOCKER_CMD[@]}" up -d
+    fi
 fi
 
 # Function to check and install Python 3.10+
@@ -456,6 +463,8 @@ if [ "$RUN_MODE" != "worker" ]; then
         export TMPDIR=$TPN_CACHE
 
         echo "Installing Python dependencies..."
+        # Clean cyscale/scalecodec before installing to avoid namespace collision on upgrades
+        pip uninstall scalecodec cyscale bittensor bittensor-cli -y 2>/dev/null || true
         if ! pip install -r requirements.txt; then
             red "Failed to install Python dependencies"
             exit 1
